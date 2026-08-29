@@ -13,6 +13,7 @@ import { spawn } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, basename, extname } from 'node:path'
 import { homedir } from 'node:os'
+import { randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { Context } from '@deepseek-ai/cordis'
@@ -105,10 +106,20 @@ import {
   type SummaryRequest,
   type VolumesRequest,
   type VolumesResponse,
+  type AuthorAssetsResponse,
+  type AuthorAssetUpsertRequest,
+  type AuthorAssetRemoveRequest,
+  type AdaptAnalyzeRequest,
+  type AdaptAnalyzeResponse,
+  type AdaptProposeRequest,
+  type AdaptProposeResponse,
+  type AdaptExecuteRequest,
+  type AdaptExecuteResponse,
 } from './protocol.ts'
 import { readOutlineFromDocx } from './docx.ts'
 import { clearAssistantHistory, loadAssistantHistory, runAssistantTurn } from './assistant.ts'
 import { activateBook, bookshelfSnapshot, createBook, defaultOutputDirFor, importDir, loadBookshelf, removeBook, renameBook, seedBookshelfFromOutputDir } from './bookshelf.ts'
+import { loadAuthorAssets, upsertAuthorAsset, removeAuthorAsset, importDefaultAuthorAssets } from './author-assets.ts'
 import { BUILTIN_ANTI_AI_RULES, BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, BUILTIN_STYLE_TEMPLATES, emptyProjectAssets } from './assets.ts'
 import {
   chapterFileName,
@@ -153,6 +164,9 @@ import {
   suggestOutlines,
   reverseOutlineFromChapters,
   breakdownBook,
+  analyzeAdaptation,
+  proposeAdaptation,
+  applyAdaptationReplacements,
   generateRoleReferenceImage,
   generateMangaRoleReferenceImage,
   testImageEndpoint,
@@ -2754,6 +2768,174 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     },
   }
 
+  // -------------------------------------------------- author assets (总数据)
+  const authorAssetsRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.authorAssets,
+    handler: (req, res) => {
+      if (!guard(req, res, 'GET')) return
+      const response: AuthorAssetsResponse = { assets: loadAuthorAssets() }
+      writeJson(res, 200, response)
+    },
+  }
+
+  const authorAssetsUpsertRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.authorAssetsUpsert,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<AuthorAssetUpsertRequest>(req)
+      const asset = body?.asset
+      if (asset === undefined || asset.name.trim() === '' || asset.content.trim() === '') {
+        writeJson(res, 400, { error: 'asset 须含 name / content' })
+        return
+      }
+      const response: AuthorAssetsResponse = { assets: upsertAuthorAsset(asset) }
+      writeJson(res, 200, response)
+    },
+  }
+
+  const authorAssetsRemoveRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.authorAssetsRemove,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<AuthorAssetRemoveRequest>(req)
+      const id = body?.id ?? ''
+      if (id === '') { writeJson(res, 400, { error: 'id 必填' }); return }
+      const response: AuthorAssetsResponse = { assets: removeAuthorAsset(id) }
+      writeJson(res, 200, response)
+    },
+  }
+
+  const authorAssetsImportDefaultRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.authorAssetsImportDefault,
+    handler: (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const response: AuthorAssetsResponse = { assets: importDefaultAuthorAssets() }
+      writeJson(res, 200, response)
+    },
+  }
+
+  // --------------------------------------------------- adaptation (改编 P0 分析)
+  const adaptAnalyzeRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.adaptAnalyze,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      if (!getConfig().enableAdaptMode) { writeJson(res, 404, { error: '改编模式未开启' }); return }
+      const body = await readJsonBody<AdaptAnalyzeRequest>(req)
+      const config = getConfig()
+      let text = body?.text?.trim() ?? ''
+      if (text === '' && body?.filePath !== undefined && body.filePath !== '') {
+        try {
+          text = readFileSync(body.filePath, 'utf8')
+        } catch (err) {
+          writeJson(res, 400, { error: '读取文件失败：' + (err as Error).message })
+          return
+        }
+      }
+      if (text.length < 200) {
+        writeJson(res, 400, { error: '全文内容过短（<200 字符），请上传完整小说文本' })
+        return
+      }
+      try {
+        const response: AdaptAnalyzeResponse = await analyzeAdaptation(ctx, config, text)
+        writeJson(res, 200, response)
+      } catch (err) {
+        writeJson(res, 400, { error: (err as Error).message })
+      }
+    },
+  }
+
+  const adaptProposeRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.adaptPropose,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      if (!getConfig().enableAdaptMode) { writeJson(res, 404, { error: '改编模式未开启' }); return }
+      const body = await readJsonBody<AdaptProposeRequest>(req)
+      const config = getConfig()
+      const text = (body?.text ?? '').trim()
+      const selections = body?.selections ?? []
+      if (text.length < 200 || selections.length === 0) {
+        writeJson(res, 400, { error: '请提供全文与至少一条要改的维度' })
+        return
+      }
+      try {
+        const response: AdaptProposeResponse = await proposeAdaptation(ctx, config, text, selections, body?.dimensions)
+        writeJson(res, 200, response)
+      } catch (err) {
+        writeJson(res, 400, { error: (err as Error).message })
+      }
+    },
+  }
+
+  const adaptExecuteRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.adaptExecute,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      if (!getConfig().enableAdaptMode) { writeJson(res, 404, { error: '改编模式未开启' }); return }
+      const body = await readJsonBody<AdaptExecuteRequest>(req)
+      const text = body?.text ?? ''
+      const mappings = body?.mappings ?? []
+      if (text.length < 200 || mappings.length === 0) {
+        writeJson(res, 400, { error: '请提供全文与映射表' })
+        return
+      }
+      if (body?.mode === 'rewrite') {
+        writeJson(res, 400, { error: 'rewrite 模式尚未实现，请使用 replace（术语替换）' })
+        return
+      }
+      const { adaptedText, hits } = applyAdaptationReplacements(text, mappings)
+      const response: AdaptExecuteResponse = { adaptedText, mappings: mappings.length, hits }
+      writeJson(res, 200, response)
+    },
+  }
+
+  // ------------------------------------------ theme custom background (upload + serve)
+  const THEME_BG_DIR = join(homedir(), '.dsh', 'dsh-novel-forge-assets')
+  const MIME_BY_EXT: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' }
+
+  const themeBackgroundUploadRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.themeBackgroundUpload,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<{ dataUrl?: string }>(req)
+      const dataUrl = body?.dataUrl ?? ''
+      const m = /^data:image\/(png|jpeg|jpg|webp|gif);base64,(.+)$/i.exec(dataUrl)
+      if (m === null) { writeJson(res, 400, { error: '仅支持 PNG/JPG/WebP/GIF 图片' }); return }
+      const ext = m[1]!.toLowerCase() === 'jpg' ? 'jpeg' : m[1]!.toLowerCase()
+      const buf = Buffer.from(m[2]!, 'base64')
+      if (buf.length === 0) { writeJson(res, 400, { error: '图片数据为空' }); return }
+      mkdirSync(THEME_BG_DIR, { recursive: true })
+      const name = 'theme-bg-' + Date.now().toString(36) + '-' + randomBytes(3).toString('hex') + '.' + ext
+      writeFileSync(join(THEME_BG_DIR, name), buf)
+      writeJson(res, 200, { url: NOVEL_API.themeBackgroundGet + '/' + name })
+    },
+  }
+
+  const themeBackgroundGetRoute: WebRoute = {
+    kind: 'prefix',
+    path: NOVEL_API.themeBackgroundGet,
+    handler: (req, res) => {
+      if (!guard(req, res, 'GET')) return
+      let pathName = ''
+      try { pathName = new URL(req.url ?? '', 'http://localhost').pathname } catch { /* ignore */ }
+      const name = basename(pathName)
+      if (!name.startsWith('theme-bg-')) { writeJson(res, 404, { error: 'not found' }); return }
+      const file = join(THEME_BG_DIR, name)
+      if (!existsSync(file)) { writeJson(res, 404, { error: 'not found' }); return }
+      const ext = extname(file).slice(1)
+      const type = MIME_BY_EXT[ext] ?? 'application/octet-stream'
+      res.writeHead(200, { 'content-type': type, 'cache-control': 'public, max-age=31536000' })
+      res.end(readFileSync(file))
+    },
+  }
+
   return [
     statusRoute,
     loadOutlineRoute,
@@ -2816,6 +2998,15 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     runStartRoute,
     runControlRoute,
     runStatusRoute,
+    authorAssetsRoute,
+    authorAssetsUpsertRoute,
+    authorAssetsRemoveRoute,
+    authorAssetsImportDefaultRoute,
+    adaptAnalyzeRoute,
+    adaptProposeRoute,
+    adaptExecuteRoute,
+    themeBackgroundUploadRoute,
+    themeBackgroundGetRoute,
   ]
 }
 

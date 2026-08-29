@@ -104,6 +104,24 @@ export declare const NOVEL_API: {
     readonly runStatus: "/api/dsh-novel-forge/run/status";
     readonly config: "/api/dsh-novel-forge/config";
     readonly openFolder: "/api/dsh-novel-forge/open-folder";
+    /** 作者资产库/总数据：读取个人跨书资产（笔法/红线/套路/角色模板/世界观模板）。 */
+    readonly authorAssets: "/api/dsh-novel-forge/author-assets";
+    /** 作者资产库：新增/更新一条资产（upsert by id）。 */
+    readonly authorAssetsUpsert: "/api/dsh-novel-forge/author-assets/upsert";
+    /** 作者资产库：删除一条资产。 */
+    readonly authorAssetsRemove: "/api/dsh-novel-forge/author-assets/remove";
+    /** 作者资产库：导入默认（书架书的写作资产/角色 + 内置全局库）批量沉淀。 */
+    readonly authorAssetsImportDefault: "/api/dsh-novel-forge/author-assets/import-default";
+    /** 改编模式：上传全文 → 分析 → 原文设定卡片/可改范围矩阵。 */
+    readonly adaptAnalyze: "/api/dsh-novel-forge/adapt/analyze";
+    /** 改编模式：确认要改的维度 → 生成映射表/改编规则/联动影响清单。 */
+    readonly adaptPropose: "/api/dsh-novel-forge/adapt/propose";
+    /** 改编模式：执行术语替换（全局替换 + 命中统计 + 改编文本预览）。 */
+    readonly adaptExecute: "/api/dsh-novel-forge/adapt/execute";
+    /** 主题自定义背景：上传图片（POST，存盘并返回服务端 URL）。 */
+    readonly themeBackgroundUpload: "/api/dsh-novel-forge/theme/background";
+    /** 主题自定义背景：读取已上传文件（GET prefix，/theme/background/<name>）。 */
+    readonly themeBackgroundGet: "/api/dsh-novel-forge/theme/background";
 };
 /** 书架：一本书的条目。 */
 export interface BookEntry {
@@ -1175,6 +1193,14 @@ export interface NovelConfig {
     imageApiModel?: string;
     /** 是否启用生图（= 存在启用条目）。 */
     imageApiEnabled?: boolean;
+    /** 自定义背景图（URL 或 dataURL 或服务端路径引用；空 = 使用主题默认背景）。 */
+    themeBackground?: string;
+    /** 自定义背景遮罩/模糊强度 0-80（0 = 不遮罩）。 */
+    themeBackgroundBlur?: number;
+    /** 玻璃透明度 0-100（100=当前原样，越小越透，新拟态/黏土可见背景图）。 */
+    themeOpacity?: number;
+    /** 是否启用改编模式（默认关闭；发布后开启）。 */
+    enableAdaptMode?: boolean;
 }
 /** GET /status response. */
 export interface StatusResponse {
@@ -1412,6 +1438,13 @@ export interface ConfigPatch {
     imageApiKey?: string;
     imageApiModel?: string;
     imageApiEnabled?: boolean;
+    /** 自定义背景图（URL / dataURL / 服务端路径引用）。 */
+    themeBackground?: string;
+    /** 自定义背景遮罩/模糊强度 0-80。 */
+    themeBackgroundBlur?: number;
+    /** 玻璃透明度 0-100（100=当前原样）。 */
+    themeOpacity?: number;
+    enableAdaptMode?: boolean;
     /** 生图模型库（完整替换保存）。 */
     imageModels?: ImageModelConfig[];
 }
@@ -1572,4 +1605,163 @@ export interface StyleEngineRequest {
     sampleText: string;
     /** 资产名（可选，默认「风格资产 N」）。 */
     name?: string;
+}
+/** 作者资产库中一条可跨书复用的资产（笔法/红线/套路/角色模板/世界观模板等）。 */
+export interface AuthorStyleAsset {
+    /** 稳定 id（本地唯一）。 */
+    id: string;
+    /** 资产名（如「短句快节奏爽文风」「林越式痞坏角色」）。 */
+    name: string;
+    /** 资产类型。 */
+    kind: 'style' | 'antiAi' | 'progression' | 'genre' | 'roleTemplate' | 'worldTemplate' | 'custom';
+    /** 一句话摘要。 */
+    summary: string;
+    /** 资产正文内容（按 kind 约定解读的文本/JSON 描述）。 */
+    content: string;
+    /** 结构化载荷（角色模板/世界观模板等可结构化字段；缺省为 null）。 */
+    structured?: Record<string, unknown>;
+    /** 来源书名（哪本书提炼/收藏而来）。 */
+    sourceBooks: string[];
+    /** 标签。 */
+    tags: string[];
+    /** 来源样本文本（可选）。 */
+    sourceText?: string;
+    /** 创建时间。 */
+    createdAt: string;
+    /** 更新时间。 */
+    updatedAt: string;
+}
+/** 作者资产库（跨书总数据）：按作者维度聚合的可复用资产。 */
+export interface AuthorAssetLibrary {
+    /** 货架版本，便于未来迁移。 */
+    version: 1;
+    items: AuthorStyleAsset[];
+}
+/** GET /author-assets 响应。 */
+export interface AuthorAssetsResponse {
+    assets: AuthorAssetLibrary;
+}
+/** POST /author-assets/upsert 请求：新增或按 id 更新一条资产。 */
+export interface AuthorAssetUpsertRequest {
+    asset: AuthorStyleAsset;
+}
+/** POST /author-assets/remove 请求：删除一条资产。 */
+export interface AuthorAssetRemoveRequest {
+    id: string;
+}
+/** 改编可改范围的单个维度（矩阵的一行）。 */
+export interface AdaptationDimension {
+    /** 维度 key（如 realm/name/goldenFinger…）。 */
+    key: string;
+    /** 维度名（如「大世界」「修为体系」「主角名」「金手指」）。 */
+    title: string;
+    /** 可改度：保留 / 可改影响大 / 可改影响小 / 可自由改 / 仅视觉包装。 */
+    mutability: 'locked' | 'big' | 'small' | 'free' | 'visual';
+    /** 原文当前值（从正文提炼，附证据）。 */
+    current: string;
+    /** 该值在正文中的出现证据（章节/频次，可空）。 */
+    evidence?: string;
+    /** AI 建议的候选新值（可空）。 */
+    candidates?: string[];
+    /** 联动影响说明（改了会影响哪些章节/角色/伏笔/术语）。 */
+    impact: string;
+    /** 风险评级。 */
+    risk: 'high' | 'medium' | 'low';
+}
+/** POST /adapt/analyze 请求：上传全文做改编分析。 */
+export interface AdaptAnalyzeRequest {
+    /** 全文文本（优先）。 */
+    text: string;
+    /** 或服务器端全文文件路径。 */
+    filePath?: string;
+}
+/** POST /adapt/analyze 响应。 */
+export interface AdaptAnalyzeResponse {
+    /** 识别书名（文件名推断或正文首行）。 */
+    bookName: string;
+    /** 拆出的章节数。 */
+    chapters: number;
+    /** 反推的初始大纲（可空）。 */
+    outline?: string;
+    /** 可改范围矩阵。 */
+    dimensions: AdaptationDimension[];
+    /** 分析消耗说明。 */
+    note?: string;
+}
+/** 一条改编映射（原值 → 新值）。 */
+export interface AdaptationMapping {
+    /** 原值（如「林尘」「练气」「青云宗」）。 */
+    source: string;
+    /** 新值（如「楚风」「凝元」「天渊阁」）。 */
+    target: string;
+    /** 适用范围。 */
+    scope: 'name' | 'realm' | 'faction' | 'term' | 'other';
+    /** 说明（可空）。 */
+    note?: string;
+}
+/** 改编规则：哪些必须保留、哪些允许改、一致性约束。 */
+export interface AdaptationRules {
+    /** 必须保留的要素（骨架/人物动机/伏笔逻辑/爽点结构…）。 */
+    preserve: string[];
+    /** 允许改变的要素。 */
+    change: string[];
+    /** 改编红线/一致性要求。 */
+    constraints: string[];
+}
+/** 一组改编方案（映射表 + 规则 + 联动影响清单）。 */
+export interface AdaptationProposal {
+    /** 映射表（原→新）。 */
+    mappings: AdaptationMapping[];
+    /** 改编规则。 */
+    rules: AdaptationRules;
+    /** 联动影响清单。 */
+    impacts: Array<{
+        item: string;
+        detail: string;
+        risk: 'high' | 'medium' | 'low';
+        chapters?: number[];
+    }>;
+}
+/** POST /adapt/propose 请求：由用户勾选的维度 + 新值生成改编方案。 */
+export interface AdaptProposeRequest {
+    /** 原文全文（复用，便于 LLM 核对联动影响）。 */
+    text: string;
+    /** 用户确认要改的维度（含原值与新值）。 */
+    selections: Array<{
+        key: string;
+        title: string;
+        current: string;
+        target: string;
+        mutability: string;
+    }>;
+    /** 若已分析过，可携带完整矩阵作为上下文。 */
+    dimensions?: AdaptationDimension[];
+}
+/** POST /adapt/propose 响应。 */
+export interface AdaptProposeResponse {
+    proposal: AdaptationProposal;
+}
+/** POST /adapt/execute 请求：执行改编（首版为术语替换）。 */
+export interface AdaptExecuteRequest {
+    /** 原文全文。 */
+    text: string;
+    /** 改编映射表。 */
+    mappings: AdaptationMapping[];
+    /** 改编规则（可选，后续逐章改写使用；替换模式暂不依赖）。 */
+    rules?: AdaptationRules;
+    /** 执行模式：首版仅 replace（术语替换）。 */
+    mode?: 'replace' | 'rewrite';
+}
+/** POST /adapt/execute 响应。 */
+export interface AdaptExecuteResponse {
+    /** 改编后的全文。 */
+    adaptedText: string;
+    /** 执行的映射数。 */
+    mappings: number;
+    /** 命中统计：每条映射的替换次数。 */
+    hits: Array<{
+        source: string;
+        target: string;
+        count: number;
+    }>;
 }

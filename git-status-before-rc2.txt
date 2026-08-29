@@ -1,0 +1,23 @@
+ D .agents/notes/archived/architecture/2026-07-19-gui-layering-and-rpc-protocol.i18n.yaml
+ D .agents/notes/archived/architecture/2026-07-19-gui-layering-and-rpc-protocol.md
+ D .agents/notes/archived/architecture/2026-07-19-gui-layering-and-rpc-protocol.zh.md
+ D .agents/notes/archived/architecture/2026-07-24-dsh-commander-argument-adapter.zh.md
+ D .agents/notes/archived/architecture/2026-07-27-tui-chat-channel-module-split.i18n.yaml
+ D .agents/notes/archived/architecture/2026-07-27-tui-chat-channel-module-split.md
+ D .agents/notes/archived/architecture/2026-07-27-tui-chat-channel-module-split.zh.md
+ D .agents/notes/archived/architecture/2026-07-28-consolidated-tui-presentation.i18n.yaml
+ D .agents/notes/archived/architecture/2026-07-28-consolidated-tui-presentation.md
+ D .agents/notes/archived/architecture/2026-07-28-consolidated-tui-presentation.zh.md
+ D .agents/notes/archived/architecture/2026-07-28-dsh-native-typescript-source-launch.i18n.yaml
+ D .agents/notes/archived/architecture/2026-07-28-dsh-native-typescript-source-launch.md
+ D .agents/notes/archived/architecture/2026-07-28-dsh-native-typescript-source-launch.zh.md
+ D .agents/notes/archived/architecture/2026-08-04-websocket-downlink-carrier.i18n.yaml
+ D .agents/notes/archived/architecture/2026-08-04-websocket-downlink-carrier.md
+ D .agents/notes/archived/architecture/2026-08-04-websocket-downlink-carrier.zh.md
+ D .agents/notes/archived/architecture/2026-08-11-plugin-settings-tabs.i18n.yaml
+ D .agents/notes/archived/architecture/2026-08-11-plugin-settings-tabs.md
+ D .agents/notes/archived/architecture/2026-08-11-plugin-settings-tabs.zh.md
+ D .agents/notes/archived/bug-fix/2026-07-31-composer-text-layers-share-one-scrollport.i18n.yaml
+?? build.log
+?? install.log
+?? nul

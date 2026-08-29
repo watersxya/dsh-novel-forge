@@ -184,4 +184,22 @@ export declare class NovelApi {
     assistantClear(): Promise<{
         ok: boolean;
     }>;
+    /** 作者资产库/总数据：读取跨书可复用资产。 */
+    authorAssets(): Promise<import('../protocol.ts').AuthorAssetsResponse>;
+    /** 作者资产库：新增/更新一条资产（upsert by id）。 */
+    authorAssetsUpsert(asset: import('../protocol.ts').AuthorStyleAsset): Promise<import('../protocol.ts').AuthorAssetsResponse>;
+    /** 作者资产库：删除一条资产。 */
+    authorAssetsRemove(id: string): Promise<import('../protocol.ts').AuthorAssetsResponse>;
+    /** 作者资产库：导入默认（书架书的写作资产/角色 + 内置全局库）批量沉淀。 */
+    authorAssetsImportDefault(): Promise<import('../protocol.ts').AuthorAssetsResponse>;
+    /** 改编模式 P0：上传全文 → 原文设定卡片 / 可改范围矩阵。 */
+    adaptAnalyze(text: string, filePath?: string): Promise<import('../protocol.ts').AdaptAnalyzeResponse>;
+    /** 改编模式 P1：确认要改的维度 → 生成映射表/改编规则/联动影响清单。 */
+    adaptPropose(req: import('../protocol.ts').AdaptProposeRequest): Promise<import('../protocol.ts').AdaptProposeResponse>;
+    /** 改编模式 P2：执行术语替换（全局替换 + 命中统计 + 改编文本预览）。 */
+    adaptExecute(req: import('../protocol.ts').AdaptExecuteRequest): Promise<import('../protocol.ts').AdaptExecuteResponse>;
+    /** 主题自定义背景：上传图片，服务端存盘并返回可访问 URL。 */
+    themeBackgroundUpload(dataUrl: string): Promise<{
+        url: string;
+    }>;
 }

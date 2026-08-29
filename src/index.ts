@@ -70,6 +70,14 @@ export interface Config {
   imageApiModel?: string
   /** 是否启用豆包生图（旧字段，兼容迁移用）。 */
   imageApiEnabled?: boolean
+  /** 自定义背景图（URL / dataURL / 服务端路径引用）。 */
+  themeBackground?: string
+  /** 自定义背景遮罩/模糊强度 0-80。 */
+  themeBackgroundBlur?: number
+  /** 玻璃透明度 0-100（100=当前原样）。 */
+  themeOpacity?: number
+  /** 是否启用改编模式（默认关闭）。 */
+  enableAdaptMode?: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -98,6 +106,10 @@ export const Config: z<Config> = z.object({
   imageApiKey: z.string().default(''),
   imageApiModel: z.string().default(''),
   imageApiEnabled: z.boolean().default(false),
+  themeBackground: z.string().default(''),
+  themeBackgroundBlur: z.number().default(0),
+  themeOpacity: z.number().default(100),
+  enableAdaptMode: z.boolean().default(false),
 })
 
 /** Schema defaults, re-read for hand-built test contexts. */
@@ -157,6 +169,10 @@ export function resolveConfig(value: Partial<Config> | undefined): NovelConfig {
       return active?.model ?? value?.imageApiModel
     })(),
     imageApiEnabled: value?.imageApiEnabled ?? false,
+    themeBackground: value?.themeBackground ?? '',
+    themeBackgroundBlur: value?.themeBackgroundBlur ?? 0,
+    themeOpacity: value?.themeOpacity ?? 100,
+    enableAdaptMode: value?.enableAdaptMode ?? false,
   }
 }
 
@@ -199,6 +215,10 @@ export function apply(ctx: Context, config?: Config): void {
     if (patch.imageApiKey !== undefined) next.imageApiKey = patch.imageApiKey
     if (patch.imageApiModel !== undefined) next.imageApiModel = patch.imageApiModel
     if (patch.imageApiEnabled !== undefined) next.imageApiEnabled = patch.imageApiEnabled
+    if (patch.themeBackground !== undefined) next.themeBackground = patch.themeBackground
+    if (patch.themeBackgroundBlur !== undefined) next.themeBackgroundBlur = patch.themeBackgroundBlur
+    if (patch.themeOpacity !== undefined) next.themeOpacity = patch.themeOpacity
+    if (patch.enableAdaptMode !== undefined) next.enableAdaptMode = patch.enableAdaptMode
     if (patch.imageModels !== undefined) next.imageModels = patch.imageModels
     // Persist through the settings seam when available; otherwise keep in memory.
     // (ctx.get is the non-strict service access — no inject requirement, same

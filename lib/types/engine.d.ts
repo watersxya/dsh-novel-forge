@@ -12,7 +12,7 @@
  */
 export declare const COMPLIANCE_REDLINES: ReadonlyArray<string>;
 import type { Context } from '@deepseek-ai/cordis';
-import type { AuditIssue, AuthorReview, BreakdownResponse, ChapterPlan, Foreshadow, NovelConfig, OutlineCandidate, Plotline, PlotlineHealthReport, PlotlinePlan, ProjectState, ReviewReport, RoleRecord, RoleStatusCard, SceneCard, StoryBible, StoryboardSkeleton, StoryboardTable, StoryboardPrompt, MangaRoleCandidate, Volume, WorldState } from './protocol.ts';
+import type { AdaptationDimension, AdaptAnalyzeResponse, AdaptationMapping, AdaptProposeResponse, AuditIssue, AuthorReview, BreakdownResponse, ChapterPlan, Foreshadow, NovelConfig, OutlineCandidate, Plotline, PlotlineHealthReport, PlotlinePlan, ProjectState, ReviewReport, RoleRecord, RoleStatusCard, SceneCard, StoryBible, StoryboardSkeleton, StoryboardTable, StoryboardPrompt, MangaRoleCandidate, Volume, WorldState } from './protocol.ts';
 /** Project state file name inside the output dir. */
 export declare const PROJECT_FILE = "novel-project.json";
 /** Chapter output file name, e.g. 第001章_开篇.md */
@@ -217,6 +217,29 @@ export declare function generateStoryboardSkeleton(ctx: Context, config: NovelCo
  * 两阶段：分批提取章节事件摘要 → 汇总生成大纲。不修改章节/设定，只返回大纲文本。
  */
 export declare function reverseOutlineFromChapters(ctx: Context, config: NovelConfig, project: ProjectState, outputDir: string, onProgress?: (done: number, total: number, phase: string) => void): Promise<string>;
+/**
+ * 改编模式 P0：全文分析 → 原文设定卡片 / 可改范围矩阵。
+ * 拆章统计 + 取样正文，让 LLM 一次输出结构化 JSON：
+ * { bookName, outline, dimensions: [{key,title,mutability,current,evidence,candidates,impact,risk}] }。
+ */
+export declare function analyzeAdaptation(ctx: Context, config: NovelConfig, text: string): Promise<AdaptAnalyzeResponse>;
+/** 改编方案：由用户勾选的维度与新值，生成 LLM 映射表/规则/影响清单。 */
+export declare function proposeAdaptation(ctx: Context, config: NovelConfig, text: string, selections: Array<{
+    key: string;
+    title: string;
+    current: string;
+    target: string;
+    mutability: string;
+}>, dimensions?: AdaptationDimension[]): Promise<AdaptProposeResponse>;
+/** 剧本术语替换执行：按映射表做精确替换并统计命中。 */
+export declare function applyAdaptationReplacements(text: string, mappings: AdaptationMapping[]): {
+    adaptedText: string;
+    hits: Array<{
+        source: string;
+        target: string;
+        count: number;
+    }>;
+};
 /**
  * 摘要 + 事实抽取合并为一次 LLM 调用（省一次调用与一次正文输入，
  * 批量生成时整体开销约省 25%）。

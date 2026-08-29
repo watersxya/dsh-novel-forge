@@ -13,6 +13,7 @@ import { BarChart3, Book, BookMarked, BookOpen, Brain, Clapperboard, Factory, Fi
 import { AssistantTab } from './AssistantTab.tsx'
 import { AssetsTab } from './AssetsTab.tsx'
 import { ShelfView } from './ShelfView.tsx'
+import { AuthorHome } from './AuthorHome.tsx'
 import { ReaderView } from './ReaderView.tsx'
 import { RunPanel } from './RunPanel.tsx'
 import { CreateBookView } from './CreateBookView.tsx'
@@ -73,36 +74,36 @@ const NAV_GROUPS: ReadonlyArray<{ id: string; label: string; items: ReadonlyArra
     id: 'create',
     label: '创作',
     items: [
-      { id: 'workflow', label: tt('tab.workflow'), icon: <Wrench size={16} /> },
-      { id: 'overview', label: tt('tab.overview'), icon: <FileText size={16} /> },
-      { id: 'blurb', label: '简介 / 封面', icon: <BookOpen size={16} /> },
-      { id: 'plan', label: tt('tab.plan'), icon: <BookMarked size={16} /> },
-      { id: 'plotlines', label: '长线管理', icon: <ScrollText size={16} /> },
-      { id: 'book', label: '本书设定', icon: <Library size={16} /> },
+      { id: 'workflow', label: tt('tab.workflow'), icon: <Wrench size={18} /> },
+      { id: 'overview', label: tt('tab.overview'), icon: <FileText size={18} /> },
+      { id: 'blurb', label: '简介 / 封面', icon: <BookOpen size={18} /> },
+      { id: 'plan', label: tt('tab.plan'), icon: <BookMarked size={18} /> },
+      { id: 'plotlines', label: '长线管理', icon: <ScrollText size={18} /> },
+      { id: 'book', label: '本书设定', icon: <Library size={18} /> },
     ],
   },
   {
     id: 'tools',
     label: '工具',
     items: [
-      { id: 'assistant', label: tt('tab.assistant'), icon: <MessageSquare size={16} /> },
-      { id: 'progress', label: 'AI 进度', icon: <BarChart3 size={16} /> },
-      { id: 'breakdown', label: '拆书分析', icon: <Search size={16} /> },
-      { id: 'manhua', label: '漫剧工作台', icon: <Clapperboard size={16} /> },
-      { id: 'run', label: '生产单', icon: <Factory size={16} /> },
+      { id: 'assistant', label: tt('tab.assistant'), icon: <MessageSquare size={18} /> },
+      { id: 'progress', label: 'AI 进度', icon: <BarChart3 size={18} /> },
+      { id: 'breakdown', label: '拆书分析', icon: <Search size={18} /> },
+      { id: 'manhua', label: '漫剧工作台', icon: <Clapperboard size={18} /> },
+      { id: 'run', label: '生产单', icon: <Factory size={18} /> },
     ],
   },
   {
     id: 'assets',
     label: '资产',
     items: [
-      { id: 'assets', label: '创作资产', icon: <Wrench size={16} /> },
+      { id: 'assets', label: '创作资产', icon: <Wrench size={18} /> },
     ],
   },
 ]
 
 /** Settings tab — pinned to the bottom of the nav rail. */
-const SETTINGS_TAB: { id: NovelTab; label: string; icon: ReactElement } = { id: 'settings', label: tt('tab.settings'), icon: <Settings size={16} /> }
+const SETTINGS_TAB: { id: NovelTab; label: string; icon: ReactElement } = { id: 'settings', label: tt('tab.settings'), icon: <Settings size={18} /> }
 
 /** Common DeepSeek model presets shown in settings; users can also type any model id. */
 const MODEL_PRESETS = ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'] as const
@@ -316,6 +317,12 @@ function DiffList({ original, draft, fontSize }: { original: string; draft: stri
 export function NovelPanel({ controller, api }: NovelPanelProps) {
   const [activeTab, setActiveTab] = useState<NovelTab>('workflow')
   const [config, setConfig] = useState<NovelConfig | null>(null)
+  /** 自定义背景（URL / dataURL），覆盖主题默认背景。 */
+  const [themeBg, setThemeBg] = useState<string | undefined>(undefined)
+  /** 自定义背景遮罩/模糊强度 0-80。 */
+  const [themeBgBlur, setThemeBgBlur] = useState(0)
+  /** 玻璃透明度 0-100（100=主题原样）。 */
+  const [themeOpacity, setThemeOpacity] = useState(100)
   const [project, setProject] = useState<ProjectState | null>(null)
   const [generatedFiles, setGeneratedFiles] = useState<string[]>([])
   const [outlineText, setOutlineText] = useState('')
@@ -747,6 +754,17 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       setBusy(false)
     }
   }, [api, refresh, refreshShelf])
+
+  /** 首页「设置」与书内设置同入口：激活当前/首选书并跳到设置页。 */
+  const openSettingsFromHome = async (): Promise<void> => {
+    const targetId = shelf?.activeBookId ?? shelf?.books[0]?.id ?? null
+    if (targetId === null || targetId === undefined) {
+      setError('请先在书架开一本书；设置页以书籍工作台为入口')
+      return
+    }
+    await activateBook(targetId, 'workspace')
+    setActiveTab('settings')
+  }
 
   /** Handle a docx file (pick or drag): parse locally, save outline. */
   const handleDocxFile = useCallback(async (file: File) => {
@@ -2364,12 +2382,20 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     n += assets?.antiAiRules?.length ?? 0
     return n
   })()
+  /** 自定义背景：优先用户显式选择（themeBg），否则用 config 里的持久化值。 */
+  const effectiveBg = themeBg !== undefined && themeBg !== '' ? themeBg : (config?.themeBackground ?? '')
+  const effectiveBgBlur = themeBgBlur > 0 ? themeBgBlur : (config?.themeBackgroundBlur ?? 0)
+  const effectiveOpacity = themeOpacity > 0 ? themeOpacity : (config?.themeOpacity ?? 100)
+  const panelBgStyle: Record<string, string> = {}
+  if (effectiveBg !== '') panelBgStyle['--nf-glass-bg-image' as string] = 'url(' + effectiveBg + ')'
+  if (effectiveBgBlur > 0) panelBgStyle['--nf-glass-bg-dim' as string] = String(effectiveBgBlur)
+  panelBgStyle['--nf-glass-opacity' as string] = String(effectiveOpacity) + '%'
 
   return (
-    <div className={css.panel} data-nf-theme={panelTheme} data-nf-mode={themeMode === 'system' ? undefined : themeMode} data-nf-density={themeDensity}>
+    <div className={css.panel} data-nf-theme={panelTheme} data-nf-mode={themeMode === 'system' ? undefined : themeMode} data-nf-density={themeDensity} style={panelBgStyle}>
       {viewMode === 'shelf' ? (
-        /* 书架首页：默认视图，选择一本书进入工作台或阅读页 */
-        <ShelfView
+        /* 书架首页：作者级左侧导航 + 书架/改编/资产库/设置 */
+        <AuthorHome
           api={api}
           shelf={shelf ?? { books: [], activeBookId: null }}
           onOpenBook={async (id) => {
@@ -2380,6 +2406,11 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           }}
           onAddBook={() => { setViewMode('create') }}
           onImportBook={() => { setShowImport(true) }}
+          onOpenSettings={() => { void openSettingsFromHome() }}
+          onTheme={(t, m, d) => { changePanelTheme(t); changeThemeMode(m); changeThemeDensity(d) }}
+          onBackground={(bg, blur) => { setThemeBg(bg); setThemeBgBlur(blur) }}
+          onOpacity={(n) => { setThemeOpacity(n) }}
+          adaptEnabled={config?.enableAdaptMode === true}
         />
       ) : viewMode === 'create' ? (
         /* 开书向导：独立页面 */

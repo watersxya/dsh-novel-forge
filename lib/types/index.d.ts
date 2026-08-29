@@ -57,6 +57,14 @@ export interface Config {
     imageApiModel?: string;
     /** 是否启用豆包生图（旧字段，兼容迁移用）。 */
     imageApiEnabled?: boolean;
+    /** 自定义背景图（URL / dataURL / 服务端路径引用）。 */
+    themeBackground?: string;
+    /** 自定义背景遮罩/模糊强度 0-80。 */
+    themeBackgroundBlur?: number;
+    /** 玻璃透明度 0-100（100=当前原样）。 */
+    themeOpacity?: number;
+    /** 是否启用改编模式（默认关闭）。 */
+    enableAdaptMode?: boolean;
 }
 export declare const Config: z<Config>;
 /** Model-facing announcement: plugin presence, capabilities, and limits. */

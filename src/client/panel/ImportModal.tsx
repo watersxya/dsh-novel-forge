@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import type { BookImportTextPreviewResponse } from '../../protocol.ts'
+import { readFileTextSmart } from '../text.ts'
 import css from './panel.module.css'
 
 type ImportMode = 'dir' | 'text'
@@ -57,7 +58,7 @@ export function ImportModal({
     setFileName(file.name)
     setPreviewing(true)
     try {
-      const text = await file.text()
+      const text = await readFileTextSmart(file)
       setFileText(text)
       const p = await api.bookImportTextPreview(text, file.name)
       setPreview(p)

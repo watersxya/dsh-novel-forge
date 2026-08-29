@@ -46,6 +46,13 @@ import {
   emotionZh,
 } from './story-beat-language.ts'
 import type {
+  AdaptationDimension,
+  AdaptAnalyzeResponse,
+  AdaptationMapping,
+  AdaptationProposal,
+  AdaptationRules,
+  AdaptProposeResponse,
+  AdaptExecuteResponse,
   AuditIssue,
   AuthorReview,
   BreakdownResponse,
@@ -3334,6 +3341,220 @@ export async function reverseOutlineFromChapters(
   const outline = await complete(ctx, config, { system: system2, user: notes.join('\n\n'), temperature: 0.4, maxTokens: Math.max(config.maxTokens, 6000), reasoning: config.analysisReasoning ?? 'low' })
   onProgress?.(total, total, '完成')
   return outline.trim()
+}
+
+/**
+ * 改编模式 P0：全文分析 → 原文设定卡片 / 可改范围矩阵。
+ * 拆章统计 + 取样正文，让 LLM 一次输出结构化 JSON：
+ * { bookName, outline, dimensions: [{key,title,mutability,current,evidence,candidates,impact,risk}] }。
+ */
+export async function analyzeAdaptation(
+  ctx: Context,
+  config: NovelConfig,
+  text: string,
+): Promise<AdaptAnalyzeResponse> {
+  const chapters = splitBookText(text).filter(c => c.body.length >= 50)
+  if (chapters.length === 0) throw new Error('未能从全文拆出章节（内容过短或无章节结构）')
+
+  // 取样：取首/1/3/2/3/尾各章正文节选，控制 token 预算。
+  const sampleBodies: string[] = []
+  const n = chapters.length
+  const pick = (i: number): void => {
+    const c = chapters[i]
+    if (c !== undefined) sampleBodies.push('第' + c.no + '章《' + (c.title || '无题') + '》\n' + c.body.slice(0, 1200))
+  }
+  pick(0)
+  if (n > 3) { pick(Math.floor(n / 3)); pick(Math.floor((2 * n) / 3)) }
+  if (n > 1) pick(n - 1)
+
+  const system = '你是改编策划分析助手。'
+  const user = [
+    '你是一位资深网文编辑兼改编策划。下面给你一部已完结/连载小说的若干章正文节选。请通读并输出该书的「原文设定卡片」与「可改范围矩阵」。',
+    '输出合法 JSON 对象：',
+    '{"bookName": "书名", "outline": "一句话主线梗概（100字内）", "dimensions": [{"key":"realm","title":"大世界","mutability":"big|small|free|locked|visual","current":"当前值","evidence":"证据（出现章节/频次）","candidates":["候选1","候选2"],"impact":"改了会影响什么","risk":"high|medium|low"}]}',
+    'dimensions 至少覆盖以下维度（key/title）：realm 大世界、cultivation 修为体系、protagonist 主角、goldenFinger 金手指、supporting 配角与势力人物名、faction 势力/组织、style 文风与叙事、ending 结局走向、timeline 时间线/编年、foreshadow 伏笔/暗线。',
+    'mutability 取值：locked=建议保留、big=可改影响大、small=可改影响小、free=可自由改、visual=仅视觉包装。',
+    '每个 dimension.current 必须忠于文本，能引用原文就用原文（尤其角色名/境界名/势力名/金手指名）。',
+    '重要：所有字符串值内部不得包含换行符；JSON 必须在一段内完整结束；直接输出 JSON，不要 Markdown 代码块。',
+  ].join('\n')
+  const textOut = await complete(ctx, config, {
+    system,
+    user: user + '\n\n' + sampleBodies.join('\n\n---\n\n'),
+    temperature: 0.3,
+    maxTokens: Math.max(config.maxTokens, 6000),
+    reasoning: config.analysisReasoning ?? 'low',
+  })
+  const raw = parseJsonObject<{ bookName?: unknown; outline?: unknown; dimensions?: unknown }>(textOut)
+  const bookName = typeof raw.bookName === 'string' ? raw.bookName.trim() : '未命名'
+  const dims = Array.isArray(raw.dimensions)
+    ? raw.dimensions
+        .filter((d): d is Record<string, unknown> => typeof d === 'object' && d !== null)
+        .map(d => normalizeAdaptationDimension(d))
+        .filter((d): d is AdaptationDimension => d !== null)
+    : []
+  // 反推大纲：独立 LLM 调用，从章节正文节选生成全书总纲（Markdown）。
+  let outline: string | undefined
+  try {
+    outline = await reverseOutlineFromAdaptationText(ctx, config, chapters)
+  } catch {
+    outline = typeof raw.outline === 'string' && raw.outline.trim() !== '' ? raw.outline.trim() : undefined
+  }
+  return {
+    bookName,
+    chapters: chapters.length,
+    outline,
+    dimensions: dims,
+    note: '基于节选分析（首/中/末取样）+ 反推大纲。如需逐章全文级深度分析请后续启用全文流式入口。',
+  }
+}
+
+/** 校验并归一化一行的改编维度数据（来自 LLM）。 */
+function normalizeAdaptationDimension(d: Record<string, unknown>): AdaptationDimension | null {
+  const key = typeof d.key === 'string' ? d.key : ''
+  const title = typeof d.title === 'string' ? d.title : ''
+  if (key === '' || title === '') return null
+  const mutability = (['locked', 'big', 'small', 'free', 'visual'] as const).includes(d.mutability as AdaptationDimension['mutability'])
+    ? d.mutability as AdaptationDimension['mutability']
+    : 'small'
+  const risk = (['high', 'medium', 'low'] as const).includes(d.risk as AdaptationDimension['risk'])
+    ? d.risk as AdaptationDimension['risk']
+    : 'medium'
+  return {
+    key,
+    title,
+    mutability,
+    current: typeof d.current === 'string' ? d.current : '',
+    evidence: typeof d.evidence === 'string' ? d.evidence : undefined,
+    candidates: Array.isArray(d.candidates) ? d.candidates.filter((x): x is string => typeof x === 'string') : [],
+    impact: typeof d.impact === 'string' ? d.impact : '',
+    risk,
+  }
+}
+
+/** 从全文拆出的章节节选反推全书总纲（Markdown），用于改编 P0 的「反推大纲」。 */
+async function reverseOutlineFromAdaptationText(
+  ctx: Context,
+  config: NovelConfig,
+  chapters: Array<{ no: number; title: string; body: string }>,
+): Promise<string> {
+  // 均匀采样最多 20 章，每章正文前 600 字，控制成本。
+  const n = chapters.length
+  const sample: string[] = []
+  const count = Math.min(n, 20)
+  for (let i = 0; i < count; i++) {
+    const idx = Math.floor((i * n) / count)
+    const c = chapters[idx]
+    if (c === undefined) continue
+    sample.push('第' + c.no + '章《' + (c.title || '无题') + '》\n' + c.body.slice(0, 600))
+  }
+  const system = [
+    '你是一位经验丰富的小说主编。根据下面若干章节的正文节选，反推出这本书的总纲（可作为后续改编与章节续写的骨架）。',
+    '要求：',
+    '1. 第一行写《书名》（可从正文推断，否则《未命名》）。',
+    '2. 按故事弧线划分卷/部分：每卷给卷名与主旨（标注覆盖章节范围）。',
+    '3. 对每章列出：章节号 + 标题 + 一句话核心情节。',
+    '4. 最后给出：全书主线、主要人物弧线、已埋设待回收的伏笔清单。',
+    '5. 输出纯文本 Markdown 结构（# 一级标题、## 二级标题、- 列表），不要寒暄，不要其他输出。',
+  ].join('\n')
+  const user = sample.join('\n\n---\n\n')
+  const text = await complete(ctx, config, { system, user, temperature: 0.4, maxTokens: Math.max(config.maxTokens, 6000), reasoning: config.analysisReasoning ?? 'low' })
+  return text.trim()
+}
+
+/** 改编方案：由用户勾选的维度与新值，生成 LLM 映射表/规则/影响清单。 */
+export async function proposeAdaptation(
+  ctx: Context,
+  config: NovelConfig,
+  text: string,
+  selections: Array<{ key: string; title: string; current: string; target: string; mutability: string }>,
+  dimensions?: AdaptationDimension[],
+): Promise<AdaptProposeResponse> {
+  const selLines = selections.map(s => '- ' + s.title + '（' + s.key + '）：' + s.current + ' → ' + s.target).join('\n')
+  const dimLines = (dimensions ?? []).map(d => '- ' + d.title + '：' + d.current + '（可改度：' + d.mutability + '，风险：' + d.risk + '）').join('\n')
+  const system = '你是改编策划。'
+  const user = [
+    '下面给出改编决策：用户想改哪些维度、改成什么值。请生成一份可执行的「改编方案」。',
+    '要求输出合法 JSON 对象：',
+    '{"mappings": [{"source":"原值","target":"新值","scope":"name|realm|faction|term|other","note":"说明"}], "rules": {"preserve":["必须保留的要素"],"change":["允许改变的要素"],"constraints":["改编红线/一致性要求"]}, "impacts": [{"item":"受影响项","detail":"说明","risk":"high|medium|low","chapters":[章号]}]}',
+    'mappings 需把用户确认的新值展开为「原→新」条目（如主角名/境界名/势力名/术语），并补充用户未填但关联的必改项（如改了修为体系名，相关的境界名一并列映射）。',
+    'rules.preserve 至少包含：故事骨架、人物动机、伏笔逻辑、爽点结构。',
+    'impacts 列出每个改动会影响的内容（术语/角色/章节/伏笔），能定位章号尽量定位；无法定位则给章节区间提示。',
+    '重要：所有字符串值内部不得包含换行符；JSON 必须在一段内完整结束；直接输出 JSON，不要 Markdown 代码块。',
+    '',
+    '用户要改：',
+    selLines,
+    '',
+    '原文可改矩阵（已分析）：',
+    dimLines,
+  ].join('\n')
+  const out = await complete(ctx, config, { system, user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 6000), reasoning: config.analysisReasoning ?? 'low' })
+  const raw = parseJsonObject<{ mappings?: unknown; rules?: unknown; impacts?: unknown }>(out)
+  const mappings = Array.isArray(raw.mappings)
+    ? raw.mappings
+        .filter((m): m is Record<string, unknown> => typeof m === 'object' && m !== null)
+        .map(m => normalizeAdaptationMapping(m))
+        .filter((m): m is AdaptationMapping => m !== null)
+    : []
+  const rules = normalizeAdaptationRules(raw.rules)
+  const impacts = Array.isArray(raw.impacts)
+    ? raw.impacts
+        .filter((i): i is Record<string, unknown> => typeof i === 'object' && i !== null)
+        .map(i => normalizeAdaptationImpact(i))
+    : []
+  return { proposal: { mappings, rules, impacts } }
+}
+
+/** 剧本术语替换执行：按映射表做精确替换并统计命中。 */
+export function applyAdaptationReplacements(
+  text: string,
+  mappings: AdaptationMapping[],
+): { adaptedText: string; hits: Array<{ source: string; target: string; count: number }> } {
+  const seen = new Set<string>()
+  const unique = mappings.filter(m => {
+    const s = m.source.trim()
+    if (s === '' || s === m.target.trim()) return false
+    if (seen.has(s)) return false
+    seen.add(s)
+    return true
+  }).sort((a, b) => b.source.length - a.source.length)
+  let adapted = text
+  const hits: Array<{ source: string; target: string; count: number }> = []
+  for (const m of unique) {
+    const count = adapted.split(m.source).length - 1
+    if (count > 0) adapted = adapted.split(m.source).join(m.target)
+    hits.push({ source: m.source, target: m.target, count })
+  }
+  return { adaptedText: adapted, hits }
+}
+
+/** 校验归一化一条映射（来自 LLM）。 */
+function normalizeAdaptationMapping(m: Record<string, unknown>): AdaptationMapping | null {
+  const source = typeof m.source === 'string' ? m.source.trim() : ''
+  const target = typeof m.target === 'string' ? m.target.trim() : ''
+  if (source === '' || target === '') return null
+  const scope = (['name', 'realm', 'faction', 'term', 'other'] as const).includes(m.scope as AdaptationMapping['scope'])
+    ? m.scope as AdaptationMapping['scope']
+    : 'other'
+  return { source, target, scope, note: typeof m.note === 'string' ? m.note : undefined }
+}
+
+/** 校验归一化改编规则（来自 LLM）。 */
+function normalizeAdaptationRules(r: unknown): AdaptationRules {
+  const obj = typeof r === 'object' && r !== null ? r as Record<string, unknown> : {}
+  const arr = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  return { preserve: arr(obj.preserve), change: arr(obj.change), constraints: arr(obj.constraints) }
+}
+
+/** 校验归一化一条影响项（来自 LLM）。 */
+function normalizeAdaptationImpact(i: Record<string, unknown>): { item: string; detail: string; risk: 'high' | 'medium' | 'low'; chapters?: number[] } {
+  const risk = (['high', 'medium', 'low'] as const).includes(i.risk as 'high' | 'medium' | 'low') ? i.risk as 'high' | 'medium' | 'low' : 'medium'
+  const chapters = Array.isArray(i.chapters) ? i.chapters.filter((x): x is number => typeof x === 'number') : undefined
+  return {
+    item: typeof i.item === 'string' ? i.item : '',
+    detail: typeof i.detail === 'string' ? i.detail : '',
+    risk,
+    chapters: chapters !== undefined && chapters.length > 0 ? chapters : undefined,
+  }
 }
 
 /**
