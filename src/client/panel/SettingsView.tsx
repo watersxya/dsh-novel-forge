@@ -8,27 +8,20 @@ import { Brain, PenLine, Palette, Folder, Sparkles, RotateCcw, PlugZap, Plus, Tr
 import type { NovelApi } from '../api.ts'
 import type { NovelConfig, ImageModelConfig } from '../../protocol.ts'
 import { tt } from './helpers.ts'
+import { ModelManager } from './ModelManager.tsx'
+import { ReasoningSection } from './ReasoningSection.tsx'
 import css from './panel.module.css'
 
-const MODEL_PRESETS = ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'] as const
-const REASONING_OPTIONS = ['off', 'low', 'high', 'max'] as const
-const REASONING_LABEL: Record<string, string> = {
-  off: tt('settings.reasoning.off'),
-  low: tt('settings.reasoning.low'),
-  high: tt('settings.reasoning.high'),
-  max: tt('settings.reasoning.max'),
-}
 
-const SETTINGS_SECTIONS: Array<{ id: 'model' | 'writing' | 'image' | 'files' | 'appearance' | 'background'; label: string; icon: JSX.Element }> = [
+const SETTINGS_SECTIONS: Array<{ id: 'model' | 'writing' | 'image' | 'files' | 'appearance'; label: string; icon: JSX.Element }> = [
   { id: 'model', label: '模型与推理', icon: <Brain size={16} /> },
   { id: 'writing', label: '写作与审稿', icon: <PenLine size={16} /> },
   { id: 'image', label: '生图模型', icon: <Palette size={16} /> },
   { id: 'files', label: '路径与文件', icon: <Folder size={16} /> },
   { id: 'appearance', label: '外观与主题', icon: <Sparkles size={16} /> },
-  { id: 'background', label: '自定义背景', icon: <Image size={16} /> },
 ];
 
-type SettingsTab = 'model' | 'writing' | 'image' | 'files' | 'appearance' | 'background'
+type SettingsTab = 'model' | 'writing' | 'image' | 'files' | 'appearance'
 type ThemeMode = 'system' | 'light' | 'dark'
 type ThemeName = 'liquid' | 'neumorph' | 'macos' | 'clay'
 type ThemeDensity = 'comfort' | 'compact' | 'spacious'
@@ -53,8 +46,7 @@ export function SettingsView({ api, onTheme, onSettingsTab, onEditorFontSize, on
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [modelCustomMode, setModelCustomMode] = useState(false);
-  const [settingsTab, setSettingsTabState] = useState<SettingsTab>(() => readLS<SettingsTab>('dsh-novel-forge.settings.tab', 'model', ['model','writing','image','files','appearance','background'] as const));
+  const [settingsTab, setSettingsTabState] = useState<SettingsTab>(() => readLS<SettingsTab>('dsh-novel-forge.settings.tab', 'model', ['model','writing','image','files','appearance'] as const));
   const [imageTestState, setImageTestState] = useState<Record<string, { testing: boolean; ok?: boolean; ms?: number; message?: string; modelFound?: boolean }>>({});
   const [editorFontSize, setEditorFontSize] = useState<number>(() => { try { const v = Number(window.localStorage.getItem('dsh-novel-forge.editor.fontSize')); return v >= 12 && v <= 24 ? v : 14 } catch { return 14 } });
   const [panelTheme, setPanelTheme] = useState<ThemeName>(() => readLS<ThemeName>('dsh-novel-forge.theme', 'liquid', ['liquid','neumorph','macos','clay'] as const));
@@ -97,6 +89,7 @@ export function SettingsView({ api, onTheme, onSettingsTab, onEditorFontSize, on
         themeBackgroundBlur: configDraft.themeBackgroundBlur ?? 0,
         themeOpacity: configDraft.themeOpacity ?? 100,
         imageModels: configDraft.imageModels ?? [],
+        savedModels: configDraft.savedModels ?? [],
       });
       setConfig(result.config);
       setConfigDraft(result.config);
@@ -180,8 +173,10 @@ export function SettingsView({ api, onTheme, onSettingsTab, onEditorFontSize, on
 
   return (
     <div className={css.authorPageBody} data-nf-theme={panelTheme} data-nf-mode={themeMode === 'system' ? undefined : themeMode} data-nf-density={themeDensity}>
-      <div className={css.authorPageHeader}>
-        <div><h2 className={css.panelTitle} style={{ margin: 0 }}>⚙️ 设置</h2><span className={css.meta}>当前：{config?.provider} / {config?.model} · {config?.outputDir}</span></div>
+      <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-6)' }}>
+        <h2 className={css.panelTitle} style={{ margin: 0 }}>⚙️ 设置</h2>
+        <span className={css.meta}>当前模型：{config?.provider} / {config?.model}</span>
+        <span className={css.meta}>输出目录：{config?.outputDir}</span>
       </div>
 
       <div className={css.row} style={{ gap: 'var(--nf-space-8)', flexWrap: 'wrap' }}>
@@ -194,13 +189,25 @@ export function SettingsView({ api, onTheme, onSettingsTab, onEditorFontSize, on
       {notice !== '' && <div className={css.meta}>{notice}</div>}
 
       {settingsTab === 'model' && (
-        <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-24)' }}>
-          <span className={css.cardTitle}><Brain size={18} style={{ verticalAlign: -3 }} /> 模型与推理</span>
-          <div className={css.field}><label className={css.fieldLabel}>{tt('settings.provider')}</label><input className={css.input} value={configDraft.provider} onChange={e => setConfigDraft({ ...configDraft, provider: e.target.value })} /></div>
-          <div className={css.field}><label className={css.fieldLabel}>{tt('settings.model')}</label><select className={css.input} value={modelCustomMode ? '__custom__' : configDraft.model} onChange={e => { const v = e.target.value; if (v === '__custom__') setModelCustomMode(true); else { setModelCustomMode(false); setConfigDraft({ ...configDraft, model: v }) } }}>{MODEL_PRESETS.map(m => <option key={m} value={m}>{m}</option>)}<option value="__custom__">{tt('settings.modelCustom')}</option></select>{modelCustomMode && <input className={css.input} value={configDraft.model} placeholder={tt('settings.modelCustomPlaceholder')} onChange={e => setConfigDraft({ ...configDraft, model: e.target.value })} />}</div>
-          <div className={css.field}><label className={css.fieldLabel}>{tt('settings.reasoningEffort')}</label><select className={css.input} value={configDraft.reasoningEffort ?? 'off'} onChange={e => setConfigDraft({ ...configDraft, reasoningEffort: e.target.value as NovelConfig['reasoningEffort'] })}>{REASONING_OPTIONS.map(v => <option key={v} value={v}>{REASONING_LABEL[v]}</option>)}</select><span className={css.meta}>{tt('settings.reasoningHint')}</span></div>
-          <div className={css.field}><label className={css.fieldLabel}>{tt('settings.analysisReasoning')}</label><select className={css.input} value={configDraft.analysisReasoning ?? 'low'} onChange={e => setConfigDraft({ ...configDraft, analysisReasoning: e.target.value as NovelConfig['analysisReasoning'] })}>{REASONING_OPTIONS.map(v => <option key={v} value={v}>{REASONING_LABEL[v]}</option>)}</select><span className={css.meta}>{tt('settings.analysisReasoningHint')}</span></div>
-        </div>
+        <>
+          <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-24)' }}>
+            <span className={css.cardTitle}><Brain size={18} style={{ verticalAlign: -3 }} /> 模型与推理</span>
+            <ModelManager
+              api={api}
+              provider={configDraft.provider}
+              model={configDraft.model}
+              savedModels={configDraft.savedModels ?? []}
+              onProvider={v => setConfigDraft({ ...configDraft, provider: v })}
+              onModel={v => setConfigDraft({ ...configDraft, model: v })}
+              onSavedModels={models => setConfigDraft({ ...configDraft, savedModels: models })}
+            />
+          </div>
+          <ReasoningSection
+            reasoningEffort={configDraft.reasoningEffort ?? 'off'}
+            analysisReasoning={configDraft.analysisReasoning ?? 'low'}
+            onChange={patch => setConfigDraft({ ...configDraft, ...patch })}
+          />
+        </>
       )}
 
       {settingsTab === 'writing' && (
@@ -218,7 +225,7 @@ export function SettingsView({ api, onTheme, onSettingsTab, onEditorFontSize, on
 
       {settingsTab === 'image' && (
         <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-24)' }}>
-          <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap', alignItems: 'center' }}><span className={css.cardTitle}><Palette size={18} style={{ verticalAlign: -3 }} /> 生图模型</span><span className={css.meta}>启用生图功能</span></div>
+          <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap', alignItems: 'center' }}><span className={css.cardTitle}><Palette size={18} style={{ verticalAlign: -3 }} /> 生图模型</span><span className={css.row} style={{ gap: 'var(--nf-space-8)', alignItems: 'center' }}><span className={css.meta}>启用生图功能</span><button type="button" role="switch" aria-checked={configDraft.imageApiEnabled === true} className={`${css.switch} ${configDraft.imageApiEnabled === true ? css.switchOn : ''}`} onClick={() => { setConfigDraft(prev => prev === null ? prev : { ...prev, imageApiEnabled: prev.imageApiEnabled !== true }) }}><span className={css.switchKnob} /></button></span></div>
           <span className={css.meta}>支持多套 OpenAI 兼容生图接口（豆包 / 即梦 / 其他平台）；启用一条作为生成模型。</span>
           {(configDraft.imageModels ?? []).map(m => (
             <div key={m.id} style={{ border: m.enabled ? '1px solid var(--nf-accent)' : '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-12)', padding: 'var(--nf-space-14)', display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-12)', background: m.enabled ? 'var(--nf-accent-soft)' : 'transparent' }}>
@@ -249,34 +256,34 @@ export function SettingsView({ api, onTheme, onSettingsTab, onEditorFontSize, on
       )}
 
       {settingsTab === 'appearance' && (
-        <div className={css.card + ' ' + css.settingsCard}>
-          <span className={css.cardTitle}><Sparkles size={18} style={{ verticalAlign: -3 }} /> 外观与主题</span>
-          <div className={css.field}><label className={css.fieldLabel}>显示模式</label><select className={css.input} value={themeMode} onChange={e => changeTheme(panelTheme, e.target.value as ThemeMode, themeDensity)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div>
-          <div className={css.field}><label className={css.fieldLabel}>主题风格</label><select className={css.input} value={panelTheme} onChange={e => changeTheme(e.target.value as ThemeName, themeMode, themeDensity)}><option value="liquid">液态玻璃 · 清新绿（默认）</option><option value="neumorph">新拟物 · 柔和浅色</option><option value="macos">macOS · 玻璃（蓝，随外观浅/深）</option><option value="clay">粘土拟态 · 柔和黏土</option></select></div>
-          <div className={css.field}><label className={css.fieldLabel}>界面密度</label><select className={css.input} value={themeDensity} onChange={e => changeTheme(panelTheme, themeMode, e.target.value as ThemeDensity)}><option value="comfort">舒适（默认）</option><option value="compact">紧凑</option><option value="spacious">宽松</option></select></div>
-          <div className={css.field}><label className={css.fieldLabel}>玻璃透明度（0-100）</label><input className={css.input} type="range" min={0} max={100} value={configDraft.themeOpacity ?? 100} onChange={e => applyOpacity(Number(e.target.value))} /><span className={css.meta}>100=当前主题原样；调低会让玻璃/卡片变透，新拟态、黏土等实色主题能透出背景图。</span></div>
-          <div className={css.row} style={{ justifyContent: 'flex-end' }}><button type="button" className={css.button} onClick={resetTheme}><RotateCcw size={14} style={{ verticalAlign: -2 }} /> 恢复默认主题</button></div>
-        </div>
-      )}
-
-      {settingsTab === 'background' && (
-        <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-12)' }}>
-          <span className={css.cardTitle}><Image size={18} style={{ verticalAlign: -3 }} /> 自定义背景</span>
-          <span className={css.meta}>填图片 URL 或上传图片作为小说工坊背景（首页 + 书内）。留空 = 使用主题默认背景。</span>
-          <div className={css.row} style={{ gap: 'var(--nf-space-8)', flexWrap: 'wrap' }}>
-            <input className={css.input} style={{ flex: 1, minWidth: 220 }} placeholder="https://… 图片地址" value={(configDraft.themeBackground ?? '').startsWith('data:') ? '' : (configDraft.themeBackground ?? '')} onChange={e => applyBackground(e.target.value.trim() !== '' ? e.target.value.trim() : undefined)} />
-            <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => bgFileRef.current?.click()}><Upload size={13} style={{ verticalAlign: -2 }} /> 上传图片</button>
-            <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => applyBackground(undefined)}><X size={13} style={{ verticalAlign: -2 }} /> 清除</button>
+        <>
+          <div className={css.card + ' ' + css.settingsCard}>
+            <span className={css.cardTitle}><Sparkles size={18} style={{ verticalAlign: -3 }} /> 外观与主题</span>
+            <div className={css.field}><label className={css.fieldLabel}>显示模式</label><select className={css.input} value={themeMode} onChange={e => changeTheme(panelTheme, e.target.value as ThemeMode, themeDensity)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div>
+            <div className={css.field}><label className={css.fieldLabel}>主题风格</label><select className={css.input} value={panelTheme} onChange={e => changeTheme(e.target.value as ThemeName, themeMode, themeDensity)}><option value="liquid">液态玻璃 · 清新绿（默认）</option><option value="neumorph">新拟物 · 柔和浅色</option><option value="macos">macOS · 玻璃（蓝，随外观浅/深）</option><option value="clay">粘土拟态 · 柔和黏土</option></select></div>
+            <div className={css.field}><label className={css.fieldLabel}>界面密度</label><select className={css.input} value={themeDensity} onChange={e => changeTheme(panelTheme, themeMode, e.target.value as ThemeDensity)}><option value="comfort">舒适（默认）</option><option value="compact">紧凑</option><option value="spacious">宽松</option></select></div>
+            <div className={css.field}><label className={css.fieldLabel}>玻璃透明度（0-100）</label><input className={css.input} type="range" min={0} max={100} value={configDraft.themeOpacity ?? 100} onChange={e => applyOpacity(Number(e.target.value))} /><span className={css.meta}>100=当前主题原样；调低会让玻璃/卡片变透，新拟态、黏土等实色主题能透出背景图。</span></div>
+            <div className={css.row} style={{ justifyContent: 'flex-end' }}><button type="button" className={css.button} onClick={resetTheme}><RotateCcw size={14} style={{ verticalAlign: -2 }} /> 恢复默认主题</button></div>
           </div>
-          <input ref={bgFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { void onBgFile(e.target.files?.[0]); e.target.value = '' }} />
-          {(configDraft.themeBackground ?? '') !== '' && (
-            <div className={css.adaptInputCard} style={{ padding: 8 }}>
-              <div style={{ width: 180, height: 100, borderRadius: 10, backgroundImage: 'url(' + configDraft.themeBackground + ')', backgroundSize: 'cover', backgroundPosition: 'center' }} />
-              <div className={css.meta}>已设置背景（预览）</div>
+
+          <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-12)' }}>
+            <span className={css.cardTitle}><Image size={18} style={{ verticalAlign: -3 }} /> 自定义背景</span>
+            <span className={css.meta}>填图片 URL 或上传图片作为小说工坊背景（首页 + 书内）。留空 = 使用主题默认背景。</span>
+            <div className={css.row} style={{ gap: 'var(--nf-space-8)', flexWrap: 'wrap' }}>
+              <input className={css.input} style={{ flex: 1, minWidth: 220 }} placeholder="https://… 图片地址" value={(configDraft.themeBackground ?? '').startsWith('data:') ? '' : (configDraft.themeBackground ?? '')} onChange={e => applyBackground(e.target.value.trim() !== '' ? e.target.value.trim() : undefined)} />
+              <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => bgFileRef.current?.click()}><Upload size={13} style={{ verticalAlign: -2 }} /> 上传图片</button>
+              <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => applyBackground(undefined)}><X size={13} style={{ verticalAlign: -2 }} /> 清除</button>
             </div>
-          )}
-          <div className={css.field}><label className={css.fieldLabel}>遮罩 / 模糊强度（0-80）</label><input className={css.input} type="range" min={0} max={80} value={configDraft.themeBackgroundBlur ?? 0} onChange={e => applyBlur(Number(e.target.value))} /><span className={css.meta}>越大背景越暗，保证文字可读（图很花时调高）。</span></div>
-        </div>
+            <input ref={bgFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { void onBgFile(e.target.files?.[0]); e.target.value = '' }} />
+            {(configDraft.themeBackground ?? '') !== '' && (
+              <div className={css.adaptInputCard} style={{ padding: 8 }}>
+                <div style={{ width: 180, height: 100, borderRadius: 10, backgroundImage: 'url(' + configDraft.themeBackground + ')', backgroundSize: 'cover', backgroundPosition: 'center' }} />
+                <div className={css.meta}>已设置背景（预览）</div>
+              </div>
+            )}
+            <div className={css.field}><label className={css.fieldLabel}>遮罩 / 模糊强度（0-80）</label><input className={css.input} type="range" min={0} max={80} value={configDraft.themeBackgroundBlur ?? 0} onChange={e => applyBlur(Number(e.target.value))} /><span className={css.meta}>越大背景越暗，保证文字可读（图很花时调高）。</span></div>
+          </div>
+        </>
       )}
 
       <div className={css.row}><button type="button" className={css.button + ' ' + css.buttonPrimary} disabled={busy} onClick={() => { void save() }}>{busy ? '保存中…' : tt('settings.save')}</button></div>

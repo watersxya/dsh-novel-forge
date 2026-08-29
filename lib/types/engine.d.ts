@@ -12,7 +12,7 @@
  */
 export declare const COMPLIANCE_REDLINES: ReadonlyArray<string>;
 import type { Context } from '@deepseek-ai/cordis';
-import type { AdaptationDimension, AdaptAnalyzeResponse, AdaptationMapping, AdaptProposeResponse, AuditIssue, AuthorReview, BreakdownResponse, ChapterPlan, Foreshadow, NovelConfig, OutlineCandidate, Plotline, PlotlineHealthReport, PlotlinePlan, ProjectState, ReviewReport, RoleRecord, RoleStatusCard, SceneCard, StoryBible, StoryboardSkeleton, StoryboardTable, StoryboardPrompt, MangaRoleCandidate, Volume, WorldState } from './protocol.ts';
+import type { AdaptationDimension, AdaptAnalyzeResponse, AdaptationMapping, AdaptProposeResponse, AuditIssue, AuthorReview, BreakdownResponse, ChapterPlan, Foreshadow, NovelConfig, OutlineCandidate, Plotline, PlotlineHealthReport, PlotlinePlan, ProjectState, ReviewReport, RoleRecord, RoleStatusCard, SceneCard, StoryBible, StoryboardSkeleton, StoryboardTable, StoryboardPrompt, AddModelRequest, AddModelResponse, LlmModelsResponse, LlmVendorsResponse, LlmProvidersResponse, RemoveProviderRequest, RemoveProviderResponse, LlmTestResponse, MangaRoleCandidate, Volume, WorldState } from './protocol.ts';
 /** Project state file name inside the output dir. */
 export declare const PROJECT_FILE = "novel-project.json";
 /** Chapter output file name, e.g. 第001章_开篇.md */
@@ -147,6 +147,21 @@ export declare function testImageEndpoint(baseURL: string, apiKey: string, model
     message?: string;
     modelFound?: boolean;
 }>;
+/** 对选中的提供商/模型发一次最小真实调用（maxTokens=16），验证 Key / 端点 / 模型可用。 */
+export declare function testLlmModel(ctx: Context, provider: string, model: string): Promise<LlmTestResponse>;
+/** 运行时厂商目录：DSH pi-ai 可配置提供方 + 内置适配器，作为「添加模型」下拉。 */
+export declare function listLlmVendors(ctx: Context): Promise<LlmVendorsResponse>;
+/** 查询某个 provider 当前可用模型（添加成功后可即时刷新下拉）。 */
+export declare function listLlmModels(ctx: Context, provider: string): Promise<LlmModelsResponse>;
+/** 当前已注册的提供方路由列表（提供方管理卡片）。 */
+export declare function listLlmProviders(ctx: Context): Promise<LlmProvidersResponse>;
+/** 移除一个提供方：unset 凭据 ref + 移除 llm-pi-ai providers 路由。 */
+export declare function removeLlmProvider(ctx: Context, req: RemoveProviderRequest): Promise<RemoveProviderResponse>;
+/**
+ * 添加模型（DSH 同款体验）：厂商直填 API Key，或自定义 OpenAI 兼容路由。
+ * 写入 DSH 凭据 refs，并（必要时）注册/更新 llm-pi-ai provider 路由。
+ */
+export declare function registerLlmModel(ctx: Context, req: AddModelRequest): Promise<AddModelResponse>;
 /** 小说角色库：生成角色定妆图并写回角色卡（imageUrl）。 */
 export declare function generateRoleReferenceImage(ctx: Context, config: NovelConfig, project: ProjectState, outputDir: string, name: string, style?: string, modelId?: string): Promise<string>;
 /** 漫剧角色卡：生成定妆图并写回漫剧卡（imageUrl）。 */

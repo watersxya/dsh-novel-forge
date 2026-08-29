@@ -109,7 +109,7 @@ export const Config: z<Config> = z.object({
   themeBackground: z.string().default(''),
   themeBackgroundBlur: z.number().default(0),
   themeOpacity: z.number().default(100),
-  enableAdaptMode: z.boolean().default(false),
+  enableAdaptMode: z.boolean().default(true),
 })
 
 /** Schema defaults, re-read for hand-built test contexts. */
@@ -172,7 +172,7 @@ export function resolveConfig(value: Partial<Config> | undefined): NovelConfig {
     themeBackground: value?.themeBackground ?? '',
     themeBackgroundBlur: value?.themeBackgroundBlur ?? 0,
     themeOpacity: value?.themeOpacity ?? 100,
-    enableAdaptMode: value?.enableAdaptMode ?? false,
+    enableAdaptMode: value?.enableAdaptMode ?? true,
   }
 }
 

@@ -3,7 +3,7 @@
  * fetch, same origin; generation/rewrite/polish ride NDJSON streams read
  * incrementally.
  */
-import { type AssetsPatch, type AssetsResponse, type BibleResponse, type ChapterResponse, type ConfigPatch, type ExportResponse, type ForeshadowRequest, type ForeshadowResponse, type JobFrame, type LoadOutlineResponse, type NovelConfig, type PlanResponse, type ReviewReport, type StatusResponse, type StyleEngineRequest, type StyleAsset, type VolumesResponse } from '../protocol.ts';
+import { type AssetsPatch, type AssetsResponse, type AddModelRequest, type AddModelResponse, type LlmModelsResponse, type LlmProvidersResponse, type LlmVendorsResponse, type RemoveProviderRequest, type RemoveProviderResponse, type BibleResponse, type ChapterResponse, type ConfigPatch, type ExportResponse, type ForeshadowRequest, type ForeshadowResponse, type JobFrame, type LoadOutlineResponse, type LlmTestResponse, type NovelConfig, type PlanResponse, type ReviewReport, type StatusResponse, type StyleEngineRequest, type StyleAsset, type VolumesResponse } from '../protocol.ts';
 /** Error carrying the route's JSON error message. */
 export declare class NovelApiError extends Error {
     constructor(message: string);
@@ -99,6 +99,18 @@ export declare class NovelApi {
     }>;
     /** 角色库：AI 提炼 / 采纳 / 更新 / 删除。 */
     imageTest(req: import('../protocol.ts').ImageTestRequest): Promise<import('../protocol.ts').ImageTestResponse>;
+    /** 对选中的提供商/模型发一次最小真实调用，验证连通性。 */
+    llmTest(provider: string, model: string): Promise<LlmTestResponse>;
+    /** 添加模型：厂商直填 key，或自定义 OpenAI 兼容路由（写 DSH 凭据 + 注册路由）。 */
+    addModel(req: AddModelRequest): Promise<AddModelResponse>;
+    /** 运行时厂商目录（DSH pi-ai 可配置提供方 + 内置适配器）。 */
+    llmVendors(): Promise<LlmVendorsResponse>;
+    /** 查询某个 provider 当前可用的模型（添加成功后可即时刷新）。 */
+    llmModels(provider: string): Promise<LlmModelsResponse>;
+    /** 已注册的提供方路由列表（提供方管理卡片）。 */
+    llmProviders(): Promise<LlmProvidersResponse>;
+    /** 移除一个提供方（unset key + 移除 llm-pi-ai 路由）。 */
+    removeProvider(req: RemoveProviderRequest): Promise<RemoveProviderResponse>;
     roles(req: import('../protocol.ts').RolesRequest): Promise<import('../protocol.ts').RolesResponse>;
     /** 漫剧角色库：从分镜提名 / 建卡 / 更新 / 删除 / 形象锚点 / 精修提示词。 */
     mangaRoles(req: import('../protocol.ts').MangaRolesRequest): Promise<import('../protocol.ts').MangaRolesResponse>;

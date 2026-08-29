@@ -42,7 +42,7 @@ export function ProgressHomeView({ shelf, onOpenBook }: {
 
   return (
     <div className={css.authorPageBody}>
-      <div className={css.authorPageHeader}><h2 className={css.panelTitle} style={{ margin: 0 }}>📊 AI 进度</h2><span className={css.meta}>跨书架聚合进度与最近活动</span></div>
+      <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-6)' }}><h2 className={css.panelTitle} style={{ margin: 0 }}>📊 AI 进度</h2><span className={css.meta}>跨书架聚合进度与最近活动</span></div>
 
       <div className={css.progressOverview}>
         <div className={css.progressOverviewCard}><span className={css.progressOverviewNum}>{shelf.books.length}</span><span className={css.meta}>总书数</span></div>

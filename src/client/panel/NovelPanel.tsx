@@ -9,6 +9,8 @@ import type { ReactElement } from 'react'
 import type { NovelApi } from '../api.ts'
 import type { PanelController } from './controller.ts'
 import { tt } from './helpers.ts'
+import { ModelManager } from './ModelManager.tsx'
+import { ReasoningSection } from './ReasoningSection.tsx'
 import { BarChart3, Book, BookMarked, BookOpen, Brain, Clapperboard, Factory, FileText, Folder, GitBranch, Library, MessageSquare, Palette, PenLine, PlugZap, RotateCcw, ScrollText, Search, Settings, Sparkles, Wrench } from 'lucide-react'
 import { AssistantTab } from './AssistantTab.tsx'
 import { AssetsTab } from './AssetsTab.tsx'
@@ -105,9 +107,6 @@ const NAV_GROUPS: ReadonlyArray<{ id: string; label: string; items: ReadonlyArra
 /** Settings tab — pinned to the bottom of the nav rail. */
 const SETTINGS_TAB: { id: NovelTab; label: string; icon: ReactElement } = { id: 'settings', label: tt('tab.settings'), icon: <Settings size={18} /> }
 
-/** Common DeepSeek model presets shown in settings; users can also type any model id. */
-const MODEL_PRESETS = ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'] as const
-const REASONING_OPTIONS = ['off', 'low', 'high', 'max'] as const
 
 /** 设置页内子导航分组。 */
 const SETTINGS_SECTIONS: ReadonlyArray<{ id: 'model' | 'writing' | 'image' | 'files' | 'appearance'; label: string; icon: ReactElement }> = [
@@ -337,7 +336,6 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const [notice, setNotice] = useState('')
   const [progress, setProgress] = useState<ProgressLine[]>([])
   const [configDraft, setConfigDraft] = useState<NovelConfig | null>(null)
-  const [modelCustomMode, setModelCustomMode] = useState(false)
   const [expandedChapter, setExpandedChapter] = useState<number | null>(null)
   /** 复盘记录页：当前展开的章节号。 */
   const [expandedReviewChapter, setExpandedReviewChapter] = useState<number | null>(null)
@@ -706,7 +704,6 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       const status = await api.status()
       setConfig(status.config)
       setConfigDraft(status.config)
-      setModelCustomMode(!(MODEL_PRESETS as readonly string[]).includes(status.config.model))
       setAuditStatus(status.audit ?? null)
       setProject(status.project ?? null)
       // 人物志存档同步：有 roleStatus 存档直接显示，无需重新刷新计算。
@@ -2084,6 +2081,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         imageApiModel: configDraft.imageApiModel,
         imageApiEnabled: configDraft.imageApiEnabled ?? false,
         imageModels: configDraft.imageModels ?? [],
+        savedModels: configDraft.savedModels ?? [],
       })
       setConfig(result.config)
       setConfigDraft(result.config)
@@ -2411,6 +2409,11 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           onBackground={(bg, blur) => { setThemeBg(bg); setThemeBgBlur(blur) }}
           onOpacity={(n) => { setThemeOpacity(n) }}
           adaptEnabled={config?.enableAdaptMode === true}
+          progress={progress}
+          busy={busy}
+          busyLabel={busyLabel}
+          liveBar={liveBar}
+          onClearProgress={() => { setProgress([]) }}
         />
       ) : viewMode === 'create' ? (
         /* 开书向导：独立页面 */
@@ -3835,65 +3838,25 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
             </div>
 
             {settingsTab === 'model' && (
-              <div className={`${css.card} ${css.settingsCard}`} style={{ gap: 'var(--nf-space-24)' }}>
-                <span className={css.cardTitle}><Brain size={18} style={{ verticalAlign: -3 }} /> 模型与推理</span>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-24)' }}>
-                  <div className={css.field}>
-                    <label className={css.fieldLabel}>{tt('settings.provider')}</label>
-                    <input className={css.input} value={configDraft.provider} onChange={e => { setConfigDraft({ ...configDraft, provider: e.target.value }) }} />
-                  </div>
-                  <div className={css.field}>
-                    <label className={css.fieldLabel}>{tt('settings.model')}</label>
-                    <select
-                      className={css.input}
-                      value={modelCustomMode ? '__custom__' : configDraft.model}
-                      onChange={e => {
-                        const v = e.target.value
-                        if (v === '__custom__') {
-                          setModelCustomMode(true)
-                        } else {
-                          setModelCustomMode(false)
-                          setConfigDraft({ ...configDraft, model: v })
-                        }
-                      }}
-                    >
-                      {MODEL_PRESETS.map(m => <option key={m} value={m}>{m}</option>)}
-                      <option value="__custom__">{tt('settings.modelCustom')}</option>
-                    </select>
-                    {modelCustomMode && (
-                      <input
-                        className={css.input}
-                        style={{ marginTop: 'var(--nf-space-6)' }}
-                        value={configDraft.model}
-                        placeholder={tt('settings.modelCustomPlaceholder')}
-                        onChange={e => { setConfigDraft({ ...configDraft, model: e.target.value }) }}
-                      />
-                    )}
-                  </div>
-                  <div className={css.field}>
-                    <label className={css.fieldLabel}>{tt('settings.reasoningEffort')}</label>
-                    <select
-                      className={css.input}
-                      value={configDraft.reasoningEffort ?? 'off'}
-                      onChange={e => { setConfigDraft({ ...configDraft, reasoningEffort: e.target.value as NovelConfig['reasoningEffort'] }) }}
-                    >
-                      {REASONING_OPTIONS.map(v => <option key={v} value={v}>{tt(`settings.reasoning.${v}`)}</option>)}
-                    </select>
-                    <span className={css.meta}>{tt('settings.reasoningHint')}</span>
-                  </div>
-                  <div className={css.field}>
-                    <label className={css.fieldLabel}>{tt('settings.analysisReasoning')}</label>
-                    <select
-                      className={css.input}
-                      value={configDraft.analysisReasoning ?? 'low'}
-                      onChange={e => { setConfigDraft({ ...configDraft, analysisReasoning: e.target.value as NovelConfig['analysisReasoning'] }) }}
-                    >
-                      {REASONING_OPTIONS.map(v => <option key={v} value={v}>{tt(`settings.reasoning.${v}`)}</option>)}
-                    </select>
-                    <span className={css.meta}>{tt('settings.analysisReasoningHint')}</span>
-                  </div>
+              <>
+                <div className={`${css.card} ${css.settingsCard}`} style={{ gap: 'var(--nf-space-24)' }}>
+                  <span className={css.cardTitle}><Brain size={18} style={{ verticalAlign: -3 }} /> 模型与推理</span>
+                  <ModelManager
+                    api={api}
+                    provider={configDraft.provider}
+                    model={configDraft.model}
+                    savedModels={configDraft.savedModels ?? []}
+                    onProvider={v => { setConfigDraft({ ...configDraft, provider: v }) }}
+                    onModel={v => { setConfigDraft({ ...configDraft, model: v }) }}
+                    onSavedModels={models => setConfigDraft({ ...configDraft, savedModels: models })}
+                  />
                 </div>
-              </div>
+                <ReasoningSection
+                  reasoningEffort={configDraft.reasoningEffort ?? 'off'}
+                  analysisReasoning={configDraft.analysisReasoning ?? 'low'}
+                  onChange={patch => setConfigDraft({ ...configDraft, ...patch })}
+                />
+              </>
             )}
 
             {settingsTab === 'writing' && (

@@ -75,11 +75,24 @@ import type {
   StoryboardShot,
   StoryboardPrompt,
   ChapterStoryboard,
+  AddModelRequest,
+  AddModelResponse,
+  SavedModel,
+  LlmModelOption,
+  LlmModelsResponse,
+  LlmVendorOption,
+  LlmVendorsResponse,
+  LlmProvidersResponse,
+  RemoveProviderRequest,
+  RemoveProviderResponse,
+  LlmTestRequest,
+  LlmTestResponse,
   MangaRoleCandidate,
   MangaRoleCard,
   Volume,
   WorldState,
 } from './protocol.ts'
+import { LLM_VENDORS } from './protocol.ts'
 
 /** Project state file name inside the output dir. */
 export const PROJECT_FILE = 'novel-project.json'
@@ -2341,6 +2354,214 @@ export async function testImageEndpoint(baseURL: string, apiKey: string, model?:
   } catch (err) {
     return { ok: false, ms: Date.now() - start, message: (err as Error).message }
   }
+}
+
+// ---------------------------------------------------------- llm catalog/test
+
+/** LLM 连通性失败的错误码 → 人话（供设置页“测试连通”回显）。 */
+const LLM_TEST_ERROR_HINT: Record<string, string> = {
+  NO_ADAPTER: '提供商路由不存在或未启用',
+  UNKNOWN_MODEL: '模型不在该提供商的目录里',
+  MISSING_CREDENTIAL: 'API Key 未配置（检查 DSH 凭据里的引用）',
+  INVALID_CREDENTIAL: 'API Key 格式无效',
+  AUTH: '认证失败：API Key 无效或无权限',
+  RATE_LIMIT: '触发提供商限流，请稍后再试',
+  QUOTA: '配额/余额不足',
+  CONTEXT_WINDOW_EXCEEDED: '上下文超限（测试调用不应触发，请核实模型配置）',
+  EMPTY_RESPONSE: '端点连通但返回空响应（模型可能暂不可用）',
+  TIMEOUT: '连接超时',
+  ABORTED: '测试超时（30 秒无响应）',
+  UNSUPPORTED_REASONING_EFFORT: '推理档位不受此模型支持',
+}
+
+function describeLlmTestError(err: Error & { code?: string }): string {
+  const code = typeof err.code === 'string' ? err.code : ''
+  const hint = code !== '' ? LLM_TEST_ERROR_HINT[code] : undefined
+  const detail = err.message !== '' ? err.message : '未知错误'
+  return hint !== undefined ? `${hint}（${detail}）` : detail
+}
+
+/** 对选中的提供商/模型发一次最小真实调用（maxTokens=16），验证 Key / 端点 / 模型可用。 */
+export async function testLlmModel(ctx: Context, provider: string, model: string): Promise<LlmTestResponse> {
+  const start = Date.now()
+  const messages: Message[] = [createUserMessage({
+    content: [{ type: 'text', text: '只回复两个字：OK' }],
+    source: { kind: 'plugin', plugin: 'dsh-novel-forge' },
+  })]
+  const request: GenerateOptions = {
+    provider,
+    model,
+    messages,
+    maxTokens: 16,
+    temperature: 0,
+  }
+  // 真实流式调用 + 30 秒超时（GenerateOptions.signal 由适配器响应并中止）。
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 30_000)
+  try {
+    const assembler = new BlockAssembler()
+    let sawBlock = false
+    for await (const chunk of ctx.llm.stream({ ...request, signal: controller.signal })) {
+      assembler.push(chunk)
+      // 拿到第一个完整块即判定连通并提前结束，省 token。
+      if (chunk.type === 'block-end') { sawBlock = true; break }
+    }
+    if (sawBlock) return { ok: true, ms: Date.now() - start }
+    const finish = assembler.finish
+    if (finish !== undefined && (finish.kind === 'error' || finish.kind === 'aborted')) {
+      const failure = finish.failure
+      throw Object.assign(new Error(failure.message), { code: failure.code })
+    }
+    // 正常 finish（stop/max-tokens）但没有文本块，同样视为已连通。
+    return { ok: true, ms: Date.now() - start }
+  } catch (error) {
+    const err = error as Error & { code?: string }
+    return { ok: false, ms: Date.now() - start, code: err.code, message: describeLlmTestError(err) }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** 确保 pi-ai 的一条 provider 路由存在（settings seam 深度合并，保留已有字段）。 */
+async function ensurePiAiProvider(ctx: Context, route: string, cfg: Record<string, unknown>): Promise<void> {
+  const settings = ctx.get('settings') as { update: (ns: string, patch: object) => Promise<void> } | undefined
+  if (settings === undefined) throw new Error('DSH settings 服务不可用，无法注册路由')
+  await settings.update('llm-pi-ai', { providers: { [route]: cfg } })
+}
+
+/** 运行时厂商目录：DSH pi-ai 可配置提供方 + 内置适配器，作为「添加模型」下拉。 */
+export async function listLlmVendors(ctx: Context): Promise<LlmVendorsResponse> {
+  const map = new Map<string, LlmVendorOption>()
+  // 预置厂商（有名称/模型建议/apiKeyEnv）
+  for (const v of LLM_VENDORS) {
+    map.set(v.route, { id: v.route, name: v.name, models: v.models, apiKeyEnv: v.apiKeyEnv, builtin: v.builtin })
+  }
+  // DSH pi-ai 可配置提供方目录（DSH 添加模型下拉的数据源）
+  try {
+    for (const p of ctx.llm.listConfigurableProviders()) {
+      if (!map.has(p.provider)) {
+        map.set(p.provider, {
+          id: p.provider,
+          name: p.displayName !== '' ? p.displayName : p.provider,
+          models: [],
+          apiKeyEnv: 'PI_AI_' + p.provider.toUpperCase().replace(/[^A-Z0-9]+/g, '_') + '_API_KEY',
+        })
+      }
+    }
+  } catch { /* 单个目录读取失败跳过 */ }
+  // 已注册的适配器路由（如 deepseek-official）
+  try {
+    for (const p of ctx.llm.listProviders()) {
+      if (!map.has(p.id)) {
+        map.set(p.id, { id: p.id, name: p.name !== '' && p.name !== p.id ? p.name : p.id, models: [], builtin: true })
+      }
+    }
+  } catch { /* ignore */ }
+  return { vendors: [...map.values()] }
+}
+
+/** 查询某个 provider 当前可用模型（添加成功后可即时刷新下拉）。 */
+export async function listLlmModels(ctx: Context, provider: string): Promise<LlmModelsResponse> {
+  if (provider.trim() === '') return { models: [] }
+  try {
+    const models = await ctx.llm.listModels(provider.trim())
+    return { models: models.map(m => ({ id: m.id, name: m.name })) }
+  } catch {
+    // provider 未激活/目录不可用 → 返回空，让前端回退到手填。
+    return { models: [] }
+  }
+}
+
+/** 当前已注册的提供方路由列表（提供方管理卡片）。 */
+export async function listLlmProviders(ctx: Context): Promise<LlmProvidersResponse> {
+  try {
+    const providers = ctx.llm.listProviders().map(p => ({ id: p.id, name: p.name !== '' && p.name !== p.id ? p.name : p.id }))
+    return { providers }
+  } catch {
+    // 兜底：至少总是有内置 DeepSeek。
+    return { providers: [{ id: 'deepseek-official', name: 'DeepSeek' }] }
+  }
+}
+
+/** 移除一个提供方：unset 凭据 ref + 移除 llm-pi-ai providers 路由。 */
+export async function removeLlmProvider(ctx: Context, req: RemoveProviderRequest): Promise<RemoveProviderResponse> {
+  const provider = (req.provider ?? '').trim()
+  if (provider === '') throw new Error('缺少 provider')
+  if (provider === 'deepseek-official') throw new Error('内置 DeepSeek 提供方不可删除')
+
+  const creds = ctx.get('credentials') as { unset?: (ref: string) => Promise<void> } | undefined
+  if (creds?.unset !== undefined && req.apiKeyEnv !== undefined && req.apiKeyEnv.trim() !== '') {
+    await creds.unset(req.apiKeyEnv.trim())
+  }
+
+  const settings = ctx.get('settings') as { mutate?: (ns: string, ops: { op: 'unset'; path: string[] }[]) => Promise<void> } | undefined
+  if (settings?.mutate !== undefined) {
+    await settings.mutate('llm-pi-ai', [{ op: 'unset', path: ['providers', provider] }])
+  }
+
+  return { ok: true, message: '已移除提供方 ' + provider }
+}
+
+/**
+ * 添加模型（DSH 同款体验）：厂商直填 API Key，或自定义 OpenAI 兼容路由。
+ * 写入 DSH 凭据 refs，并（必要时）注册/更新 llm-pi-ai provider 路由。
+ */
+export async function registerLlmModel(ctx: Context, req: AddModelRequest): Promise<AddModelResponse> {
+  const apiKey = req.apiKey?.trim() ?? ''
+  const model = req.model?.trim() ?? ''
+  if (apiKey === '') throw new Error('API Key 不能为空')
+  if (model === '') throw new Error('模型 id 不能为空')
+
+  const creds = ctx.get('credentials') as { set(ref: string, value: string): Promise<void> } | undefined
+  if (creds === undefined) throw new Error('DSH credentials 服务不可用，无法写入 API Key')
+
+  let route: string
+  let env: string
+  let displayName: string
+  let message: string
+
+  if (req.mode === 'vendor') {
+    const vendorId = (req.vendor ?? '').trim()
+    if (vendorId === '') throw new Error('请选择厂商')
+    const v = LLM_VENDORS.find(x => x.route === vendorId)
+    route = vendorId
+    env = req.apiKeyEnv?.trim() || v?.apiKeyEnv || ('PI_AI_' + vendorId.toUpperCase().replace(/[^A-Z0-9]+/g, '_') + '_API_KEY')
+    displayName = v?.name ?? vendorId
+    const isBuiltin = v?.builtin === true || vendorId === 'deepseek-official'
+    await creds.set(env, apiKey)
+    // 内置适配器（如 deepseek-official）不需 pi-ai 路由；其余 catalog 路由写 apiKeyEnv 即可。
+    if (isBuiltin) {
+      message = '已写入 DSH 凭据（' + env + '）'
+    } else {
+      await ensurePiAiProvider(ctx, route, { apiKeyEnv: env })
+      message = '已写入 DSH 凭据并注册路由 ' + route
+    }
+  } else {
+    route = (req.provider ?? '').trim()
+    const baseURL = (req.baseURL ?? '').trim()
+    if (route === '') throw new Error('自定义模式需填提供商路由 id')
+    if (baseURL === '') throw new Error('自定义模式需填接口地址 (baseURL)')
+    env = 'NOVEL_CUSTOM_' + route.toUpperCase().replace(/[^A-Z0-9]+/g, '_') + '_API_KEY'
+    displayName = req.name?.trim() || ('Custom ' + route)
+    await creds.set(env, apiKey)
+    await ensurePiAiProvider(ctx, route, {
+      displayName,
+      apiKeyEnv: env,
+      api: 'openai-completions',
+      baseURL,
+      models: [{ id: model }],
+      compat: { supportsDeveloperRole: false, maxTokensField: 'max_tokens' },
+    })
+    message = '已写入 DSH 凭据并注册路由 ' + route
+  }
+
+  const saved: SavedModel = {
+    id: 'saved-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6),
+    name: req.name?.trim() || (displayName + ' · ' + model),
+    provider: route,
+    model,
+  }
+  return { ok: true, saved, provider: route, message }
 }
 
 /** 底层：按形象锚点调用生图接口生成定妆图（不写库；写库由上层调用方负责）。 */

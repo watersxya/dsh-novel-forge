@@ -95,11 +95,9 @@ export function AdaptModeView({ api }: { api: NovelApi }) {
 
   return (
     <div className={css.authorPageBody}>
-      <div className={css.authorPageHeader}>
-        <div>
-          <h2 className={css.panelTitle} style={{ margin: 0 }}>🎬 改编模式</h2>
-          <span className={css.meta}>上传全文 → 分析可改范围 → 勾选/填新值 → 生成映射表 → 术语替换执行。</span>
-        </div>
+      <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-6)' }}>
+        <h2 className={css.panelTitle} style={{ margin: 0 }}>🎬 改编模式</h2>
+        <span className={css.meta}>上传全文 → 分析可改范围 → 勾选/填新值 → 生成映射表 → 术语替换执行。</span>
       </div>
 
       <div className={css.adaptInputCard}>

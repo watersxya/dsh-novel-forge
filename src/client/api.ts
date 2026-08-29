@@ -8,6 +8,13 @@ import {
   NOVEL_API,
   type AssetsPatch,
   type AssetsResponse,
+  type AddModelRequest,
+  type AddModelResponse,
+  type LlmModelsResponse,
+  type LlmProvidersResponse,
+  type LlmVendorsResponse,
+  type RemoveProviderRequest,
+  type RemoveProviderResponse,
   type BibleResponse,
   type ChapterResponse,
   type ConfigPatch,
@@ -16,6 +23,7 @@ import {
   type ForeshadowResponse,
   type JobFrame,
   type LoadOutlineResponse,
+  type LlmTestResponse,
   type NovelConfig,
   type PlanResponse,
   type ReviewReport,
@@ -230,6 +238,39 @@ export class NovelApi {
   /** 角色库：AI 提炼 / 采纳 / 更新 / 删除。 */
   async imageTest(req: import('../protocol.ts').ImageTestRequest): Promise<import('../protocol.ts').ImageTestResponse> {
     return postJson<import('../protocol.ts').ImageTestResponse>(NOVEL_API.imageTest, req)
+  }
+
+  /** 对选中的提供商/模型发一次最小真实调用，验证连通性。 */
+  async llmTest(provider: string, model: string): Promise<LlmTestResponse> {
+    return postJson<LlmTestResponse>(NOVEL_API.llmTest, { provider, model })
+  }
+
+  /** 添加模型：厂商直填 key，或自定义 OpenAI 兼容路由（写 DSH 凭据 + 注册路由）。 */
+  async addModel(req: AddModelRequest): Promise<AddModelResponse> {
+    return postJson<AddModelResponse>(NOVEL_API.addModel, req)
+  }
+
+  /** 运行时厂商目录（DSH pi-ai 可配置提供方 + 内置适配器）。 */
+  async llmVendors(): Promise<LlmVendorsResponse> {
+    const response = await fetch(NOVEL_API.llmVendors)
+    return readJson<LlmVendorsResponse>(response)
+  }
+
+  /** 查询某个 provider 当前可用的模型（添加成功后可即时刷新）。 */
+  async llmModels(provider: string): Promise<LlmModelsResponse> {
+    const response = await fetch(NOVEL_API.llmModels + '?provider=' + encodeURIComponent(provider))
+    return readJson<LlmModelsResponse>(response)
+  }
+
+  /** 已注册的提供方路由列表（提供方管理卡片）。 */
+  async llmProviders(): Promise<LlmProvidersResponse> {
+    const response = await fetch(NOVEL_API.llmProviders)
+    return readJson<LlmProvidersResponse>(response)
+  }
+
+  /** 移除一个提供方（unset key + 移除 llm-pi-ai 路由）。 */
+  async removeProvider(req: RemoveProviderRequest): Promise<RemoveProviderResponse> {
+    return postJson<RemoveProviderResponse>(NOVEL_API.llmRemove, req)
   }
 
   async roles(req: import('../protocol.ts').RolesRequest): Promise<import('../protocol.ts').RolesResponse> {

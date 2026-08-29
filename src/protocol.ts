@@ -64,6 +64,18 @@ export const NOVEL_API = {
   storyboardPrompts: '/api/dsh-novel-forge/storyboard/prompts',
   /** 生图接口连通性测试（设置页每个模型条目用）。 */
   imageTest: '/api/dsh-novel-forge/image-test',
+  /** LLM 模型连通性测试：真实最小调用，验证 Key / 端点 / 模型可用。 */
+  llmTest: '/api/dsh-novel-forge/llm-test',
+  /** 添加模型：厂商直填 key 或自定义路由，写进 DSH 凭据与 llm-pi-ai 路由。 */
+  addModel: '/api/dsh-novel-forge/llm-add',
+  /** 运行时厂商目录（DSH pi-ai 可配置提供方 + 内置适配器）。 */
+  llmVendors: '/api/dsh-novel-forge/llm-vendors',
+  /** 查询某个 provider 当前可用的模型（添加成功后可即时刷新）。 */
+  llmModels: '/api/dsh-novel-forge/llm-models',
+  /** 已注册的提供方路由列表（提供方管理）。 */
+  llmProviders: '/api/dsh-novel-forge/llm-providers',
+  /** 移除一个提供方。 */
+  llmRemove: '/api/dsh-novel-forge/llm-remove',
   /** 重置项目（可选携带新大纲）：清空设定/卷/章节/伏笔/资产/事实库。 */
   reset: '/api/dsh-novel-forge/reset',
   /** 全书一致性质检：LLM 扫描已生成章节，输出矛盾问题清单。 */
@@ -1057,6 +1069,23 @@ export interface ImageTestResponse {
   modelFound?: boolean
 }
 
+/** POST /llm-test 请求：对选中的提供商/模型发一次最小真实调用。 */
+export interface LlmTestRequest {
+  provider: string
+  model: string
+}
+
+/** POST /llm-test 响应。 */
+export interface LlmTestResponse {
+  ok: boolean
+  /** 连通延迟（毫秒）。 */
+  ms?: number
+  /** 失败原因（已映射为人话）。 */
+  message?: string
+  /** 稳定错误码（LlmError code），便于排查。 */
+  code?: string
+}
+
 /** POST /roles 响应。 */
 export interface RolesResponse {
   roles: RoleRecord[]
@@ -1235,6 +1264,133 @@ export interface ImageModelConfig {
 }
 
 /** Runtime config surface exposed to the panel (subset of plugin Config). */
+/** 手动添加的模型库条目（只存插件内，不改 DSH 全局）。 */
+export interface SavedModel {
+  /** 唯一 id（前端生成的短 id）。 */
+  id: string
+  /** 展示名（可为空，回退到 model）。 */
+  name: string
+  /** DSH 提供商路由（如 zai-coding-cn）。 */
+  provider: string
+  /** 模型 id（如 glm-5.3-flash）。 */
+  model: string
+}
+
+/** DSH 模型添加：厂商预设（选择厂商，直接填 API Key）。 */
+export interface LlmVendor {
+  id: string
+  name: string
+  /** 该厂商对应的 provider 路由。 */
+  route: string
+  /** DSH 凭据引用名（写入 .credentials.yaml 的 refs）。 */
+  apiKeyEnv: string
+  /** 默认模型 id。 */
+  defaultModel: string
+  /** 建议可选模型 id 列表（下拉 data-list 用）。 */
+  models: string[]
+  /** 内置适配器（如 deepseek-official），无需注册 pi-ai 路由。 */
+  builtin?: boolean
+}
+
+/** 预置的常见厂商（id=provider 路由；添加模型下拉兜底用，其余厂商由运行时目录动态补充）。 */
+export const LLM_VENDORS: LlmVendor[] = [
+  { id: 'deepseek-official', name: 'DeepSeek', route: 'deepseek-official', apiKeyEnv: 'DEEPSEEK_API_KEY', defaultModel: 'deepseek-v4-flash', models: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'], builtin: true },
+  { id: 'zai-coding-cn', name: '智谱 GLM', route: 'zai-coding-cn', apiKeyEnv: 'ZAI_CODING_CN_API_KEY', defaultModel: 'glm-5.3-flash', models: ['glm-4.5-air', 'glm-4.7', 'glm-5-turbo', 'glm-5.1', 'glm-5.2', 'glm-5.3', 'glm-5.3-flash', 'glm-5v-turbo'] },
+  { id: 'qwen-token-plan-cn', name: '千问百炼', route: 'qwen-token-plan-cn', apiKeyEnv: 'QWEN_TOKEN_PLAN_CN_API_KEY', defaultModel: 'qwen3.7-max', models: ['qwen3.6-flash', 'qwen3.6-plus', 'qwen3.7-max', 'qwen3.7-plus', 'qwen3.8-max', 'qwen3.8-max-preview'] },
+  { id: 'openrouter', name: 'OpenRouter', route: 'openrouter', apiKeyEnv: 'OPENROUTER_API_KEY', defaultModel: 'z-ai/glm-5.3-flash', models: ['z-ai/glm-4.6', 'z-ai/glm-4.7', 'z-ai/glm-5', 'z-ai/glm-5-turbo', 'z-ai/glm-5.1', 'z-ai/glm-5.2', 'z-ai/glm-5.3-flash', 'auto', 'deepseek/deepseek-v4-flash', 'anthropic/claude-sonnet-4.6'] },
+]
+
+/** 运行时厂商目录的一项（添加到模型下拉；由 DSH 的 pi-ai 可配置提供方动态生成）。 */
+export interface LlmVendorOption {
+  /** provider 路由 id（也是厂商下拉的值）。 */
+  id: string
+  /** 展示名。 */
+  name: string
+  /** 建议模型 id（可为空，用户手填）。 */
+  models: string[]
+  /** 已知 DSH 凭据引用名；为空时 host 生成 `PI_AI_<ID>_API_KEY`。 */
+  apiKeyEnv?: string
+  /** 内置适配器（只写凭据，不注册 pi-ai 路由）。 */
+  builtin?: boolean
+}
+
+/** GET /llm-vendors 响应。 */
+export interface LlmVendorsResponse {
+  vendors: LlmVendorOption[]
+}
+
+/** /llm-models 里的一条模型。 */
+export interface LlmModelOption { id: string; name: string }
+
+/** GET /llm-models?provider=x 响应。 */
+export interface LlmModelsResponse {
+  models: LlmModelOption[]
+}
+
+/** GET /llm-providers 响应：当前已注册的提供方路由。 */
+export interface LlmProvidersResponse {
+  providers: { id: string; name: string }[]
+}
+
+/** POST /llm-remove 请求：移除一个提供方（unset key + 移除 llm-pi-ai 路由）。 */
+export interface RemoveProviderRequest {
+  provider: string
+  /** 该提供方对应的 DSH 凭据引用名（用于 unset）。 */
+  apiKeyEnv?: string
+}
+
+/** POST /llm-remove 响应。 */
+export interface RemoveProviderResponse {
+  ok: boolean
+  message?: string
+}
+
+/** GET /llm-providers 响应：当前已注册的提供方路由。 */
+export interface LlmProvidersResponse {
+  providers: { id: string; name: string }[]
+}
+
+/** POST /llm-remove 请求：移除一个提供方（unset key + 移除 llm-pi-ai 路由）。 */
+export interface RemoveProviderRequest {
+  provider: string
+  /** 该提供方对应的 DSH 凭据引用名（用于 unset）。 */
+  apiKeyEnv?: string
+}
+
+/** POST /llm-remove 响应。 */
+export interface RemoveProviderResponse {
+  ok: boolean
+  message?: string
+}
+
+/** POST /llm-add 请求：添加一个模型（厂商直填 key，或自定义路由）。 */
+export interface AddModelRequest {
+  mode: 'vendor' | 'custom'
+  /** 厂商模式用：provider 路由 id（来自 /llm-vendors）。 */
+  vendor?: string
+  /** 厂商已知的 DSH 凭据引用名（可选；为空时 host 生成）。 */
+  apiKeyEnv?: string
+  /** 自定义模式用：provider 路由 id。 */
+  provider?: string
+  /** 模型 id。 */
+  model: string
+  /** API Key。 */
+  apiKey: string
+  /** 展示名（可选）。 */
+  name?: string
+  /** 自定义模式用：OpenAI 兼容 base URL。 */
+  baseURL?: string
+}
+
+/** POST /llm-add 响应。 */
+export interface AddModelResponse {
+  ok: boolean
+  saved: SavedModel
+  provider: string
+  message?: string
+}
+
+/** 手动添加的模型库条目（只存插件内，不改 DSH 全局）。 */
 export interface NovelConfig {
   /** Absolute path of the default docx outline to load. */
   outlinePath: string
@@ -1278,6 +1434,8 @@ export interface NovelConfig {
   themeOpacity?: number
   /** 是否启用改编模式（默认关闭；发布后开启）。 */
   enableAdaptMode?: boolean
+  /** 手动添加的模型库（「我的模型」条目；只存插件内）。 */
+  savedModels?: SavedModel[]
 }
 
 /** GET /status response. */
@@ -1503,6 +1661,8 @@ export interface ConfigPatch {
   enableAdaptMode?: boolean
   /** 生图模型库（完整替换保存）。 */
   imageModels?: ImageModelConfig[]
+  /** 手动添加的模型库（完整替换保存）。 */
+  savedModels?: SavedModel[]
 }
 
 // ------------------------------------------------------------ assistant

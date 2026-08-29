@@ -22,6 +22,13 @@ import {
   NOVEL_API,
   type AssetsPatch,
   type AssetsResponse,
+  type AddModelRequest,
+  type AddModelResponse,
+  type LlmModelsResponse,
+  type LlmProvidersResponse,
+  type LlmVendorsResponse,
+  type RemoveProviderRequest,
+  type RemoveProviderResponse,
   type AssistantFrame,
   type AssistantHistoryResponse,
   type AssistantRequest,
@@ -101,6 +108,8 @@ import {
   type StoryboardPromptsRequest,
   type ImageTestRequest,
   type ImageTestResponse,
+  type LlmTestRequest,
+  type LlmTestResponse,
   type StoryboardPromptsResponse,
   type StyleEngineRequest,
   type SummaryRequest,
@@ -170,6 +179,12 @@ import {
   generateRoleReferenceImage,
   generateMangaRoleReferenceImage,
   testImageEndpoint,
+  testLlmModel,
+  registerLlmModel,
+  listLlmVendors,
+  listLlmModels,
+  listLlmProviders,
+  removeLlmProvider,
   generateStoryboardSkeleton,
   generateStoryboardTable,
   generateStoryboardPrompts,
@@ -2438,6 +2453,117 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     },
   }
 
+  // ------------------------------------------------------------- llm-test
+  /** LLM 连通性测试：对选中的提供商/模型发一次最小真实调用。 */
+  const llmTestRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.llmTest,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<LlmTestRequest>(req)
+      const provider = (body?.provider ?? '').trim()
+      const model = (body?.model ?? '').trim()
+      if (provider === '' || model === '') {
+        writeJson(res, 400, { error: 'provider 与 model 必填' })
+        return
+      }
+      const result = await testLlmModel(ctx, provider, model)
+      writeJson(res, 200, result satisfies LlmTestResponse)
+    },
+  }
+
+  // ------------------------------------------------------------- llm-add
+  /** 添加模型：厂商直填 API Key，或自定义 OpenAI 兼容路由（写 DSH 凭据 + router）。 */
+  const addModelRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.addModel,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<AddModelRequest>(req)
+      if (body === undefined) {
+        writeJson(res, 400, { error: '缺少请求体' })
+        return
+      }
+      try {
+        const result = await registerLlmModel(ctx, body)
+        writeJson(res, 200, result satisfies AddModelResponse)
+      } catch (error) {
+        writeJson(res, 500, { error: `添加模型失败：${(error as Error).message}` })
+      }
+    },
+  }
+
+  // ---------------------------------------------------------- llm-vendors
+  /** 运行时厂商目录（DSH pi-ai 可配置提供方 + 内置适配器）。 */
+  const llmVendorsRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.llmVendors,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'GET')) return
+      try {
+        const result = await listLlmVendors(ctx)
+        writeJson(res, 200, result satisfies LlmVendorsResponse)
+      } catch (error) {
+        writeJson(res, 500, { error: `读取厂商目录失败：${(error as Error).message}` })
+      }
+    },
+  }
+
+  // ---------------------------------------------------------- llm-models
+  /** 查询某个 provider 当前可用的模型（添加成功后可即时刷新下拉）。 */
+  const llmModelsRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.llmModels,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'GET')) return
+      const url = new URL(req.url ?? '', 'http://localhost')
+      const provider = decodeURIComponent((url.searchParams.get('provider') ?? '').trim())
+      try {
+        const result = await listLlmModels(ctx, provider)
+        writeJson(res, 200, result satisfies LlmModelsResponse)
+      } catch (error) {
+        writeJson(res, 500, { error: `读取模型列表失败：${(error as Error).message}` })
+      }
+    },
+  }
+
+  // ---------------------------------------------------------- llm-providers
+  /** 已注册的提供方路由列表（提供方管理卡片）。 */
+  const llmProvidersRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.llmProviders,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'GET')) return
+      try {
+        const result = await listLlmProviders(ctx)
+        writeJson(res, 200, result satisfies LlmProvidersResponse)
+      } catch (error) {
+        writeJson(res, 500, { error: `读取提供方列表失败：${(error as Error).message}` })
+      }
+    },
+  }
+
+  // ------------------------------------------------------------- llm-remove
+  /** 移除一个提供方（unset key + 移除 llm-pi-ai 路由）。 */
+  const llmRemoveRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.llmRemove,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<RemoveProviderRequest>(req)
+      if (body === undefined) {
+        writeJson(res, 400, { error: '缺少请求体' })
+        return
+      }
+      try {
+        const result = await removeLlmProvider(ctx, body)
+        writeJson(res, 200, result satisfies RemoveProviderResponse)
+      } catch (error) {
+        writeJson(res, 500, { error: `移除提供方失败：${(error as Error).message}` })
+      }
+    },
+  }
+
   // ---------------------------------------------------- storyboard table
   /** 分镜·导演级：骨架 → 分镜表（镜头级）。 */
   const storyboardTableRoute: WebRoute = {
@@ -2992,6 +3118,12 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     styleImageRoute,
     storyboardSkeletonRoute,
     imageTestRoute,
+    llmTestRoute,
+    addModelRoute,
+    llmVendorsRoute,
+    llmModelsRoute,
+    llmProvidersRoute,
+    llmRemoveRoute,
     storyboardTableRoute,
     storyboardPromptsRoute,
     breakdownRoute,

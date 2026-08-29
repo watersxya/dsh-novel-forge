@@ -55,6 +55,18 @@ export declare const NOVEL_API: {
     readonly storyboardPrompts: "/api/dsh-novel-forge/storyboard/prompts";
     /** 生图接口连通性测试（设置页每个模型条目用）。 */
     readonly imageTest: "/api/dsh-novel-forge/image-test";
+    /** LLM 模型连通性测试：真实最小调用，验证 Key / 端点 / 模型可用。 */
+    readonly llmTest: "/api/dsh-novel-forge/llm-test";
+    /** 添加模型：厂商直填 key 或自定义路由，写进 DSH 凭据与 llm-pi-ai 路由。 */
+    readonly addModel: "/api/dsh-novel-forge/llm-add";
+    /** 运行时厂商目录（DSH pi-ai 可配置提供方 + 内置适配器）。 */
+    readonly llmVendors: "/api/dsh-novel-forge/llm-vendors";
+    /** 查询某个 provider 当前可用的模型（添加成功后可即时刷新）。 */
+    readonly llmModels: "/api/dsh-novel-forge/llm-models";
+    /** 已注册的提供方路由列表（提供方管理）。 */
+    readonly llmProviders: "/api/dsh-novel-forge/llm-providers";
+    /** 移除一个提供方。 */
+    readonly llmRemove: "/api/dsh-novel-forge/llm-remove";
     /** 重置项目（可选携带新大纲）：清空设定/卷/章节/伏笔/资产/事实库。 */
     readonly reset: "/api/dsh-novel-forge/reset";
     /** 全书一致性质检：LLM 扫描已生成章节，输出矛盾问题清单。 */
@@ -995,6 +1007,21 @@ export interface ImageTestResponse {
     /** 模型 id 是否出现在接口的模型列表（探测成功时才有）。 */
     modelFound?: boolean;
 }
+/** POST /llm-test 请求：对选中的提供商/模型发一次最小真实调用。 */
+export interface LlmTestRequest {
+    provider: string;
+    model: string;
+}
+/** POST /llm-test 响应。 */
+export interface LlmTestResponse {
+    ok: boolean;
+    /** 连通延迟（毫秒）。 */
+    ms?: number;
+    /** 失败原因（已映射为人话）。 */
+    message?: string;
+    /** 稳定错误码（LlmError code），便于排查。 */
+    code?: string;
+}
 /** POST /roles 响应。 */
 export interface RolesResponse {
     roles: RoleRecord[];
@@ -1158,6 +1185,122 @@ export interface ImageModelConfig {
     enabled: boolean;
 }
 /** Runtime config surface exposed to the panel (subset of plugin Config). */
+/** 手动添加的模型库条目（只存插件内，不改 DSH 全局）。 */
+export interface SavedModel {
+    /** 唯一 id（前端生成的短 id）。 */
+    id: string;
+    /** 展示名（可为空，回退到 model）。 */
+    name: string;
+    /** DSH 提供商路由（如 zai-coding-cn）。 */
+    provider: string;
+    /** 模型 id（如 glm-5.3-flash）。 */
+    model: string;
+}
+/** DSH 模型添加：厂商预设（选择厂商，直接填 API Key）。 */
+export interface LlmVendor {
+    id: string;
+    name: string;
+    /** 该厂商对应的 provider 路由。 */
+    route: string;
+    /** DSH 凭据引用名（写入 .credentials.yaml 的 refs）。 */
+    apiKeyEnv: string;
+    /** 默认模型 id。 */
+    defaultModel: string;
+    /** 建议可选模型 id 列表（下拉 data-list 用）。 */
+    models: string[];
+    /** 内置适配器（如 deepseek-official），无需注册 pi-ai 路由。 */
+    builtin?: boolean;
+}
+/** 预置的常见厂商（id=provider 路由；添加模型下拉兜底用，其余厂商由运行时目录动态补充）。 */
+export declare const LLM_VENDORS: LlmVendor[];
+/** 运行时厂商目录的一项（添加到模型下拉；由 DSH 的 pi-ai 可配置提供方动态生成）。 */
+export interface LlmVendorOption {
+    /** provider 路由 id（也是厂商下拉的值）。 */
+    id: string;
+    /** 展示名。 */
+    name: string;
+    /** 建议模型 id（可为空，用户手填）。 */
+    models: string[];
+    /** 已知 DSH 凭据引用名；为空时 host 生成 `PI_AI_<ID>_API_KEY`。 */
+    apiKeyEnv?: string;
+    /** 内置适配器（只写凭据，不注册 pi-ai 路由）。 */
+    builtin?: boolean;
+}
+/** GET /llm-vendors 响应。 */
+export interface LlmVendorsResponse {
+    vendors: LlmVendorOption[];
+}
+/** /llm-models 里的一条模型。 */
+export interface LlmModelOption {
+    id: string;
+    name: string;
+}
+/** GET /llm-models?provider=x 响应。 */
+export interface LlmModelsResponse {
+    models: LlmModelOption[];
+}
+/** GET /llm-providers 响应：当前已注册的提供方路由。 */
+export interface LlmProvidersResponse {
+    providers: {
+        id: string;
+        name: string;
+    }[];
+}
+/** POST /llm-remove 请求：移除一个提供方（unset key + 移除 llm-pi-ai 路由）。 */
+export interface RemoveProviderRequest {
+    provider: string;
+    /** 该提供方对应的 DSH 凭据引用名（用于 unset）。 */
+    apiKeyEnv?: string;
+}
+/** POST /llm-remove 响应。 */
+export interface RemoveProviderResponse {
+    ok: boolean;
+    message?: string;
+}
+/** GET /llm-providers 响应：当前已注册的提供方路由。 */
+export interface LlmProvidersResponse {
+    providers: {
+        id: string;
+        name: string;
+    }[];
+}
+/** POST /llm-remove 请求：移除一个提供方（unset key + 移除 llm-pi-ai 路由）。 */
+export interface RemoveProviderRequest {
+    provider: string;
+    /** 该提供方对应的 DSH 凭据引用名（用于 unset）。 */
+    apiKeyEnv?: string;
+}
+/** POST /llm-remove 响应。 */
+export interface RemoveProviderResponse {
+    ok: boolean;
+    message?: string;
+}
+/** POST /llm-add 请求：添加一个模型（厂商直填 key，或自定义路由）。 */
+export interface AddModelRequest {
+    mode: 'vendor' | 'custom';
+    /** 厂商模式用：provider 路由 id（来自 /llm-vendors）。 */
+    vendor?: string;
+    /** 厂商已知的 DSH 凭据引用名（可选；为空时 host 生成）。 */
+    apiKeyEnv?: string;
+    /** 自定义模式用：provider 路由 id。 */
+    provider?: string;
+    /** 模型 id。 */
+    model: string;
+    /** API Key。 */
+    apiKey: string;
+    /** 展示名（可选）。 */
+    name?: string;
+    /** 自定义模式用：OpenAI 兼容 base URL。 */
+    baseURL?: string;
+}
+/** POST /llm-add 响应。 */
+export interface AddModelResponse {
+    ok: boolean;
+    saved: SavedModel;
+    provider: string;
+    message?: string;
+}
+/** 手动添加的模型库条目（只存插件内，不改 DSH 全局）。 */
 export interface NovelConfig {
     /** Absolute path of the default docx outline to load. */
     outlinePath: string;
@@ -1201,6 +1344,8 @@ export interface NovelConfig {
     themeOpacity?: number;
     /** 是否启用改编模式（默认关闭；发布后开启）。 */
     enableAdaptMode?: boolean;
+    /** 手动添加的模型库（「我的模型」条目；只存插件内）。 */
+    savedModels?: SavedModel[];
 }
 /** GET /status response. */
 export interface StatusResponse {
@@ -1447,6 +1592,8 @@ export interface ConfigPatch {
     enableAdaptMode?: boolean;
     /** 生图模型库（完整替换保存）。 */
     imageModels?: ImageModelConfig[];
+    /** 手动添加的模型库（完整替换保存）。 */
+    savedModels?: SavedModel[];
 }
 /** One assistant conversation message (persisted per project). */
 export interface AssistantMessage {

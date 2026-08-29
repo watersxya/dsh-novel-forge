@@ -1,5 +1,5 @@
 import type { NovelApi } from '../api.ts';
-type SettingsTab = 'model' | 'writing' | 'image' | 'files' | 'appearance' | 'background';
+type SettingsTab = 'model' | 'writing' | 'image' | 'files' | 'appearance';
 type ThemeMode = 'system' | 'light' | 'dark';
 type ThemeName = 'liquid' | 'neumorph' | 'macos' | 'clay';
 type ThemeDensity = 'comfort' | 'compact' | 'spacious';

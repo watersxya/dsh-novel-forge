@@ -9,9 +9,13 @@ import type { BookshelfSnapshot } from '../../protocol.ts'
 import { ShelfView } from './ShelfView.tsx'
 import { AdaptModeView } from './AdaptModeView.tsx'
 import { AuthorAssetsView } from './AuthorAssetsView.tsx'
-import { ProgressHomeView } from './ProgressHomeView.tsx'
+import { ProgressConsole, type ProgressLine } from './ProgressConsole.tsx'
 import { SettingsView } from './SettingsView.tsx'
 import css from './panel.module.css'
+
+/** 构建时注入的插件版本（tsdown define 替换为字符串字面量）。 */
+declare const __NOVEL_FORGE_VERSION__: string | undefined
+const PLUGIN_VERSION: string = typeof __NOVEL_FORGE_VERSION__ !== 'undefined' ? __NOVEL_FORGE_VERSION__ : '0.0.0'
 
 type AuthorNav = 'shelf' | 'adapt' | 'assets' | 'library' | 'progress' | 'settings';
 
@@ -26,7 +30,7 @@ const NAV_ITEMS: Array<{ id: Exclude<AuthorNav, 'settings'>; label: string; icon
 function Placeholder({ title, hint }: { title: string; hint: string }) {
   return (
     <div className={css.authorPageBody}>
-      <div className={css.authorPageHeader}><h2 className={css.panelTitle} style={{ margin: 0 }}>{title}</h2><span className={css.meta}>{hint}</span></div>
+      <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-6)' }}><h2 className={css.panelTitle} style={{ margin: 0 }}>{title}</h2><span className={css.meta}>{hint}</span></div>
       <div className={css.shelfEmpty} style={{ minHeight: 160 }}>
         <span className={css.shelfEmptyIcon}><Info size={30} /></span>
         <span className={css.shelfEmptyTitle}>此入口为占位</span>
@@ -36,7 +40,7 @@ function Placeholder({ title, hint }: { title: string; hint: string }) {
   );
 }
 
-export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onImportBook, onOpenSettings, onTheme, onBackground, onOpacity, adaptEnabled }: {
+export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onImportBook, onOpenSettings, onTheme, onBackground, onOpacity, adaptEnabled, progress, busy, busyLabel, liveBar, onClearProgress }: {
   api: NovelApi; shelf: BookshelfSnapshot;
   onOpenBook: (id: string) => void; onReadBook: (id: string) => void; onAddBook: () => void; onImportBook: () => void;
   /** 兼容旧入口：首页设置现为独立设置页，此回调保留但不再使用。 */
@@ -49,6 +53,12 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
   onOpacity?: (n: number) => void;
   /** 是否启用改编模式（默认 false=隐藏入口）。 */
   adaptEnabled?: boolean;
+  /** AI 进度实时状态（与书内共享同一份）。 */
+  progress?: ProgressLine[];
+  busy?: boolean;
+  busyLabel?: string;
+  liveBar?: { text: string; ratio?: number } | null;
+  onClearProgress?: () => void;
 }) {
   const [nav, setNav] = useState<AuthorNav>('shelf');
 
@@ -77,7 +87,7 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
           <span className={css.navTabLabel}>设置</span>
         </button>
         <div className={css.navAbout}>
-          <div className={css.navAboutRow}><span>ℹ️ v1.7.3 · 改编/资产库</span></div>
+          <div className={css.navAboutRow}><span>ℹ️ v{PLUGIN_VERSION} · 改编/资产库</span></div>
         </div>
       </nav>
       <div className={css.authorContent}>
@@ -85,7 +95,11 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
         {nav === 'adapt' && <AdaptModeView api={api} />}
         {nav === 'assets' && <AuthorAssetsView api={api} />}
         {nav === 'library' && <Placeholder title="🎨 全局写作资产库" hint="内置题材基底库 / 反AI规则库 / 风格模板 / 推进模式（跨书）" />}
-        {nav === 'progress' && <ProgressHomeView shelf={shelf} onOpenBook={onOpenBook} />}
+        {nav === 'progress' && (
+          <div className={css.authorPageBody}>
+            <ProgressConsole progress={progress ?? []} busy={busy ?? false} busyLabel={busyLabel ?? ''} liveBar={liveBar ?? null} onClear={() => onClearProgress?.()} />
+          </div>
+        )}
         {nav === 'settings' && <SettingsView api={api} onTheme={onTheme} onBackground={onBackground} onOpacity={onOpacity} />}
       </div>
     </div>

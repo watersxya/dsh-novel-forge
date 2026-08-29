@@ -1,6 +1,7 @@
 import type { NovelApi } from '../api.ts';
 import type { BookshelfSnapshot } from '../../protocol.ts';
-export declare function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onImportBook, onOpenSettings, onTheme, onBackground, onOpacity, adaptEnabled }: {
+import { type ProgressLine } from './ProgressConsole.tsx';
+export declare function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onImportBook, onOpenSettings, onTheme, onBackground, onOpacity, adaptEnabled, progress, busy, busyLabel, liveBar, onClearProgress }: {
     api: NovelApi;
     shelf: BookshelfSnapshot;
     onOpenBook: (id: string) => void;
@@ -17,4 +18,13 @@ export declare function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBo
     onOpacity?: (n: number) => void;
     /** 是否启用改编模式（默认 false=隐藏入口）。 */
     adaptEnabled?: boolean;
+    /** AI 进度实时状态（与书内共享同一份）。 */
+    progress?: ProgressLine[];
+    busy?: boolean;
+    busyLabel?: string;
+    liveBar?: {
+        text: string;
+        ratio?: number;
+    } | null;
+    onClearProgress?: () => void;
 }): import("react").JSX.Element;
