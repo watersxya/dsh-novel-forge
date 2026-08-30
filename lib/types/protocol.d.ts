@@ -116,6 +116,8 @@ export declare const NOVEL_API: {
     readonly runStatus: "/api/dsh-novel-forge/run/status";
     readonly config: "/api/dsh-novel-forge/config";
     readonly openFolder: "/api/dsh-novel-forge/open-folder";
+    /** 插件自更新：在 DSH profile 目录拉取最新 npm 版（下载后需重启 DSH 生效）。 */
+    readonly pluginUpdate: "/api/dsh-novel-forge/plugin/update";
     /** 作者资产库/总数据：读取个人跨书资产（笔法/红线/套路/角色模板/世界观模板）。 */
     readonly authorAssets: "/api/dsh-novel-forge/author-assets";
     /** 作者资产库：新增/更新一条资产（upsert by id）。 */
@@ -130,6 +132,14 @@ export declare const NOVEL_API: {
     readonly adaptPropose: "/api/dsh-novel-forge/adapt/propose";
     /** 改编模式：执行术语替换（全局替换 + 命中统计 + 改编文本预览）。 */
     readonly adaptExecute: "/api/dsh-novel-forge/adapt/execute";
+    /** 改编模式：保存改编全文为新书（原书保留，登记书架）。 */
+    readonly adaptSave: "/api/dsh-novel-forge/adapt/save";
+    /** 改编模式：从源全文 + 编辑后方案提炼新书资料并保存为「待写新书」。 */
+    readonly adaptMaterialize: "/api/dsh-novel-forge/adapt/materialize";
+    /** 改编模式：rewrite 逐章重写（NDJSON 流式进度）。 */
+    readonly adaptRewriteStream: "/api/dsh-novel-forge/adapt/rewrite-stream";
+    /** 改编模式：把预览/微调后的新书资料写入并登记书架。 */
+    readonly adaptMaterializeSave: "/api/dsh-novel-forge/adapt/materialize-save";
     /** 主题自定义背景：上传图片（POST，存盘并返回服务端 URL）。 */
     readonly themeBackgroundUpload: "/api/dsh-novel-forge/theme/background";
     /** 主题自定义背景：读取已上传文件（GET prefix，/theme/background/<name>）。 */
@@ -1694,6 +1704,29 @@ export interface StyleTemplate {
     /** 该模板默认绑定的反 AI 规则 key（内置规则名）。 */
     defaultAntiAiRuleKeys: string[];
 }
+/** 剧情桥段库：可复用的情节套路/桥段（作者阅读经验沉淀，与书内 Plotline 不同层）。 */
+export interface PlotBeatTemplate {
+    /** 模板 key（如 face-slap / exit-wedding）。 */
+    key: string;
+    /** 桥段名（如「打脸」「退婚」）。 */
+    name: string;
+    /** 分类（如「装逼打脸」「身份逆袭」）。 */
+    category: string;
+    /** 一句话说明。 */
+    summary: string;
+    /** 适用位置（开局/前期/中期/后期/高潮/结尾）。 */
+    position: string;
+    /** 前置条件。 */
+    preconditions: string[];
+    /** 爽点来源。 */
+    payoffSource: string[];
+    /** 常用组合（可搭配的桥段）。 */
+    combos: string[];
+    /** 禁忌（别用烂/别用死）。 */
+    taboos: string[];
+    /** 适用题材。 */
+    applicableGenres: string[];
+}
 /** 写法引擎：从样本文本提取的叙事风格资产。 */
 export interface StyleAsset {
     /** 资产名（如「林越式痞坏」「冷峻猎手风」）。 */
@@ -1737,6 +1770,8 @@ export interface AssetsResponse {
     styleTemplates: StyleTemplate[];
     /** 内置推进模式候选。 */
     progressionLibrary: ProgressionMode[];
+    /** 内置剧情桥段库（可复用套路）。 */
+    plotBeatLibrary: PlotBeatTemplate[];
 }
 /** POST /assets request：更新项目写作资产（部分字段可选）。 */
 export interface AssetsPatch {
@@ -1760,7 +1795,7 @@ export interface AuthorStyleAsset {
     /** 资产名（如「短句快节奏爽文风」「林越式痞坏角色」）。 */
     name: string;
     /** 资产类型。 */
-    kind: 'style' | 'antiAi' | 'progression' | 'genre' | 'roleTemplate' | 'worldTemplate' | 'custom';
+    kind: 'style' | 'antiAi' | 'progression' | 'genre' | 'roleTemplate' | 'worldTemplate' | 'plotBeat' | 'custom';
     /** 一句话摘要。 */
     summary: string;
     /** 资产正文内容（按 kind 约定解读的文本/JSON 描述）。 */
@@ -1888,16 +1923,22 @@ export interface AdaptProposeRequest {
 export interface AdaptProposeResponse {
     proposal: AdaptationProposal;
 }
-/** POST /adapt/execute 请求：执行改编（首版为术语替换）。 */
+/** POST /adapt/execute 请求：执行改编（replace=术语替换；rewrite=逐章 LLM 重写）。 */
 export interface AdaptExecuteRequest {
     /** 原文全文。 */
     text: string;
     /** 改编映射表。 */
     mappings: AdaptationMapping[];
-    /** 改编规则（可选，后续逐章改写使用；替换模式暂不依赖）。 */
+    /** 改编规则（rewrite 模式生效：保留/允许变/红线）。 */
     rules?: AdaptationRules;
-    /** 执行模式：首版仅 replace（术语替换）。 */
+    /** 执行模式：replace（术语替换）或 rewrite（逐章重写）。 */
     mode?: 'replace' | 'rewrite';
+    /** rewrite 模式：只重写前 N 章（0/缺省 = 全部，且在 startNo/endNo 窗口内）。 */
+    maxChapters?: number;
+    /** rewrite 模式：起始章号（含，默认 1）。 */
+    startNo?: number;
+    /** rewrite 模式：结束章号（含；0/缺省 = 到全书末尾）。 */
+    endNo?: number;
 }
 /** POST /adapt/execute 响应。 */
 export interface AdaptExecuteResponse {
@@ -1911,4 +1952,124 @@ export interface AdaptExecuteResponse {
         target: string;
         count: number;
     }>;
+    /** 执行模式（replace / rewrite）。 */
+    mode?: 'replace' | 'rewrite';
+    /** rewrite 模式的逐章结果（no/title/chars）。 */
+    rewritten?: Array<{
+        no: number;
+        title: string;
+        chars: number;
+    }>;
+    /** rewrite 模式下重写失败、保留原章的章节号。 */
+    skipped?: number[];
+}
+/** POST /adapt/rewrite-stream 的 NDJSON 帧（逐章进度 + 结束结果）。 */
+export type AdaptRewriteFrame = {
+    type: 'progress';
+    completed: number;
+    total: number;
+    no: number;
+    title: string;
+} | {
+    type: 'done';
+    result: AdaptExecuteResponse;
+} | {
+    type: 'error';
+    message: string;
+};
+/** POST /adapt/save 请求：保存改编全文为新书（原书保留，登记书架）。 */
+export interface AdaptSaveRequest {
+    /** 改编后的全文。 */
+    text: string;
+    /** 新书名（缺省为「改编新书」；建议用「<原著>·改编版」）。 */
+    bookName?: string;
+    /** 新书输出目录（缺省 ~/.dsh/novels/书名）。 */
+    outputDir?: string;
+    /** 可附带反推大纲（写进新项目，便于后续续写/编辑）。 */
+    outline?: string;
+}
+/** POST /adapt/save 响应。 */
+export interface AdaptSaveResponse {
+    /** 登记后的书架条目。 */
+    book: BookEntry;
+    /** 新书名。 */
+    bookName: string;
+    /** 成功拆出的章节数。 */
+    chapters: number;
+    /** 因内容过短被跳过的章节标题列表。 */
+    skipped: string[];
+    /** 新书输出目录。 */
+    outputDir: string;
+}
+/** POST /adapt/materialize 请求：从源全文 + 用户编辑后的改编方案，提炼新书资料并保存为「待写新书」。 */
+export interface AdaptMaterializeRequest {
+    /** 源书全文。 */
+    text: string;
+    /** 新书名（缺省为「<源书名>·改编版」）。 */
+    bookName?: string;
+    /** 新书输出目录（缺省 ~/.dsh/novels/书名）。 */
+    outputDir?: string;
+    /** 反推大纲（来自分析；缺少时用源文章题兜底）。 */
+    outline?: string;
+    /** 用户编辑后的改编方案（映射表 + 规则）。 */
+    proposal: AdaptationProposal;
+    /** 拟规划章节数（缺省 30，可在前端调整）。 */
+    chapterCount?: number;
+}
+/** POST /adapt/materialize 响应：提炼后的新书资料（预览，尚未落盘；保存走 /adapt/materialize-save）。 */
+export interface AdaptMaterializeResponse {
+    /** 书架条目（仅在已保存时存在；预览阶段为 undefined）。 */
+    book?: BookEntry;
+    /** 新书名。 */
+    bookName: string;
+    /** 改编后总纲。 */
+    outline: string;
+    /** 改编后设定圣经（道藏）。 */
+    bible: StoryBible;
+    /** 改编后角色库。 */
+    roles: RoleRecord[];
+    /** 改编后大世界。 */
+    world: WorldState;
+    /** 改编后卷计划。 */
+    volumes: Volume[];
+    /** 改编后章节计划（status=pending）。 */
+    chapters: ChapterPlan[];
+    /** 新书输出目录。 */
+    outputDir: string;
+}
+/** POST /adapt/materialize-save 请求：把预览/微调后的新书资料写入并登记书架。 */
+export interface AdaptMaterializeSaveRequest {
+    /** 新书名（缺省为「改编版」）。 */
+    bookName?: string;
+    /** 新书输出目录（缺省 ~/.dsh/novels/书名）。 */
+    outputDir?: string;
+    /** 改编后总纲。 */
+    outline: string;
+    /** 改编后设定圣经（道藏）。 */
+    bible: StoryBible;
+    /** 改编后角色库。 */
+    roles: RoleRecord[];
+    /** 改编后大世界。 */
+    world: WorldState;
+    /** 改编后卷计划。 */
+    volumes: Volume[];
+    /** 改编后章节计划（status=pending）。 */
+    chapters: ChapterPlan[];
+}
+/** POST /adapt/materialize-save 响应。 */
+export interface AdaptMaterializeSaveResponse {
+    /** 登记后的书架条目。 */
+    book: BookEntry;
+    /** 新书名。 */
+    bookName: string;
+    /** 成功写入的章节数。 */
+    chapters: number;
+    /** 新书输出目录。 */
+    outputDir: string;
+}
+/** POST /plugin/update 响应：插件自更新结果。 */
+export interface PluginUpdateResponse {
+    ok: boolean;
+    /** 更新结果说明（成功/失败/环境提示）。 */
+    message: string;
 }

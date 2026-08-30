@@ -23,8 +23,9 @@ export const COMPLIANCE_REDLINES: ReadonlyArray<string> = [
   '9. 不得出现法律法规禁止的其他内容。',
 ]
 
-import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs'
-import { join, basename, extname } from 'node:path'
+import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, rmSync } from 'node:fs'
+import { join, basename, extname, dirname } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
 import { createUserMessage, BlockAssembler, ReasoningEffortId, type GenerateOptions, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
 import { emptyProjectAssets, renderAllAssets, styleEngineSystemPrompt } from './assets.ts'
@@ -91,6 +92,10 @@ import type {
   MangaRoleCard,
   Volume,
   WorldState,
+  AdaptMaterializeRequest,
+  AdaptMaterializeResponse,
+  AdaptMaterializeSaveRequest,
+  AdaptMaterializeSaveResponse,
 } from './protocol.ts'
 import { LLM_VENDORS } from './protocol.ts'
 
@@ -3776,6 +3781,233 @@ function normalizeAdaptationImpact(i: Record<string, unknown>): { item: string; 
     risk,
     chapters: chapters !== undefined && chapters.length > 0 ? chapters : undefined,
   }
+}
+
+/** 改编模式 rewrite：逐章 LLM 重写（结构性改写，不只是换词）。
+ * @returns 改写后的全文 + 逐章结果 + 保留原章的章号。 */
+export async function rewriteAdaptationBook(
+  ctx: Context,
+  config: NovelConfig,
+  text: string,
+  mappings: AdaptationMapping[],
+  rules?: AdaptationRules,
+  options: { maxChapters?: number; startNo?: number; endNo?: number; onProgress?: (info: { completed: number; total: number; no: number; title: string }) => void } = {},
+): Promise<{ adaptedText: string; rewritten: Array<{ no: number; title: string; chars: number }>; skipped: number[]; hits: Array<{ source: string; target: string; count: number }> }> {
+  const chapters = splitBookText(text).filter(c => c.body.length >= 50)
+  if (chapters.length === 0) throw new Error('未能从全文拆出章节（内容过短或无章节结构）')
+  const startNo = options.startNo ?? 1
+  const endNo = options.endNo ?? 0
+  const inWindow = (c: { no: number }): boolean => c.no >= startNo && (endNo <= 0 || c.no <= endNo)
+  const windowChapters = chapters.filter(inWindow)
+  const cap = options.maxChapters !== undefined && options.maxChapters > 0 ? Math.min(options.maxChapters, windowChapters.length) : windowChapters.length
+  const toRewrite = windowChapters.slice(0, cap)
+  const toRewriteNos = new Set(toRewrite.map(c => c.no))
+  const total = toRewrite.length
+  let completed = 0
+  const mappingBlock = mappings.length > 0
+    ? '映射表（原值 → 新值）：\n' + mappings.map(m => `- ${m.source} → ${m.target}（${m.scope}）${m.note !== undefined && m.note !== '' ? '：' + m.note : ''}`).join('\n')
+    : ''
+  const ruleBlock = rules !== undefined
+    ? [
+        rules.preserve.length > 0 ? '必须保留：\n' + rules.preserve.map(x => `- ${x}`).join('\n') : '',
+        rules.change.length > 0 ? '允许改变：\n' + rules.change.map(x => `- ${x}`).join('\n') : '',
+        rules.constraints.length > 0 ? '改编红线/一致性要求：\n' + rules.constraints.map(x => `- ${x}`).join('\n') : '',
+      ].filter(s => s !== '').join('\n')
+    : ''
+  const system = [
+    '你是一位资深网文改编编剧。你会收到某一章的正文，以及本书的改编映射表与改编规则。',
+    '任务：把这一章按改编方案**重写**成新版本（结构性改编，不只是换词）。',
+    '要求：',
+    '1. 严格遵守映射表（原值→新值），正文中所有源值都要替换为新值；涉及改名/改体系/改势力时，相关表述一起调整，使上下文自洽。',
+    '2. 改编规则：必须保留的内容不得破坏（故事骨架/人物动机/伏笔逻辑/爽点结构）；允许改变的内容可以放开调整；红线/一致性要求必须遵守。',
+    '3. 若某个改动牵动叙事（如结局走向/时间线/世界观），要把这章的叙述顺势改得通顺、可信。',
+    '4. 输出**只包含这一章重写后的正文**，不要重复标题，不要任何解释、开头或结尾。',
+    '5. 字数与原章基本相当（允许 ±20%）。',
+  ].join('\n')
+  const adaptedParts: string[] = []
+  const rewritten: Array<{ no: number; title: string; chars: number }> = []
+  const skipped: number[] = []
+  const hits = applyAdaptationReplacements(text, mappings).hits
+  for (const c of chapters) {
+    const title = (applyAdaptationMappings(c.title, mappings) || c.title)
+    if (!toRewriteNos.has(c.no)) {
+      adaptedParts.push('# 第' + c.no + '章 ' + title + '\n\n' + c.body.trim() + '\n')
+      continue
+    }
+    const user = [
+      mappingBlock,
+      ruleBlock,
+      '第 ' + c.no + ' 章《' + c.title + '》：',
+      c.body,
+    ].filter(s => s !== '').join('\n\n')
+    let body = ''
+    try {
+      const out = await complete(ctx, config, {
+        system,
+        user,
+        temperature: 0.7,
+        maxTokens: Math.max(config.maxTokens, Math.min(16000, c.body.length * 3)),
+        reasoning: config.analysisReasoning ?? 'low',
+      })
+      body = stripRewriteHeading(out)
+      if (body.length < 50) body = ''
+    } catch {
+      body = ''
+    }
+    if (body === '') {
+      skipped.push(c.no)
+      body = c.body
+    }
+    adaptedParts.push('# 第' + c.no + '章 ' + title + '\n\n' + body.trim() + '\n')
+    rewritten.push({ no: c.no, title, chars: body.length })
+    completed++
+    options.onProgress?.({ completed, total, no: c.no, title })
+  }
+  return { adaptedText: adaptedParts.join('\n'), rewritten, skipped, hits }
+}
+
+/** 去掉 LLM 输出可能带上的 Markdown 标题行。 */
+function stripRewriteHeading(out: string): string {
+  return out.split(/\r?\n/).filter(line => !/^\s*#/.test(line)).join('\n').trim()
+}
+
+/**
+ * 改编模式 P3：从源全文 + 用户编辑后的改编方案，提炼新书资料并保存为「待写新书」。
+ * 流程：源文导入临时项目 → 复用 extractBible/extractRoles/extractWorld 提炼 →
+ * 按映射表把术语/人名/势力映射到新书命名层 → planVolumes/planChapters 生成待写计划 → 保存。
+ * @returns 提炼后的新书资料（不含书架 book，由路由负责登记书架）。
+ */
+export async function materializeAdaptedBook(
+  ctx: Context,
+  config: NovelConfig,
+  args: Omit<AdaptMaterializeRequest, 'outputDir'> & { outputDir: string },
+): Promise<Omit<AdaptMaterializeResponse, 'book'>> {
+  const bookName = (args.bookName ?? '').trim().slice(0, 40) || '改编新书'
+  const outDir = (args.outputDir ?? '').trim()
+  if (outDir === '') throw new Error('未指定新书输出目录')
+  const mappings = args.proposal?.mappings ?? []
+  // 源文导入临时项目（复用角色/道藏/世界提炼：这些函数读取 config.outputDir 下的章节文件）。
+  const tmpDir = join(tmpdir(), 'dsh-novel-forge-adapt-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8))
+  try {
+    importBookTextFromText(args.text, tmpDir, bookName)
+    const sourceProject = loadProject(tmpDir)
+    if (sourceProject === undefined) throw new Error('临时项目创建失败')
+    const sourceConfig: NovelConfig = { ...config, outputDir: tmpDir }
+
+    // 源书设定圣经 + 角色库 + 大世界。
+    // 注意：extractWorld/extractRoles 内部读取 project.outline，所以要先把源文大纲写进临时项目。
+    const srcOutline = (args.outline ?? '').trim() !== '' ? (args.outline ?? '').trim() : fallbackSourceOutline(sourceProject)
+    sourceProject.outline = srcOutline
+    let bible = await extractBible(ctx, sourceConfig, srcOutline, sourceProject)
+    sourceProject.bible = bible
+    const roles = await extractRoles(ctx, sourceConfig, sourceProject)
+    const world = await extractWorld(ctx, sourceConfig, sourceProject)
+
+    // 映射到新书命名/术语层（骨架/伏笔/红线保留）。
+    const adaptedOutline = applyAdaptationMappings(srcOutline, mappings)
+    bible = applyMappingsToBible(bible, mappings)
+    const adaptedRoles = applyMappingsToRoles(roles, mappings)
+    const adaptedWorld = applyMappingsToWorld(world, mappings)
+
+    // 组装待写新书项目。
+    const project = createProject(bookName)
+    project.bookName = bookName
+    project.outline = adaptedOutline
+    project.bible = bible
+    project.roles = adaptedRoles
+    project.world = adaptedWorld
+    project.volumes = await planVolumes(ctx, config, adaptedOutline)
+    const chapterCount = Math.max(1, Math.min(args.chapterCount ?? 30, 500))
+    project.chapters = await planChapters(ctx, config, project, chapterCount)
+
+    // 不在此落盘：返回材料供前端预览/微调，随后由「保存为新书」接口写入。
+    return {
+      bookName,
+      outline: adaptedOutline,
+      bible,
+      roles: adaptedRoles,
+      world: adaptedWorld,
+      volumes: project.volumes ?? [],
+      chapters: project.chapters,
+      outputDir: outDir,
+    }
+  } finally {
+    try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* 清理失败忽略 */ }
+  }
+}
+
+/** 把预览/微调后的新书资料写入输出目录并返回摘要（书架登记由路由负责）。 */
+export function saveMaterializedBook(
+  outDir: string,
+  bookName: string,
+  data: Omit<AdaptMaterializeSaveRequest, 'bookName' | 'outputDir'>,
+): Omit<AdaptMaterializeSaveResponse, 'book'> {
+  const project = createProject(bookName)
+  project.bookName = bookName
+  project.outline = data.outline
+  project.bible = data.bible
+  project.roles = data.roles
+  project.world = data.world
+  project.volumes = data.volumes
+  project.chapters = data.chapters
+  saveProject(outDir, project)
+  return { bookName, chapters: data.chapters.length, outputDir: outDir }
+}
+
+/** 把一份文本按映射表做全局替换（复用术语替换执行器）。 */
+function applyAdaptationMappings(text: string, mappings: AdaptationMapping[]): string {
+  return applyAdaptationReplacements(text, mappings).adaptedText
+}
+
+/** 改编设定圣经：把人名/术语/势力按映射表替换。 */
+function applyMappingsToBible(bible: StoryBible, mappings: AdaptationMapping[]): StoryBible {
+  const t = (s: string): string => applyAdaptationMappings(s, mappings)
+  return {
+    ...bible,
+    genre: t(bible.genre),
+    worldRules: bible.worldRules.map(t),
+    redLines: bible.redLines.map(t),
+    style: bible.style.map(t),
+    characters: bible.characters.map(c => ({ ...c, name: t(c.name), traits: c.traits.map(t), goals: t(c.goals), relations: t(c.relations), knowledge: c.knowledge?.map(t) })),
+  }
+}
+
+/** 改编角色库：把人名/身份/标签/关系/成长/知情度按映射表替换。 */
+function applyMappingsToRoles(roles: RoleRecord[], mappings: AdaptationMapping[]): RoleRecord[] {
+  const t = (s: string): string => applyAdaptationMappings(s, mappings)
+  return roles.map(role => ({
+    ...role,
+    name: t(role.name),
+    identity: t(role.identity),
+    traits: role.traits.map(t),
+    goals: t(role.goals),
+    relations: role.relations.map(t),
+    arc: role.arc.map(t),
+    knowledge: role.knowledge.map(t),
+    imagePrompt: role.imagePrompt !== undefined
+      ? { ...role.imagePrompt, zh: t(role.imagePrompt.zh), en: t(role.imagePrompt.en), tags: role.imagePrompt.tags.map(t), source: role.imagePrompt.source !== undefined ? t(role.imagePrompt.source) : undefined }
+      : undefined,
+    expressions: role.expressions?.map(t),
+    promptKit: role.promptKit !== undefined
+      ? { ...role.promptKit, portrait: { ...role.promptKit.portrait, zh: t(role.promptKit.portrait.zh), en: t(role.promptKit.portrait.en) }, sheet: { ...role.promptKit.sheet, zh: t(role.promptKit.sheet.zh), en: t(role.promptKit.sheet.en) }, expressions: role.promptKit.expressions.map(e => ({ ...e, zh: t(e.zh), en: t(e.en) })), details: { ...role.promptKit.details, zh: t(role.promptKit.details.zh), en: t(role.promptKit.details.en) } }
+      : undefined,
+  }))
+}
+
+/** 改编大世界：境界/区域/势力名按映射表替换。 */
+function applyMappingsToWorld(world: WorldState, mappings: AdaptationMapping[]): WorldState {
+  const t = (s: string): string => applyAdaptationMappings(s, mappings)
+  return {
+    realms: world.realms.map(x => ({ name: t(x.name), description: t(x.description) })),
+    regions: world.regions.map(x => ({ name: t(x.name), description: t(x.description), faction: x.faction !== undefined ? t(x.faction) : undefined })),
+    factions: world.factions.map(x => ({ name: t(x.name), kind: t(x.kind), description: t(x.description), region: x.region !== undefined ? t(x.region) : undefined })),
+  }
+}
+
+/** 反推大纲缺失时的兜底：用源书章节标题占位（可到工作区重新生成）。 */
+function fallbackSourceOutline(project: ProjectState): string {
+  const heads = project.chapters.map(c => `第${c.no}章《${c.title}》：${c.beats !== undefined && c.beats !== '' ? c.beats : ''}`).join('\n')
+  return `# 《${project.bookName}》\n\n（反推大纲缺失，以下为章节标题占位，可在小说工坊重新生成大纲。）\n\n${heads}`
 }
 
 /**

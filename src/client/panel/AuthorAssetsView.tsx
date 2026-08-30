@@ -15,6 +15,7 @@ const KIND_LABELS: Record<AuthorStyleAsset['kind'], string> = {
   genre: '题材',
   roleTemplate: '角色模板',
   worldTemplate: '世界观模板',
+  plotBeat: '剧情桥段',
   custom: '自定义',
 }
 
@@ -27,6 +28,7 @@ const KIND_COLORS: Record<AuthorStyleAsset['kind'], string> = {
   genre: 'var(--nf-info)',
   roleTemplate: 'var(--nf-accent)',
   worldTemplate: 'var(--nf-warn)',
+  plotBeat: 'var(--nf-accent)',
   custom: 'var(--nf-muted)',
 }
 
@@ -134,7 +136,7 @@ export function AuthorAssetsView({ api }: { api: NovelApi }) {
             <span className={css.meta}>跨书可复用的笔法/红线/套路/角色模板/世界观模板。任意新书与改编都能调用。</span>
           </div>
           <div className={css.rowEnd}>
-            <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { void importDefaults() }} disabled={busy} title="把书架里所有书的写作资产/角色 + 内置题材/反AI/风格模板/推进模式批量导入">导入默认资产</button>
+            <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { void importDefaults() }} disabled={busy} title="把书架里所有书的写作资产/角色批量沉淀到作者资产库（内置库请到全局写作资产库浏览/套用）">导入默认资产</button>
             <button type="button" className={css.button + ' ' + css.buttonPrimary} onClick={startNew}><Plus size={14} style={{ verticalAlign: -2 }} /> 新增资产</button>
           </div>
         </div>

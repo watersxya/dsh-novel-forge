@@ -23,6 +23,12 @@ import {
   type ForeshadowResponse,
   type JobFrame,
   type LoadOutlineResponse,
+  type AdaptExecuteRequest,
+  type AdaptExecuteResponse,
+  type AdaptRewriteFrame,
+  type AdaptMaterializeSaveRequest,
+  type AdaptMaterializeSaveResponse,
+  type PluginUpdateResponse,
   type LlmTestResponse,
   type NovelConfig,
   type PlanResponse,
@@ -167,6 +173,11 @@ export class NovelApi {
 
   async openFolder(): Promise<void> {
     await fetch(NOVEL_API.openFolder, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+  }
+
+  /** 插件自更新：在 DSH profile 目录拉取最新 npm 版（需重启 DSH 生效）。 */
+  async pluginUpdate(): Promise<PluginUpdateResponse> {
+    return postJson<PluginUpdateResponse>(NOVEL_API.pluginUpdate, {})
   }
 
   /** 书架快照。 */
@@ -537,6 +548,56 @@ export class NovelApi {
   /** 改编模式 P2：执行术语替换（全局替换 + 命中统计 + 改编文本预览）。 */
   async adaptExecute(req: import('../protocol.ts').AdaptExecuteRequest): Promise<import('../protocol.ts').AdaptExecuteResponse> {
     return postJson<import('../protocol.ts').AdaptExecuteResponse>(NOVEL_API.adaptExecute, req)
+  }
+
+  /** 改编模式 P3：保存改编全文为新书（原书保留，登记书架）。 */
+  async adaptSave(req: import('../protocol.ts').AdaptSaveRequest): Promise<import('../protocol.ts').AdaptSaveResponse> {
+    return postJson<import('../protocol.ts').AdaptSaveResponse>(NOVEL_API.adaptSave, req)
+  }
+
+  /** 改编模式 P4：从源全文 + 编辑后方案提炼新书资料并保存为「待写新书」。 */
+  async adaptMaterialize(req: import('../protocol.ts').AdaptMaterializeRequest): Promise<import('../protocol.ts').AdaptMaterializeResponse> {
+    return postJson<import('../protocol.ts').AdaptMaterializeResponse>(NOVEL_API.adaptMaterialize, req)
+  }
+
+  /** 改编模式：保存预览/微调后的新书资料为新书（原书保留，登记书架）。 */
+  async adaptMaterializeSave(req: AdaptMaterializeSaveRequest): Promise<AdaptMaterializeSaveResponse> {
+    return postJson<AdaptMaterializeSaveResponse>(NOVEL_API.adaptMaterializeSave, req)
+  }
+
+  /** 改编模式：rewrite 逐章重写（NDJSON 流式进度，支持分段 startNo/endNo）。 */
+  async adaptRewriteStream(req: AdaptExecuteRequest, onFrame: (frame: AdaptRewriteFrame) => void): Promise<void> {
+    const response = await fetch(NOVEL_API.adaptRewriteStream, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req),
+    })
+    if (!response.ok) {
+      await readJson<{ error?: string }>(response)
+      return
+    }
+    if (response.body === null) throw new NovelApiError('adapt rewrite: no response body')
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        if (line.trim() === '') continue
+        let frame: AdaptRewriteFrame
+        try {
+          frame = JSON.parse(line) as AdaptRewriteFrame
+        } catch {
+          continue
+        }
+        onFrame(frame)
+        if (frame.type === 'error') throw new NovelApiError(frame.message)
+      }
+    }
   }
 
   /** 主题自定义背景：上传图片，服务端存盘并返回可访问 URL。 */

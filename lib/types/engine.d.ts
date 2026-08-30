@@ -12,7 +12,7 @@
  */
 export declare const COMPLIANCE_REDLINES: ReadonlyArray<string>;
 import type { Context } from '@deepseek-ai/cordis';
-import type { AdaptationDimension, AdaptAnalyzeResponse, AdaptationMapping, AdaptProposeResponse, AuditIssue, AuthorReview, BreakdownResponse, ChapterPlan, Foreshadow, NovelConfig, OutlineCandidate, Plotline, PlotlineHealthReport, PlotlinePlan, ProjectState, ReviewReport, RoleRecord, RoleStatusCard, SceneCard, StoryBible, StoryboardSkeleton, StoryboardTable, StoryboardPrompt, AddModelRequest, AddModelResponse, LlmModelsResponse, LlmVendorsResponse, LlmProvidersResponse, RemoveProviderRequest, RemoveProviderResponse, LlmTestResponse, MangaRoleCandidate, Volume, WorldState } from './protocol.ts';
+import type { AdaptationDimension, AdaptAnalyzeResponse, AdaptationMapping, AdaptationRules, AdaptProposeResponse, AuditIssue, AuthorReview, BreakdownResponse, ChapterPlan, Foreshadow, NovelConfig, OutlineCandidate, Plotline, PlotlineHealthReport, PlotlinePlan, ProjectState, ReviewReport, RoleRecord, RoleStatusCard, SceneCard, StoryBible, StoryboardSkeleton, StoryboardTable, StoryboardPrompt, AddModelRequest, AddModelResponse, LlmModelsResponse, LlmVendorsResponse, LlmProvidersResponse, RemoveProviderRequest, RemoveProviderResponse, LlmTestResponse, MangaRoleCandidate, Volume, WorldState, AdaptMaterializeRequest, AdaptMaterializeResponse, AdaptMaterializeSaveRequest, AdaptMaterializeSaveResponse } from './protocol.ts';
 /** Project state file name inside the output dir. */
 export declare const PROJECT_FILE = "novel-project.json";
 /** Chapter output file name, e.g. 第001章_开篇.md */
@@ -255,6 +255,43 @@ export declare function applyAdaptationReplacements(text: string, mappings: Adap
         count: number;
     }>;
 };
+/** 改编模式 rewrite：逐章 LLM 重写（结构性改写，不只是换词）。
+ * @returns 改写后的全文 + 逐章结果 + 保留原章的章号。 */
+export declare function rewriteAdaptationBook(ctx: Context, config: NovelConfig, text: string, mappings: AdaptationMapping[], rules?: AdaptationRules, options?: {
+    maxChapters?: number;
+    startNo?: number;
+    endNo?: number;
+    onProgress?: (info: {
+        completed: number;
+        total: number;
+        no: number;
+        title: string;
+    }) => void;
+}): Promise<{
+    adaptedText: string;
+    rewritten: Array<{
+        no: number;
+        title: string;
+        chars: number;
+    }>;
+    skipped: number[];
+    hits: Array<{
+        source: string;
+        target: string;
+        count: number;
+    }>;
+}>;
+/**
+ * 改编模式 P3：从源全文 + 用户编辑后的改编方案，提炼新书资料并保存为「待写新书」。
+ * 流程：源文导入临时项目 → 复用 extractBible/extractRoles/extractWorld 提炼 →
+ * 按映射表把术语/人名/势力映射到新书命名层 → planVolumes/planChapters 生成待写计划 → 保存。
+ * @returns 提炼后的新书资料（不含书架 book，由路由负责登记书架）。
+ */
+export declare function materializeAdaptedBook(ctx: Context, config: NovelConfig, args: Omit<AdaptMaterializeRequest, 'outputDir'> & {
+    outputDir: string;
+}): Promise<Omit<AdaptMaterializeResponse, 'book'>>;
+/** 把预览/微调后的新书资料写入输出目录并返回摘要（书架登记由路由负责）。 */
+export declare function saveMaterializedBook(outDir: string, bookName: string, data: Omit<AdaptMaterializeSaveRequest, 'bookName' | 'outputDir'>): Omit<AdaptMaterializeSaveResponse, 'book'>;
 /**
  * 摘要 + 事实抽取合并为一次 LLM 调用（省一次调用与一次正文输入，
  * 批量生成时整体开销约省 25%）。

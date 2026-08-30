@@ -124,12 +124,20 @@ import {
   type AdaptProposeResponse,
   type AdaptExecuteRequest,
   type AdaptExecuteResponse,
+  type AdaptSaveRequest,
+  type AdaptSaveResponse,
+  type AdaptMaterializeRequest,
+  type AdaptMaterializeResponse,
+  type AdaptMaterializeSaveRequest,
+  type AdaptMaterializeSaveResponse,
+  type AdaptRewriteFrame,
+  type PluginUpdateResponse,
 } from './protocol.ts'
 import { readOutlineFromDocx } from './docx.ts'
 import { clearAssistantHistory, loadAssistantHistory, runAssistantTurn } from './assistant.ts'
 import { activateBook, bookshelfSnapshot, createBook, defaultOutputDirFor, importDir, loadBookshelf, removeBook, renameBook, seedBookshelfFromOutputDir } from './bookshelf.ts'
 import { loadAuthorAssets, upsertAuthorAsset, removeAuthorAsset, importDefaultAuthorAssets } from './author-assets.ts'
-import { BUILTIN_ANTI_AI_RULES, BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, BUILTIN_STYLE_TEMPLATES, emptyProjectAssets } from './assets.ts'
+import { BUILTIN_ANTI_AI_RULES, BUILTIN_GENRE_LIBRARY, BUILTIN_PLOT_BEATS, BUILTIN_PROGRESSION_MODES, BUILTIN_STYLE_TEMPLATES, emptyProjectAssets } from './assets.ts'
 import {
   chapterFileName,
   auditBook,
@@ -176,6 +184,9 @@ import {
   analyzeAdaptation,
   proposeAdaptation,
   applyAdaptationReplacements,
+  rewriteAdaptationBook,
+  materializeAdaptedBook,
+  saveMaterializedBook,
   generateRoleReferenceImage,
   generateMangaRoleReferenceImage,
   testImageEndpoint,
@@ -1114,6 +1125,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         antiAiLibrary: BUILTIN_ANTI_AI_RULES,
         styleTemplates: BUILTIN_STYLE_TEMPLATES,
         progressionLibrary: BUILTIN_PROGRESSION_MODES,
+        plotBeatLibrary: BUILTIN_PLOT_BEATS,
       }
       writeJson(res, 200, response)
     },
@@ -2341,6 +2353,29 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     },
   }
 
+  // ---------------------------------------------------------- plugin update
+  /** 插件自更新：在 DSH profile 目录拉取最新 npm 版（仅下载，需重启 DSH 生效）。 */
+  const pluginUpdateRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.pluginUpdate,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const profileDir = join(homedir(), '.dsh', 'profiles', 'web')
+      const response: PluginUpdateResponse = await new Promise((resolve) => {
+        const child = spawn('pnpm', ['add', '@waterwx/dsh-novel-forge@latest'], { cwd: profileDir, shell: true })
+        let acc = ''
+        child.stdout.on('data', (d: Buffer) => { acc += String(d) })
+        child.stderr.on('data', (d: Buffer) => { acc += String(d) })
+        child.on('error', (error) => resolve({ ok: false, message: '无法执行更新：' + error.message }))
+        child.on('close', (code) => {
+          if (code === 0) resolve({ ok: true, message: '已更新到最新版本，请重启 DSH 生效。' })
+          else resolve({ ok: false, message: '更新失败（退出码 ' + code + '）：' + acc.slice(-400) })
+        })
+      })
+      writeJson(res, 200, response)
+    },
+  }
+
   // ------------------------------------------------------- outline suggest
   /** 开书想法 → AI 大纲：2-3 个可选方案（支持暂留换批：count 只补空槽 + exclude 避开已留方向）。 */
   const outlineSuggestRoute: WebRoute = {
@@ -3012,12 +3047,175 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         return
       }
       if (body?.mode === 'rewrite') {
-        writeJson(res, 400, { error: 'rewrite 模式尚未实现，请使用 replace（术语替换）' })
+        try {
+          const result = await rewriteAdaptationBook(ctx, getConfig(), text, mappings, body?.rules, { maxChapters: body?.maxChapters, startNo: body?.startNo, endNo: body?.endNo })
+          const response: AdaptExecuteResponse = { adaptedText: result.adaptedText, mappings: mappings.length, hits: result.hits, mode: 'rewrite', rewritten: result.rewritten, skipped: result.skipped }
+          writeJson(res, 200, response)
+        } catch (err) {
+          writeJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+        }
         return
       }
       const { adaptedText, hits } = applyAdaptationReplacements(text, mappings)
-      const response: AdaptExecuteResponse = { adaptedText, mappings: mappings.length, hits }
+      const response: AdaptExecuteResponse = { adaptedText, mappings: mappings.length, hits, mode: 'replace' }
       writeJson(res, 200, response)
+    },
+  }
+
+  /** rewrite 逐章重写：NDJSON 流式进度（支持分段 startNo/endNo）。 */
+  const adaptRewriteStreamRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.adaptRewriteStream,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      if (!getConfig().enableAdaptMode) { writeJson(res, 404, { error: '改编模式未开启' }); return }
+      const body = await readJsonBody<AdaptExecuteRequest>(req)
+      const text = body?.text ?? ''
+      const mappings = body?.mappings ?? []
+      if (text.length < 200 || mappings.length === 0) { writeJson(res, 400, { error: '请提供全文与映射表' }); return }
+      res.writeHead(200, {
+        'content-type': 'application/x-ndjson; charset=utf-8',
+        'cache-control': 'no-cache',
+        'x-accel-buffering': 'no',
+        'referrer-policy': 'no-referrer',
+      })
+      const send = (frame: AdaptRewriteFrame): void => { res.write(JSON.stringify(frame) + '\n') }
+      try {
+        const result = await rewriteAdaptationBook(ctx, getConfig(), text, mappings, body?.rules, {
+          maxChapters: body?.maxChapters,
+          startNo: body?.startNo,
+          endNo: body?.endNo,
+          onProgress: (info) => send({ type: 'progress', completed: info.completed, total: info.total, no: info.no, title: info.title }),
+        })
+        const response: AdaptExecuteResponse = { adaptedText: result.adaptedText, mappings: mappings.length, hits: result.hits, mode: 'rewrite', rewritten: result.rewritten, skipped: result.skipped }
+        send({ type: 'done', result: response })
+      } catch (err) {
+        send({ type: 'error', message: err instanceof Error ? err.message : String(err) })
+      } finally {
+        res.end()
+      }
+    },
+  }
+
+  /** 保存改编全文为新书（原书保留，登记书架）。 */
+  const adaptSaveRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.adaptSave,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      if (!getConfig().enableAdaptMode) { writeJson(res, 404, { error: '改编模式未开启' }); return }
+      const body = await readJsonBody<AdaptSaveRequest>(req)
+      const text = (body?.text ?? '').trim()
+      if (text.length < 200) {
+        writeJson(res, 400, { error: '改编全文内容过短（<200 字符）' })
+        return
+      }
+      const bookName = (body?.bookName ?? '').trim().slice(0, 40) || '改编新书'
+      const outDir = (body?.outputDir ?? '').trim() !== '' && body?.outputDir !== undefined && body.outputDir.trim() !== ''
+        ? body.outputDir.trim()
+        : defaultOutputDirFor(bookName)
+      // 原书保留：若目录已被另一本书占用则拒绝，避免误覆盖原书/别的书。
+      const occupied = loadBookshelf().books.find(b => b.outputDir === outDir)
+      if (occupied !== undefined && occupied.bookName !== bookName) {
+        writeJson(res, 409, { error: `目录已被《${occupied.bookName}》占用，请更换书名或输出目录` })
+        return
+      }
+      try {
+        const result = importBookTextFromText(text, outDir, bookName)
+        // 有反推大纲时写进新项目，便于后续续写/编辑（importBookTextFromText 默认 outline=书名）。
+        const outline = (body?.outline ?? '').trim()
+        if (outline !== '') {
+          const project = loadProject(outDir)
+          if (project !== undefined) {
+            project.outline = outline
+            saveProject(outDir, project)
+          }
+        }
+        const { book } = importDir(outDir)
+        const response: AdaptSaveResponse = { book, bookName: result.bookName, chapters: result.chapters, skipped: result.skipped, outputDir: outDir }
+        writeJson(res, 200, response)
+      } catch (err) {
+        writeJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+      }
+    },
+  }
+
+  /** 从源全文 + 编辑后方案提炼新书资料并保存为「待写新书」。 */
+  const adaptMaterializeRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.adaptMaterialize,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      if (!getConfig().enableAdaptMode) { writeJson(res, 404, { error: '改编模式未开启' }); return }
+      const body = await readJsonBody<AdaptMaterializeRequest>(req)
+      const text = (body?.text ?? '').trim()
+      if (text.length < 200) { writeJson(res, 400, { error: '源书全文内容过短（<200 字符）' }); return }
+      const proposal = body?.proposal
+      if (proposal === undefined || proposal.mappings.length === 0) { writeJson(res, 400, { error: '请先提供至少一条映射的改编方案' }); return }
+      const bookName = (body?.bookName ?? '').trim().slice(0, 40) || '改编新书'
+      const outDir = (body?.outputDir ?? '').trim() !== '' && body?.outputDir !== undefined && body.outputDir.trim() !== ''
+        ? body.outputDir.trim()
+        : defaultOutputDirFor(bookName)
+      // 原书保留：若目录已被另一本书占用则拒绝。
+      const occupied = loadBookshelf().books.find(b => b.outputDir === outDir)
+      if (occupied !== undefined && occupied.bookName !== bookName) {
+        writeJson(res, 409, { error: `目录已被《${occupied.bookName}》占用，请更换书名或输出目录` })
+        return
+      }
+      try {
+        const result = await materializeAdaptedBook(ctx, getConfig(), {
+          text,
+          bookName,
+          outputDir: outDir,
+          outline: body?.outline,
+          proposal,
+          chapterCount: body?.chapterCount,
+        })
+        // 预览：只返回提炼资料，不落盘；保存走 /adapt/materialize-save。
+        const response: AdaptMaterializeResponse = result
+        writeJson(res, 200, response)
+      } catch (err) {
+        writeJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+      }
+    },
+  }
+
+  /** 保存预览/微调后的新书资料为新书（原书保留，登记书架）。 */
+  const adaptMaterializeSaveRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.adaptMaterializeSave,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      if (!getConfig().enableAdaptMode) { writeJson(res, 404, { error: '改编模式未开启' }); return }
+      const body = await readJsonBody<AdaptMaterializeSaveRequest>(req)
+      if (body === undefined || body === null || (body.outline ?? '').trim() === '') {
+        writeJson(res, 400, { error: '请提供改编后总纲' })
+        return
+      }
+      const bookName = (body.bookName ?? '').trim().slice(0, 40) || '改编新书'
+      const outDir = (body.outputDir ?? '').trim() !== '' && body.outputDir !== undefined && body.outputDir.trim() !== ''
+        ? body.outputDir.trim()
+        : defaultOutputDirFor(bookName)
+      const occupied = loadBookshelf().books.find(b => b.outputDir === outDir)
+      if (occupied !== undefined && occupied.bookName !== bookName) {
+        writeJson(res, 409, { error: `目录已被《${occupied.bookName}》占用，请更换书名或输出目录` })
+        return
+      }
+      try {
+        const result = saveMaterializedBook(outDir, bookName, {
+          outline: body.outline,
+          bible: body.bible,
+          roles: body.roles,
+          world: body.world,
+          volumes: body.volumes,
+          chapters: body.chapters,
+        })
+        const { book } = importDir(outDir)
+        const response: AdaptMaterializeSaveResponse = { ...result, book }
+        writeJson(res, 200, response)
+      } catch (err) {
+        writeJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+      }
     },
   }
 
@@ -3112,6 +3310,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     chapterApproveRoute,
     configRoute,
     openFolderRoute,
+    pluginUpdateRoute,
     outlineSuggestRoute,
     outlineReverseRoute,
     manhuaPlansRoute,
@@ -3137,6 +3336,10 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     adaptAnalyzeRoute,
     adaptProposeRoute,
     adaptExecuteRoute,
+    adaptSaveRoute,
+    adaptMaterializeRoute,
+    adaptMaterializeSaveRoute,
+    adaptRewriteStreamRoute,
     themeBackgroundUploadRoute,
     themeBackgroundGetRoute,
   ]

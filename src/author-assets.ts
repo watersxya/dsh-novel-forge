@@ -10,7 +10,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import type { AuthorAssetLibrary, AuthorStyleAsset, GenreNode, AntiAiRule, StyleTemplate, ProgressionMode } from './protocol.ts'
-import { BUILTIN_ANTI_AI_RULES, BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, BUILTIN_STYLE_TEMPLATES } from './assets.ts'
+
 import { loadBookshelf } from './bookshelf.ts'
 import { loadProject } from './engine.ts'
 
@@ -114,21 +114,9 @@ export function importDefaultAuthorAssets(): AuthorAssetLibrary {
     });
   };
 
-  // 1) 内置全局库
-  for (const g of flattenGenres(BUILTIN_GENRE_LIBRARY)) {
-    push('genre', g.name, g.description, g.description, ['内置', '题材'], [], { description: g.description, children: (g.children ?? []).map(c => c.name) });
-  }
-  for (const r of BUILTIN_ANTI_AI_RULES) {
-    push('antiAi', r.name, r.avoid, '避免：' + r.avoid + '\n修正：' + r.fix, ['内置', '反AI'], [], { avoid: r.avoid, fix: r.fix, detectPatterns: r.detectPatterns });
-  }
-  for (const t of BUILTIN_STYLE_TEMPLATES) {
-    push('style', t.name, t.description, 
-      '分类：' + t.category + '\n适用：' + t.applicableGenres.join('、') + '\n叙述：' + t.proseRules.join('；') + '\n台词：' + t.dialogueRules.join('；') + '\n语言：' + t.languageRules.join('；') + '\n节奏：' + t.rhythmRules.join('；'),
-      ['内置', '风格模板'], [], { category: t.category, applicableGenres: t.applicableGenres });
-  }
-  for (const p of BUILTIN_PROGRESSION_MODES) {
-    push('progression', p.name, p.driver, '驱动：' + p.driver + '\n期待：' + p.readerExpectation + '\n兑现：' + p.payoffs.join('；') + '\n风险：' + p.risks.join('；'), ['内置', '推进'], [], { driver: p.driver, primary: p.primary });
-  }
+  // 1) 清理内置公共库重复沉淀：作者库只保留个人沉淀，不再收录内置公共资产。
+  const builtinKinds = new Set<AuthorStyleAsset['kind']>(['genre', 'antiAi', 'progression', 'style', 'plotBeat'])
+  library.items = library.items.filter(a => !(a.tags.includes('内置') && builtinKinds.has(a.kind) && (a.sourceBooks ?? []).length === 0))
 
   // 2) 书架里的书：写作资产 + 角色模板
   const shelf = loadBookshelf()
@@ -145,8 +133,10 @@ export function importDefaultAuthorAssets(): AuthorAssetLibrary {
       for (const s of assets.styleAssets ?? []) push('style', s.name, s.proseRules.join('；'), 
         '叙述：' + s.proseRules.join('；') + '\n台词：' + s.dialogueRules.join('；') + '\n描写：' + s.descriptionRules.join('；') + '\n边界：' + s.boundaries.join('；'), src, [], { sourceText: s.sourceText });
     }
+    // 作者库角色模板只收男主/女主（可复用原型），其余角色/路人不入库，避免刷屏。
     for (const role of project.roles ?? []) {
-      const persona = ('身份：' + role.identity + '\n性格：' + role.traits.join('、') + '\n目标：' + role.goals + '\n关系：' + role.relations.join('、') + '\n成长线：' + (role.arc.length > 0 ? role.arc.join(' > ') : '—') + '\n知情度：' + role.knowledge.join('、')).trim();
+      if (role.roleLabel !== 'protagonist' && role.roleLabel !== 'female_lead') continue
+      const persona = ('定位：' + role.roleLabel + '\n身份：' + role.identity + '\n性格：' + role.traits.join('、') + '\n目标：' + role.goals + '\n关系：' + role.relations.join('、') + '\n成长线：' + (role.arc.length > 0 ? role.arc.join(' > ') : '—') + '\n知情度：' + role.knowledge.join('、')).trim();
       push('roleTemplate', role.name, role.identity, persona, src, [], { roleLabel: role.roleLabel, traits: role.traits, relations: role.relations, arc: role.arc, knowledge: role.knowledge });
     }
   }
@@ -155,12 +145,3 @@ export function importDefaultAuthorAssets(): AuthorAssetLibrary {
   return library
 }
 
-/** 拍平题材库（含子题材，父级名称并入 tag）。 */
-function flattenGenres(nodes: GenreNode[], parentName?: string): GenreNode[] {
-  const out: GenreNode[] = []
-  for (const n of nodes) {
-    out.push({ ...n, name: parentName !== undefined ? parentName + '/' + n.name : n.name });
-    if (n.children.length > 0) out.push(...flattenGenres(n.children, parentName !== undefined ? parentName + '/' + n.name : n.name));
-  }
-  return out
-}

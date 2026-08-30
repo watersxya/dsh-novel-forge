@@ -5,6 +5,9 @@
 你的专属 AI 小说写作插件：把一份大纲"编译"成一本完整的小说。
 Your personal AI novel-writing plugin for DSH: turn an outline into a complete novel.
 
+> **适配 DSH 版本 / Compatible DSH**：官方稳定版 `0.1.1-rc.2`。请使用正式/稳定版 DSH；**不兼容 DSH Alpha / 预览版**。
+> 本插件依赖 `@deepseek-ai/dsh-* ^0.1.0-rc.5`，以官方稳定版为准。
+
 ---
 
 ## 功能一览 / Features

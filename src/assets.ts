@@ -9,7 +9,7 @@
  * generation / planning / review prompts, and available to the AI assistant.
  */
 
-import type { AntiAiRule, GenreNode, ProgressionMode, ProjectAssets, StyleAsset, StyleTemplate } from './protocol.ts'
+import type { AntiAiRule, GenreNode, PlotBeatTemplate, ProgressionMode, ProjectAssets, StyleAsset, StyleTemplate } from './protocol.ts'
 
 // ------------------------------------------------------ built-in style templates
 
@@ -402,6 +402,21 @@ export const BUILTIN_PROGRESSION_MODES: ProgressionMode[] = [
     risks: ['情感线停滞', '工业糖精', '为虐而虐'],
     primary: false,
   },
+]
+
+// ------------------------------------------------------ built-in plot beats
+
+/** 剧情桥段库：可复用情节套路（作者阅读经验沉淀，非某本书的剧情线）。 */
+export const BUILTIN_PLOT_BEATS: PlotBeatTemplate[] = [
+  { key: 'play-weak', name: '扮猪吃虎', category: '装逼打脸', summary: '主角示弱/隐藏实力，关键时刻亮出獠牙，反差打脸。', position: '前期/中期', preconditions: ['主角有远超表面的实力', '有旁观者低估他'], payoffSource: ['身份反差', '实力揭晓时众人错愕', '质疑者被打脸'], combos: ['打脸', '身份揭露'], taboos: ['示弱太久读者憋屈', '反转无铺垫'], applicableGenres: ['都市', '玄幻', '仙侠'] },
+  { key: 'face-slap', name: '打脸', category: '装逼打脸', summary: '挑衅者趾高气扬，主角一击让其灰头土脸，情绪宣泄。', position: '任何', preconditions: ['挑衅者有明确的优越感', '主角有强出一截的底牌'], payoffSource: ['当众羞辱反杀', '围观者态度反转'], combos: ['扮猪吃虎', '大比'], taboos: ['连续无新意打脸', '羞辱过头读者不适'], applicableGenres: ['都市', '玄幻', '仙侠'] },
+  { key: 'broken-engagement', name: '退婚/反悔', category: '身份逆袭', summary: '被退婚/被轻视→用实力打回，顺势立目标。', position: '开局/前期', preconditions: ['主角处于弱势', '退婚方势利'], payoffSource: ['被轻贱→反杀', '立下目标'], combos: ['打脸', '金手指亮相'], taboos: ['拖大几十章才洗', '女主误会太久'], applicableGenres: ['玄幻', '都市', '豪门'] },
+  { key: 'auction-bargain', name: '拍卖会捡漏', category: '机缘', summary: '主角在拍卖会上用独到眼光/信息差捞到被低估的宝物。', position: '中期', preconditions: ['主角有识货能力/金手指', '现场有争夺者'], payoffSource: ['捡漏爽', '争夺者懊悔'], combos: ['渔翁得利', '宝物升级'], taboos: ['全程顺风顺水无波折', '宝物无后续用处'], applicableGenres: ['玄幻', '仙侠', '都市'] },
+  { key: 'secret-realm', name: '秘境/夺宝', category: '机缘', summary: '秘境开启，主角入内夺宝/悟道，或遇强敌/阴谋。', position: '中期/后期', preconditions: ['秘境有明确利益', '竞争者众多'], payoffSource: ['机缘得宝', '危机中成长'], combos: ['夺宝', '绝境翻盘'], taboos: ['宝物白给', '危机虎头蛇尾'], applicableGenres: ['仙侠', '玄幻', '悬疑'] },
+  { key: 'misunderstanding', name: '误会/解释不清', category: '情感拉扯', summary: '一方误解另一方的行为，情绪拉满后解开。', position: '任何', preconditions: ['信息不对称', '两方都在意关系'], payoffSource: ['误会造痛', '和解破冰'], combos: ['关系拉扯', '身份揭露'], taboos: ['误会拖太久', '为虐而虐'], applicableGenres: ['都市', '情感', '古言'] },
+  { key: 'last-stand', name: '绝境翻盘', category: '战斗', summary: '主角被逼到绝境，借助底牌/意志完成反杀。', position: '高潮', preconditions: ['主角实力明显劣势', '有破局底牌'], payoffSource: ['绝处逢生', '反派嚣张后被打脸'], combos: ['金手指爆发', '打脸'], taboos: ['开挂太突兀', '翻盘无代价'], applicableGenres: ['玄幻', '武侠', '无限流'] },
+  { key: 'tournament', name: '大比/比试', category: '升级打脸', summary: '宗门/势力大比，主角一路过关，暴露实力、收获名声。', position: '中期/后期', preconditions: ['有正式舞台', '有看客与对手'], payoffSource: ['连胜升级', '众目睽睽下打脸'], combos: ['打脸', '身份揭露'], taboos: ['比赛水太多', '对手全送脸'], applicableGenres: ['仙侠', '玄幻', '体育竞技'] },
+  { key: 'identity-reveal', name: '身份揭露', category: '反转', summary: '主角/配角的隐藏身份在关键时点揭开，颠覆认知。', position: '中期/后期', preconditions: ['身份有可埋伏的线索', '揭开时机能引爆情绪'], payoffSource: ['认知颠覆', '立场反转'], combos: ['打脸', '误会解开'], taboos: ['毫无伏笔硬揭', '身份设定无意义'], applicableGenres: ['悬疑', '古言', '玄幻'] },
 ]
 
 // ------------------------------------------------------------- persistence

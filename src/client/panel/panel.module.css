@@ -934,6 +934,15 @@ body[data-ds-dark-theme] .panel[data-nf-theme='neumorph'] .buttonPrimary {
   background: var(--nf-success);
   animation: navBadgePulse 1.2s ease-in-out infinite;
 }
+.navTabDot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: var(--nf-space-4, 4px);
+  border-radius: 50%;
+  background: var(--nf-success);
+  animation: navBadgePulse 1.2s ease-in-out infinite;
+}
 
 @keyframes navBadgePulse {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -2615,6 +2624,17 @@ select.input {
   color: var(--nf-error);
   border: 1px solid var(--nf-error);
 }
+.noticeSuccess {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--nf-accent) 14%, transparent);
+  color: var(--nf-accent);
+  border: 1px solid var(--nf-accent);
+}
 .rowEnd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* ---- 作者资产库 ---- */
@@ -2732,6 +2752,11 @@ select.input {
 .adaptTable th, .adaptTable td { border: 1px solid var(--nf-glass-border); padding: 6px 8px; text-align: left; }
 .adaptImpacts { display: flex; flex-direction: column; gap: 4px; }
 .adaptImpact { font-size: 13px; }
+.adaptTableScroll { overflow-x: auto; }
+.adaptCell { min-width: 90px; width: 100%; }
+.adaptRules { display: flex; flex-direction: column; gap: 10px; }
+.adaptRule { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--nf-glass-border); border-radius: 12px; background: var(--nf-glass-face); }
+.adaptRuleRow { display: flex; align-items: center; gap: 8px; }
 
 /* ---- 首页 AI 进度 ---- */
 .progressOverview {

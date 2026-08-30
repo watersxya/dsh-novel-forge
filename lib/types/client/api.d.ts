@@ -3,7 +3,7 @@
  * fetch, same origin; generation/rewrite/polish ride NDJSON streams read
  * incrementally.
  */
-import { type AssetsPatch, type AssetsResponse, type AddModelRequest, type AddModelResponse, type LlmModelsResponse, type LlmProvidersResponse, type LlmVendorsResponse, type RemoveProviderRequest, type RemoveProviderResponse, type BibleResponse, type ChapterResponse, type ConfigPatch, type ExportResponse, type ForeshadowRequest, type ForeshadowResponse, type JobFrame, type LoadOutlineResponse, type LlmTestResponse, type NovelConfig, type PlanResponse, type ReviewReport, type StatusResponse, type StyleEngineRequest, type StyleAsset, type VolumesResponse } from '../protocol.ts';
+import { type AssetsPatch, type AssetsResponse, type AddModelRequest, type AddModelResponse, type LlmModelsResponse, type LlmProvidersResponse, type LlmVendorsResponse, type RemoveProviderRequest, type RemoveProviderResponse, type BibleResponse, type ChapterResponse, type ConfigPatch, type ExportResponse, type ForeshadowRequest, type ForeshadowResponse, type JobFrame, type LoadOutlineResponse, type AdaptExecuteRequest, type AdaptRewriteFrame, type AdaptMaterializeSaveRequest, type AdaptMaterializeSaveResponse, type PluginUpdateResponse, type LlmTestResponse, type NovelConfig, type PlanResponse, type ReviewReport, type StatusResponse, type StyleEngineRequest, type StyleAsset, type VolumesResponse } from '../protocol.ts';
 /** Error carrying the route's JSON error message. */
 export declare class NovelApiError extends Error {
     constructor(message: string);
@@ -52,6 +52,8 @@ export declare class NovelApi {
         config: NovelConfig;
     }>;
     openFolder(): Promise<void>;
+    /** 插件自更新：在 DSH profile 目录拉取最新 npm 版（需重启 DSH 生效）。 */
+    pluginUpdate(): Promise<PluginUpdateResponse>;
     /** 书架快照。 */
     bookshelf(): Promise<import('../protocol.ts').BookshelfSnapshot>;
     /** 新建书并激活（开书向导：可携带大纲文本，创建即建项目）。 */
@@ -210,6 +212,14 @@ export declare class NovelApi {
     adaptPropose(req: import('../protocol.ts').AdaptProposeRequest): Promise<import('../protocol.ts').AdaptProposeResponse>;
     /** 改编模式 P2：执行术语替换（全局替换 + 命中统计 + 改编文本预览）。 */
     adaptExecute(req: import('../protocol.ts').AdaptExecuteRequest): Promise<import('../protocol.ts').AdaptExecuteResponse>;
+    /** 改编模式 P3：保存改编全文为新书（原书保留，登记书架）。 */
+    adaptSave(req: import('../protocol.ts').AdaptSaveRequest): Promise<import('../protocol.ts').AdaptSaveResponse>;
+    /** 改编模式 P4：从源全文 + 编辑后方案提炼新书资料并保存为「待写新书」。 */
+    adaptMaterialize(req: import('../protocol.ts').AdaptMaterializeRequest): Promise<import('../protocol.ts').AdaptMaterializeResponse>;
+    /** 改编模式：保存预览/微调后的新书资料为新书（原书保留，登记书架）。 */
+    adaptMaterializeSave(req: AdaptMaterializeSaveRequest): Promise<AdaptMaterializeSaveResponse>;
+    /** 改编模式：rewrite 逐章重写（NDJSON 流式进度，支持分段 startNo/endNo）。 */
+    adaptRewriteStream(req: AdaptExecuteRequest, onFrame: (frame: AdaptRewriteFrame) => void): Promise<void>;
     /** 主题自定义背景：上传图片，服务端存盘并返回可访问 URL。 */
     themeBackgroundUpload(dataUrl: string): Promise<{
         url: string;
