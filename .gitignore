@@ -24,3 +24,10 @@ backup/
 restart-dsh.cmd
 *.tgz
 workbench-demo.html
+# 构建产物地图（含源码与绝对路径，不入库/不发布）
+lib/*.map
+# 发布脚本临时代理文件
+_p_*.txt
+# 开发笔记（含个人书名/路径，不入库）
+TODO-续接.md
+docs/

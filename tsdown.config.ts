@@ -11,7 +11,7 @@
  */
 import { readFile } from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
-import { basename, dirname, resolve as resolvePath, sep } from 'node:path'
+import { basename, dirname, relative, resolve as resolvePath, sep } from 'node:path'
 import type { UserConfig } from 'tsdown'
 import { transform } from 'lightningcss'
 
@@ -63,7 +63,7 @@ const nodeHalf: UserConfig = {
   fixedExtension: false,
   dts: false,
   clean: false,
-  sourcemap: true,
+  sourcemap: false,
   external: [...HOST_EXTERNALS],
 }
 
@@ -76,7 +76,7 @@ const clientHalf: UserConfig = {
   platform: 'browser',
   target: 'es2022',
   dts: false,
-  sourcemap: true,
+  sourcemap: false,
   clean: false,
   external: [...PLATFORM_MODULES],
   // Everything not in the platform table inlines (a require() the table
@@ -95,11 +95,14 @@ const clientHalf: UserConfig = {
       resolveId(source: string, importer: string | undefined) {
         if (!source.endsWith('.module.css')) return null
         const abs = importer !== undefined ? sourceAssetPath(source, importer) : source
-        return CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX
+        // 用项目相对路径作为虚拟模块 id，避免把开发机绝对路径带进 bundle。
+        const rel = relative(resolvePath(process.cwd(), '.'), abs).split(sep).join('/')
+        return CSS_VIRTUAL_PREFIX + rel + CSS_VIRTUAL_SUFFIX
       },
       async load(virtualId: string) {
         if (!virtualId.startsWith(CSS_VIRTUAL_PREFIX)) return null
-        const fileId = virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length)
+        const rel = virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length)
+        const fileId = existsSync(rel) ? rel : resolvePath(process.cwd(), rel)
         this.addWatchFile(fileId)
         const source = await readFile(fileId)
         const { code, exports: cssExports } = transform({
