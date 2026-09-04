@@ -5,8 +5,12 @@
 你的专属 AI 小说写作插件：把一份大纲"编译"成一本完整的小说。
 Your personal AI novel-writing plugin for DSH: turn an outline into a complete novel.
 
-> **适配 DSH 版本 / Compatible DSH**：官方稳定版 `0.1.1-rc.2`。请使用正式/稳定版 DSH；**不兼容 DSH Alpha / 预览版**。
-> 本插件依赖 `@deepseek-ai/dsh-* ^0.1.0-rc.5`，以官方稳定版为准。
+> **⚠️ 版本状态 / Version status（read this first）**
+>
+> - 本插件当前**唯一发布 / 更新线为 V2.0 ALPHA（`2.0.0-alpha.1`）**，适用于 **DSH ≥ 0.1.3-alpha.1**（依赖 DSH 提供的 `cosmokit`，不能在纯 Node 环境单独运行）。
+> - **V1.0 RC（`1.10.1`）为最终稳定版，已停止更新**；需要稳定版请显式安装 `@waterwx/dsh-novel-forge@1.10.1`。
+> - **安装前请确认你的 DSH 版本**：在 `0.1.3-alpha.1` 以前的 DSH 上安装 V2.0 ALPHA 会加载失败。
+> - npm `latest` 现指向 V2.0 ALPHA：`npm i @waterwx/dsh-novel-forge` 会安装预发布版；想要最终稳定 RC 请用 `@1.10.1`。
 
 ---
 
@@ -53,6 +57,7 @@ Your personal AI novel-writing plugin for DSH: turn an outline into a complete n
 | **角色形象（🖼️）**：角色详情悬浮页=提示词分发中心——立绘/四视图/表情×N/细节 四类生图提示词（中文默认+英文标签折叠），一次提炼直接产出锚点+表情清单+精修提示词包，图集（立绘/四视图/表情/场景/细节）分类上传 | **Character visuals**: role detail modal as prompt hub — portrait / 4-view / expressions / details prompt kits (CN default + EN tags folded), one-shot extraction yields anchor + expression list + refined kits, gallery uploads by category |
 | **场景库（🏞️）**：从全书提炼「镜头场景」级视觉锚点（五幕结构/时间光态/关键镜头/人物状态），中英文生图提示词 + 场景图集，候选逐条采纳 | **Scene library**: shot-level visual anchors extracted from the book (act structure / time-of-day / key beats / character state), CN+EN prompts, adoptable candidates |
 | **视觉世界观规则（⚠️）**：从道藏提炼生图纠偏规则（如"货架商品=活人，禁止画成常规超市商品"），自动注入所有角色/场景提示词——反常识设定的书不再被生图模型画跑偏 | **Visual world rules**: extraction-time guardrails from the story bible (e.g. "shelf items are living people, no cans/bottles"), auto-injected into every prompt — counter-intuitive settings render correctly |
+| **漫剧工作台（V2.0 新增）**：创建方案（风格/滤镜/题材）→ 一键生成（拆剧情→分镜→提名角色→视频提示词）→ 分镜工作台（骨架/分镜表/提示词）→ 角色定妆 → 场景底图 → 导出即梦脚本 | **Manga Workbench (V2.0, new)**: create a plan (style/filter/genre) → one-click generate (skeleton→storyboard→role nominations→video prompts) → storyboard studio (skeleton/table/prompts) → character styling → scene base → export Jimeng scripts |
 
 ## 快速开始 / Quick Start
 
@@ -173,7 +178,7 @@ tsdown.config.ts  双面打包配置 / dual-face bundling config
 - 章节质量取决于大纲完整度 / chapter quality depends on outline completeness
 - 设置写入 `~/.dsh/settings.yaml` 的 `dsh-novel-forge` 段 / settings persist in `~/.dsh/settings.yaml`
 - 角色/场景视觉资产为「提示词 + 图集」形态，并可在设置页配置内置生图模型（imageModels/imageApiKey，支持多模型库与连通性测试）；出图既可走内置生成，也可用外部工具（即梦/豆包/Krea 等），提示词可直接复制 / visual assets are prompt+image anchors, with optional built-in image-model configuration (imageModels/imageApiKey, multi-model library + endpoint test); images may be generated in-app or via external tools (Jimeng/Doubao/Krea) with copy-ready prompts
-- 漫剧分镜/漫画脚本功能已移除（v1.3.0），角色形象与场景库保留为漫剧流水线的视觉锚点底座 / storyboard & comic-script features removed in v1.3.0; role visuals & scene library remain as the visual-anchor foundation
+- **V2.0 ALPHA** 新增并重做「漫剧工作台」：创建方案 → 一键生成 → 分镜工作台（骨架/分镜表/视频提示词）→ 角色定妆 → 场景底图 → 导出即梦脚本；仅适用于 **DSH ≥ 0.1.3-alpha.1**（依赖 DSH 的 `cosmokit`）。V1.0 RC（`1.10.1`）不含此功能且已停止更新 / **V2.0 ALPHA** adds the reworked Manga Workbench (create plan → one-click generate → storyboard studio → character styling → scene base → export Jimeng scripts); requires **DSH ≥ 0.1.3-alpha.1** (relies on DSH's `cosmokit`). V1.0 RC (1.10.1) lacks it and is no longer updated.
 
 ---
 

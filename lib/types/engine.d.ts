@@ -7,12 +7,12 @@
  */
 /**
  * 内容合规红线（平台硬性要求）：所有书籍、所有章节无条件生效，
- * 优先级高于单书大纲/圣经中的任何设定与作者自定义红线。
+ * 优先级高于单书大纲/道藏中的任何设定与作者自定义红线。
  * 注入点：章节生成系统提示 + 审稿系统提示（命中即 high）。
  */
 export declare const COMPLIANCE_REDLINES: ReadonlyArray<string>;
 import type { Context } from '@deepseek-ai/cordis';
-import type { AdaptationDimension, AdaptAnalyzeResponse, AdaptationMapping, AdaptationRules, AdaptProposeResponse, AuditIssue, AuthorReview, BreakdownResponse, ChapterPlan, Foreshadow, NovelConfig, OutlineCandidate, Plotline, PlotlineHealthReport, PlotlinePlan, ProjectState, ReviewReport, RoleRecord, RoleStatusCard, SceneCard, StoryBible, StoryboardSkeleton, StoryboardTable, StoryboardPrompt, AddModelRequest, AddModelResponse, LlmModelsResponse, LlmVendorsResponse, LlmProvidersResponse, RemoveProviderRequest, RemoveProviderResponse, LlmTestResponse, MangaRoleCandidate, Volume, WorldState, AdaptMaterializeRequest, AdaptMaterializeResponse, AdaptMaterializeSaveRequest, AdaptMaterializeSaveResponse } from './protocol.ts';
+import type { AdaptationDimension, AdaptAnalyzeResponse, AdaptationMapping, AdaptationRules, AdaptProposeResponse, AuditIssue, AuthorReview, BreakdownResponse, ChapterPlan, Foreshadow, NovelConfig, OutlineCandidate, Plotline, PlotlineHealthReport, PlotlinePlan, ProjectState, ReviewReport, RoleRecord, RoleStatusCard, SceneCard, StoryBible, StoryboardSkeleton, StoryboardTable, StoryboardPrompt, AddModelRequest, AddModelResponse, LlmModelsResponse, LlmVendorsResponse, LlmProvidersResponse, RemoveProviderRequest, RemoveProviderResponse, LlmTestResponse, MangaRoleCandidate, Prop, Volume, WorldState, AdaptMaterializeRequest, AdaptMaterializeResponse, AdaptMaterializeSaveRequest, AdaptMaterializeSaveResponse } from './protocol.ts';
 /** Project state file name inside the output dir. */
 export declare const PROJECT_FILE = "novel-project.json";
 /** Chapter output file name, e.g. 第001章_开篇.md */
@@ -70,7 +70,7 @@ export declare function refreshPlotlineProgress(ctx: Context, config: NovelConfi
 /** ✨ AI 从全书提炼角色库：大纲 + 道藏 + 编年录 + 章节摘要 → 结构化角色清单。 */
 export declare function extractRoles(ctx: Context, config: NovelConfig, project: ProjectState): Promise<RoleRecord[]>;
 /** ✨ AI 从全书提炼场景库：正文/编年录 → 高频重要场景的结构化视觉锚点。 */
-export declare function extractScenes(ctx: Context, config: NovelConfig, project: ProjectState, styleId?: string, filterId?: string): Promise<SceneCard[]>;
+export declare function extractScenes(ctx: Context, config: NovelConfig, project: ProjectState, chapterNo?: number, styleId?: string, filterId?: string): Promise<SceneCard[]>;
 /** 从 txt/md 全本文本拆章（纯逻辑，不落盘）：识别章节头、剥离重复标题、去重、排序并统一重新编号。 */
 export declare function splitBookText(raw: string): Array<{
     no: number;
@@ -104,6 +104,8 @@ export interface RoleVisualPrompt {
     en: string;
     tags: string[];
     source: string;
+    /** 即梦/生图通用负面提示词。 */
+    negativePrompt?: string;
     /** 该角色所需情绪表情清单（6-12 个，如 疲惫/麻木/压抑悲伤）。 */
     expressions?: string[];
     /** 四类精修提示词（立绘/四视图/表情/细节，一次提炼直接产出）。 */
@@ -140,13 +142,6 @@ export declare function suggestOutlines(ctx: Context, config: NovelConfig, idea:
  *  @param budgetTokens token 预算上限（超过即截断章节取样）。
  */
 export declare function breakdownBook(ctx: Context, config: NovelConfig, project: ProjectState, outputDir: string, scope?: string, preset?: 'quick' | 'standard', budgetTokens?: number): Promise<BreakdownResponse>;
-/** 生图接口连通性测试（设置页模型条目用）：GET {baseURL}/models，计时返回延迟。 */
-export declare function testImageEndpoint(baseURL: string, apiKey: string, model?: string): Promise<{
-    ok: boolean;
-    ms: number;
-    message?: string;
-    modelFound?: boolean;
-}>;
 /** 对选中的提供商/模型发一次最小真实调用（maxTokens=16），验证 Key / 端点 / 模型可用。 */
 export declare function testLlmModel(ctx: Context, provider: string, model: string): Promise<LlmTestResponse>;
 /** 运行时厂商目录：DSH pi-ai 可配置提供方 + 内置适配器，作为「添加模型」下拉。 */
@@ -162,10 +157,11 @@ export declare function removeLlmProvider(ctx: Context, req: RemoveProviderReque
  * 写入 DSH 凭据 refs，并（必要时）注册/更新 llm-pi-ai provider 路由。
  */
 export declare function registerLlmModel(ctx: Context, req: AddModelRequest): Promise<AddModelResponse>;
-/** 小说角色库：生成角色定妆图并写回角色卡（imageUrl）。 */
-export declare function generateRoleReferenceImage(ctx: Context, config: NovelConfig, project: ProjectState, outputDir: string, name: string, style?: string, modelId?: string): Promise<string>;
-/** 漫剧角色卡：生成定妆图并写回漫剧卡（imageUrl）。 */
-export declare function generateMangaRoleReferenceImage(ctx: Context, config: NovelConfig, project: ProjectState, outputDir: string, cardId: string, style?: string, modelId?: string): Promise<string>;
+/** 获取当前激活漫剧方案的风格（styleId + filterId），用于生图/提示词兜底。 */
+export declare function getActiveMangaStyle(project: ProjectState): {
+    styleId?: string;
+    filterId?: string;
+};
 /** 🩺 剧情健康检查：基于已写章节数/各线状态/编年录，判断是否需要新线及添加时机。 */
 export declare function analyzePlotlineHealth(ctx: Context, config: NovelConfig, project: ProjectState): Promise<PlotlineHealthReport>;
 /** ✨ AI 剧情方案：基于健康检查结果设计下一阶段方向与建议新线。 */
@@ -208,6 +204,7 @@ export declare function generateChapterStream(ctx: Context, config: NovelConfig,
     frame: 'done';
     file: string;
     chars: number;
+    warn?: string;
 }, void, unknown>;
 /** Generate a chapter summary (narrative memory). */
 export declare function summarizeChapter(ctx: Context, config: NovelConfig, project: ProjectState, outputDir: string, chapterNo: number): Promise<string>;
@@ -216,6 +213,11 @@ export declare function summarizeChapter(ctx: Context, config: NovelConfig, proj
  * 只做画面层：景别/机位运镜/时长/画面/台词/音效/光效 + 状态连续；禁止改剧情（骨架只读）。
  */
 export declare function generateStoryboardTable(ctx: Context, config: NovelConfig, project: ProjectState, outputDir: string, chapterNo: number, skeleton: StoryboardSkeleton, styleId?: string, filterId?: string): Promise<StoryboardTable>;
+/**
+ * 提炼常驻道具（跨镜头需一致）：从已写章节正文识别反复出现的关键道具 + 一行统一外观描述。
+ * 生成分镜提示词前自动调用，若道具库为空则补齐；道具库存 project.props，注入提示词保持跨镜头一致。
+ */
+export declare function extractProps(ctx: Context, config: NovelConfig, project: ProjectState): Promise<Prop[]>;
 /**
  * 分镜·提示词级：分镜表 → 即梦可粘贴视频提示词。
  * 每镜头一段：风格词块（基底+滤镜）+ 画面内容（角色动作/服装标志物）+ 机位运镜 + 光效。
@@ -292,11 +294,6 @@ export declare function materializeAdaptedBook(ctx: Context, config: NovelConfig
 }): Promise<Omit<AdaptMaterializeResponse, 'book'>>;
 /** 把预览/微调后的新书资料写入输出目录并返回摘要（书架登记由路由负责）。 */
 export declare function saveMaterializedBook(outDir: string, bookName: string, data: Omit<AdaptMaterializeSaveRequest, 'bookName' | 'outputDir'>): Omit<AdaptMaterializeSaveResponse, 'book'>;
-/**
- * 摘要 + 事实抽取合并为一次 LLM 调用（省一次调用与一次正文输入，
- * 批量生成时整体开销约省 25%）。
- * @returns 摘要与新增事实条数（失败返回空，调用方 best-effort）。
- */
 export declare function summarizeAndExtractFacts(ctx: Context, config: NovelConfig, project: ProjectState, outputDir: string, chapterNo: number): Promise<{
     summary: string;
     factCount: number;
@@ -325,7 +322,7 @@ export declare function generateBlurb(ctx: Context, config: NovelConfig, project
 export declare function bookOverview(project: ProjectState, scope?: 'recent' | 'full' | number): string;
 /** 一条影响分析结果（改动波及处）。 */
 export interface ImpactItem {
-    /** 位置：章节号 / 大纲 / 设定圣经 / 大世界 / 事实库 / 简介。 */
+    /** 位置：章节号 / 大纲 / 道藏 / 大世界 / 事实库 / 简介。 */
     location: string;
     /** 原文片段（定位用）。 */
     quote: string;
@@ -341,7 +338,7 @@ export interface ImpactItem {
 export declare function analyzeImpact(ctx: Context, config: NovelConfig, project: ProjectState, outputDir: string, change: string): Promise<ImpactItem[]>;
 /** 把大世界结构化数据渲染成提示词块（境界体系按顺序强约束）。 */
 export declare function renderWorld(world: WorldState | undefined): string;
-/** AI 提炼大世界：从大纲 + 设定圣经生成结构化境界体系/区域/势力。 */
+/** AI 提炼大世界：从大纲 + 道藏生成结构化境界体系/区域/势力。 */
 export declare function extractWorld(ctx: Context, config: NovelConfig, project: ProjectState): Promise<WorldState>;
 /**
  * 事实库回填：对历史已生成章节批量抽取事实（无事实记录的旧章节）。
@@ -371,3 +368,35 @@ export declare function exportBook(outputDir: string, project: ProjectState, for
     chars: number;
     chapters: number;
 };
+/** 漫剧资产库根目录：outputDir/manga-assets */
+export declare function mangaAssetsDir(outputDir: string): string;
+/** 保存角色定妆图到资产库：manga-assets/角色/角色名/标签.png */
+export declare function saveMangaRoleImage(outputDir: string, roleName: string, label: string, dataUrl: string): string;
+/** 保存角色提示词到资产库：manga-assets/角色/角色名/提示词.txt */
+export declare function saveMangaRolePrompt(outputDir: string, roleName: string, zh: string, en: string, negative?: string): string;
+/** 保存场景底图到资产库：manga-assets/场景/场景名.png */
+export declare function saveMangaSceneImage(outputDir: string, sceneName: string, label: string, dataUrl: string): string;
+/** 保存分镜即梦脚本到资产库：manga-assets/分镜脚本/第N章-标题.md */
+export declare function saveMangaStoryboardScript(outputDir: string, chapterNo: number, title: string, markdown: string): string;
+/** 保存「即梦素材包」到资产库：manga-assets/素材包/第N章-标题·即梦素材包.md */
+export declare function saveMangaAssetPackage(outputDir: string, chapterNo: number, title: string, markdown: string): string;
+/** 保存场景中文生图提示词到资产库：manga-assets/场景/场景名/提示词.txt */
+export declare function saveMangaScenePrompt(outputDir: string, sceneName: string, zh: string, negative?: string): string;
+/** 保存逐镜即梦提示词到资产库：manga-assets/分镜脚本/第N章-标题-提示词.md */
+export declare function saveMangaChapterPrompts(outputDir: string, chapterNo: number, title: string, markdown: string): string;
+export interface AutoGenerateResult {
+    chapterNo: number;
+    skeletonBeats: number;
+    shotCount: number;
+    promptCount: number;
+    importedRoles: number;
+    needMakeupRoles: number;
+    extraRoles: number;
+    pendingCandidates: number;
+    pendingRoleNames: string[];
+}
+/**
+ * 一键生成：骨架 → 分镜表 → 角色提名 → 自动导入（匹配成功的）→ 自动分级 → 视频提示词。
+ * 匹配模糊/小说库缺失的角色保留在候选列表，不自动导入。
+ */
+export declare function autoGenerateMangaChapter(ctx: Context, config: NovelConfig, project: ProjectState, outputDir: string, chapterNo: number, styleId?: string, filterId?: string): Promise<AutoGenerateResult>;

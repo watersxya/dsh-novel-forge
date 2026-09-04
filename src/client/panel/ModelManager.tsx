@@ -134,7 +134,7 @@ export function ModelManager({ api, provider, model, onProvider, onModel }: Mode
 
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-24)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-24)', minWidth: 0, width: '100%' }}>
       {/* ① 模型（提供方管理） */}
       <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-16)' }}>
         <span className={css.cardTitle}>模型</span>

@@ -52,7 +52,8 @@ body[data-ds-dark-theme] .entry {
 }
 
 /* Center-column overlay shell (mirrors family plugins' view pattern). */
-[data-pane="conversation"] {
+[data-pane="conversation"],
+[class*="centerCol"] {
   position: relative;
 }
 
@@ -245,7 +246,7 @@ html[data-dsh-novelforge-active]:not([data-dsh-taskboard-active]):not([data-dsh-
 
 /* ------------------------------------------------------------ themes
  * 'liquid' (default): iOS Liquid Glass, green accent — set on .view above.
- * 'macos' / 'neumorph' override below.
+ * 'macos' / 'neumorph' / 'clay' / 'endfield' override below.
  */
 
 /* ------------------------------------------------------------
@@ -639,6 +640,147 @@ body[data-ds-dark-theme] .panel[data-nf-theme='neumorph'] .buttonPrimary {
   box-shadow: 5px 5px 10px rgba(0, 0, 0, 0.5), -5px -5px 10px rgba(96, 104, 118, 0.24);
 }
 
+/* ------------------------------------------------------------
+ * 'endfield': 终末地 / Arknights: Endfield 官网风 —— 奶油纸底、
+ * 墨黑文字、信号黄/武陵青强调色、全直角工业编辑风。
+ * 对应 dsh-theme-endfield 插件的设计语言，适配小说工坊的 --nf-* 令牌。
+ * 强调色由 data-nf-endfield-accent 切换（valley=谷地黄默认 / wuling=武陵青）。
+ * ------------------------------------------------------------ */
+.panel[data-nf-theme='endfield'] {
+  /* 终末地强调色派生（默认谷地黄） */
+  --edge-accent: #fff500;
+  --edge-accent-rgb: 255, 245, 0;
+  --edge-accent-deep: #e8e000;
+  --edge-accent-onpaper: #d9c700;
+  --edge-status-light: #6b5d00;
+  --edge-status-dark: #fff500;
+  --edge-status-dark-mid: #a08a00;
+  /* 全直角工业编辑风 */
+  --nf-radius-2: 0px;
+  --nf-radius-4: 0px;
+  --nf-radius-6: 0px;
+  --nf-radius-8: 0px;
+  --nf-radius-10: 0px;
+  --nf-radius-12: 0px;
+  --nf-radius-14: 0px;
+  --nf-radius-16: 0px;
+  --nf-radius-20: 0px;
+  --nf-radius-22: 0px;
+  --nf-radius-999: 0px;
+  --nf-card-radius: 0px;
+  --nf-card-blur: 0px;
+  --nf-card-saturate: 100%;
+  --nf-card-brightness: 1;
+  --nf-card-sheen: rgba(0, 0, 0, 0);
+  --nf-card-border: 1px solid var(--nf-border);
+  --nf-ctrl-radius: 0px;
+  --nf-ctrl-sheen: rgba(0, 0, 0, 0);
+  --nf-ctrl-caret: var(--nf-accent);
+  --nf-glass-bg-image: none;
+  --nf-glass-noise: none;
+  --nf-glass-orb-a: transparent;
+  --nf-glass-orb-b: transparent;
+}
+
+.panel[data-nf-theme='endfield'][data-nf-endfield-accent='wuling'] {
+  --edge-accent: #14d0d0;
+  --edge-accent-rgb: 20, 208, 208;
+  --edge-accent-deep: #10b8b8;
+  --edge-accent-onpaper: #14d0d0;
+  --edge-status-light: #006a6a;
+  --edge-status-dark: #14d0d0;
+  --edge-status-dark-mid: #7ee7e7;
+}
+
+/* 浅色：奶油纸 + 墨黑 + 强调色深档（可读性达标） */
+body:not([data-ds-dark-theme]) .panel[data-nf-theme='endfield'],
+.panel[data-nf-mode='light'][data-nf-theme='endfield'] {
+  --nf-bg: #e8e8e2;
+  --nf-bg-raise: #f2f2ec;
+  --nf-bg-inset: #dcddd6;
+  --nf-border: #d8d9d5;
+  --nf-border-strong: #b6b8b3;
+  --nf-text: #101110;
+  --nf-text-2: #4a4c48;
+  --nf-text-2-alpha: rgba(74, 76, 72, 0.7);
+  --nf-text-3: #7a7d78;
+  --nf-accent: var(--edge-accent-onpaper);
+  --nf-accent-hover: var(--edge-accent-deep);
+  --nf-accent-soft: rgba(var(--edge-accent-rgb), 0.14);
+  --nf-accent-fg: #101110;
+  --nf-hover: rgba(var(--edge-accent-rgb), 0.10);
+  --nf-success: #2f9e44;
+  --nf-error: #ff3b30;
+  --nf-warn: #d9822b;
+  --nf-info: var(--edge-accent-onpaper);
+  --nf-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 10px 28px rgba(0, 0, 0, 0.08);
+  --nf-shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.10), 0 18px 44px rgba(0, 0, 0, 0.12);
+  --nf-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 12px 34px rgba(0, 0, 0, 0.08);
+  --nf-card-shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.12), 0 20px 48px rgba(0, 0, 0, 0.12);
+  --nf-glass-face: var(--nf-bg-raise);
+  --nf-glass-core: transparent;
+  --nf-glass-sheen: rgba(0, 0, 0, 0);
+  --nf-glass-border: var(--nf-card-border);
+  --nf-glass-inset: var(--nf-bg-inset);
+}
+
+/* 深色：墨底 + 亮纸字 + 强调色直接使用信号色 */
+.panel[data-nf-mode='dark'][data-nf-theme='endfield'],
+body[data-ds-dark-theme] .panel[data-nf-theme='endfield']:not([data-nf-mode]) {
+  --nf-bg: #101110;
+  --nf-bg-raise: #181a18;
+  --nf-bg-inset: #1e201d;
+  --nf-border: #343633;
+  --nf-border-strong: #4a4d49;
+  --nf-text: #f5f5f0;
+  --nf-text-2: #898d89;
+  --nf-text-2-alpha: rgba(137, 141, 137, 0.7);
+  --nf-text-3: #6a6d68;
+  --nf-accent: var(--edge-accent);
+  --nf-accent-hover: var(--edge-accent-deep);
+  --nf-accent-soft: rgba(var(--edge-accent-rgb), 0.22);
+  --nf-accent-fg: #101110;
+  --nf-hover: rgba(var(--edge-accent-rgb), 0.16);
+  --nf-success: #4fbf5c;
+  --nf-error: #ff6b61;
+  --nf-warn: #ffb700;
+  --nf-info: var(--edge-accent);
+  --nf-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.45);
+  --nf-shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.45), 0 18px 44px rgba(0, 0, 0, 0.6);
+  --nf-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 14px 38px rgba(0, 0, 0, 0.5);
+  --nf-card-shadow-hover: 0 2px 6px rgba(0, 0, 0, 0.45), 0 22px 52px rgba(0, 0, 0, 0.6);
+  --nf-glass-face: var(--nf-bg-raise);
+  --nf-glass-core: transparent;
+  --nf-glass-sheen: rgba(0, 0, 0, 0);
+  --nf-glass-border: var(--nf-card-border);
+  --nf-glass-inset: var(--nf-bg-inset);
+}
+
+/* 终末地输入/按钮：纸墨工业风，无玻璃高光（直角通过 --nf-radius-* 令牌实现） */
+.panel[data-nf-theme='endfield'] .button,
+.panel[data-nf-theme='endfield'] .input,
+.panel[data-nf-theme='endfield'] .textarea {
+  box-shadow: none;
+}
+
+.panel[data-nf-theme='endfield'] .buttonPrimary {
+  background: var(--nf-accent);
+  border-color: transparent;
+  color: var(--nf-accent-fg);
+  box-shadow: none;
+}
+
+.panel[data-nf-theme='endfield'] .buttonPrimary:hover:not([disabled]) {
+  background: var(--nf-accent-hover);
+  border-color: transparent;
+}
+
+.panel[data-nf-theme='endfield'] .input:focus,
+.panel[data-nf-theme='endfield'] .textarea:focus {
+  border-color: var(--nf-accent);
+  box-shadow: 0 0 0 2px var(--nf-accent-soft);
+}
+
 /* ------------------------------------------------------------ panel shell */
 
 .panel {
@@ -756,6 +898,7 @@ body[data-ds-dark-theme] .panel[data-nf-theme='neumorph'] .buttonPrimary {
 }
 
 .panelContent {
+  min-width: 0;
   flex: 1;
   overflow: auto;
   padding: var(--nf-container-pad, 20px 22px);
@@ -4089,6 +4232,23 @@ select.input {
 }
 
 /* 设置页卡片：label 单行、行内顶部对齐，保证输入框水平对齐 */
+/* 设置页卡片：防止内层卡片/长内容在 flex 容器中撑破外层卡片 */
+.settingsCard {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.settingsCard > * {
+  min-width: 0;
+}
+
+/* ModelManager 等组件会在设置卡片内再渲染 .card 子卡片，也必须允许收缩 */
+.settingsCard .card {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
 .settingsCard .fieldLabel {
   min-height: 18px;
   line-height: 18px;
@@ -4136,8 +4296,9 @@ select.input {
 /* 设置页：字号已统一为全局档（次要 12 / 主 14 / 标题 16+），不再放大；
  * 主容器由 .card 的 --nf-card-pad 统一提供（舒适 20px 22px）。 */
 .settingsCard + .settingsCard {
-  flex: 1;
-  min-height: 0;
+  /* 不再强制拉伸/压缩：设置卡片按内容自适应高度，避免内层分类跑出容器 */
+  flex: 0 0 auto;
+  min-height: auto;
 }
 
 /* 设置页开关（滑块） */

@@ -444,7 +444,7 @@ export function AdaptModeView({ api, onOpenBook }: { api: NovelApi; onOpenBook?:
             <b>⑤ 提炼新书资料（预览，暂不保存）</b>
             <button type="button" className={css.button + ' ' + css.buttonPrimary} onClick={() => { void materializeBook() }} disabled={busy}><Wand2 size={14} style={{ verticalAlign: -2 }} /> {busy && busyLabel === '提炼新书资料…' ? '提炼中…' : '提炼新书资料（预览）'}</button>
           </div>
-          <span className={css.meta}>将基于编辑后的映射/规则，从源文提炼：改编后总纲、设定圣经（道藏）、角色库、大世界、卷计划、章节计划。生成后到第⑥步可微调，确认后再保存为《{result.bookName}·改编版》的待写新书（章节为 pending，随后可在小说工坊逐章生成）。</span>
+          <span className={css.meta}>将基于编辑后的映射/规则，从源文提炼：改编后总纲、道藏、角色库、大世界、卷计划、章节计划。生成后到第⑥步可微调，确认后再保存为《{result.bookName}·改编版》的待写新书（章节为 pending，随后可在小说工坊逐章生成）。</span>
           <div className={css.rowEnd} style={{ gap: 8 }}>
             <span className={css.meta}>拟规划章节数</span>
             <input type="number" className={css.input + ' ' + css.adaptCell} style={{ width: 90 }} value={chapterCount}
@@ -473,7 +473,7 @@ export function AdaptModeView({ api, onOpenBook }: { api: NovelApi; onOpenBook?:
           <h4 style={{ margin: '10px 0 4px' }}>改编后总纲</h4>
           <textarea className={css.input + ' ' + css.adaptTextarea} value={materialized.outline} onChange={e => patchMaterial({ outline: e.target.value })} />
 
-          <h4 style={{ margin: '10px 0 4px' }}>设定圣经（道藏）</h4>
+          <h4 style={{ margin: '10px 0 4px' }}>道藏</h4>
           <div className={css.adaptRules}>
             {(['worldRules', 'redLines', 'style'] as const).map(key => (
               <div key={key} className={css.adaptRule}>

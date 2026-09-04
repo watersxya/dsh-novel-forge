@@ -10,7 +10,7 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-settings'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-llm'
@@ -23,14 +23,14 @@ import { activeBookOutputDir } from './bookshelf.ts'
 export const name = 'novel-forge'
 
 /** Services required before the novel-forge surfaces can mount. */
-export const inject = ['webServer', 'llm', 'systemPrompt']
+export const inject = ['webServer', 'llm', 'systemPrompt', 'settings']
 
 /**
  * Settings namespace of the novel-forge capability — the section the web
  * settings surface edits. Spelled here rather than imported: the browser half
  * spells the same value and must not depend on a Host package.
  */
-export const NOVEL_SETTINGS_NAMESPACE = settingsNamespace('dsh-novel-forge')
+export const NOVEL_SETTINGS_NAMESPACE = 'dsh-novel-forge' as const
 
 /** Plugin config, validated by the same-named schemastery schema. */
 export interface Config {
@@ -131,7 +131,7 @@ const DEFAULT_AUTO_REVIEW_AFTER_REVISE = true
 const SECTION_ORDER = 160
 
 /** Model-facing announcement: plugin presence, capabilities, and limits. */
-export const NOVEL_GUIDANCE = '本机已安装 dsh-novel-forge 插件（AI 编译小说工作台）：侧边栏「小说工坊」入口。能力：读取 docx 大纲或粘贴大纲文本；用 LLM 提炼道藏（人设/世界观/金手指规则/写作红线，即设定圣经）；生成卷计划与章节计划；逐章调用 LLM 生成 3000-4000 字正文并保存为 Markdown（默认输出到用户主目录 ~/.dsh/novels）；每章自动生成摘要（叙事记忆）、自动 AI 审稿（人设/设定/红线/文笔/爽点/逻辑），支持按审稿意见重写、去 AI 味润色、暗线（伏笔）管理、批量连写与全本导出（txt/md）。限制：生成消耗 LLM API 额度；输出目录与模型可在插件设置中修改；章节正文质量取决于大纲完整度。用户提到「小说 / 大纲 / 写小说 / 章节 / 审稿 / 润色」时即指本插件，请据此协作。'
+export const NOVEL_GUIDANCE = '本机已安装 dsh-novel-forge 插件（AI 编译小说工作台）：侧边栏「小说工坊」入口。能力：读取 docx 大纲或粘贴大纲文本；用 LLM 提炼道藏（人设/世界观/金手指规则/写作红线）；生成卷计划与章节计划；逐章调用 LLM 生成 3000-4000 字正文并保存为 Markdown（默认输出到用户主目录 ~/.dsh/novels）；每章自动生成摘要（叙事记忆）、自动 AI 审稿（人设/设定/红线/文笔/爽点/逻辑），支持按审稿意见重写、去 AI 味润色、暗线（伏笔）管理、批量连写与全本导出（txt/md）。限制：生成消耗 LLM API 额度；输出目录与模型可在插件设置中修改；章节正文质量取决于大纲完整度。用户提到「小说 / 大纲 / 写小说 / 章节 / 审稿 / 润色」时即指本插件，请据此协作。'
 
 /** Resolve a config-like value into the full runtime config. */
 export function resolveConfig(value: Partial<Config> | undefined): NovelConfig {
@@ -168,7 +168,8 @@ export function resolveConfig(value: Partial<Config> | undefined): NovelConfig {
       const active = (value?.imageModels ?? []).find(m => m.enabled) ?? (value?.imageModels ?? [])[0]
       return active?.model ?? value?.imageApiModel
     })(),
-    imageApiEnabled: value?.imageApiEnabled ?? false,
+    // 生图启用：总开关打开，或模型库里存在启用条目，均视为已启用（避免用户只配模型忘了开总开关）。
+    imageApiEnabled: value?.imageApiEnabled === true || (value?.imageModels ?? []).some(m => m.enabled === true),
     themeBackground: value?.themeBackground ?? '',
     themeBackgroundBlur: value?.themeBackgroundBlur ?? 0,
     themeOpacity: value?.themeOpacity ?? 100,
@@ -264,7 +265,7 @@ export function apply(ctx: Context, config?: Config): void {
     void value
   }
 
-  installSettingsSection(ctx, NOVEL_SETTINGS_NAMESPACE, Config, config ?? {}, {
+  ctx.settings.installSection(ctx, NOVEL_SETTINGS_NAMESPACE, Config, config ?? {}, {
     setSource: (source) => {
       current = source
       sync()

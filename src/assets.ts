@@ -212,7 +212,214 @@ export const BUILTIN_STYLE_TEMPLATES: StyleTemplate[] = [
     ],
     defaultAntiAiRuleKeys: ['禁止解释型心理描写', '禁止段尾升华', '鼓励现实落差', '鼓励嘴硬补偿'],
   },
-]
+  {
+    key: 'cultivation-breakthrough',
+    name: '修炼突破流',
+    description: '以境界突破、战力碾压和资源争夺为核心，强调突破前后的反差与爽感。',
+    category: '修炼流',
+    applicableGenres: ['仙侠', '玄幻', '都市异能'],
+    proseRules: [
+      '突破前铺垫压抑与困境，突破时释放能量与威压，突破后立即兑现碾压收益。',
+      '场景单元按「困境→闭关/机缘→突破→碾压→新目标」推进。',
+      '战力体系严格遵守道藏设定，不随意膨胀；每次突破有明确代价或限制。',
+    ],
+    dialogueRules: [
+      '突破前角色隐忍克制，突破后语气自信但不浮夸。',
+      '对手从轻视到震惊的反应通过对话和动作体现，不直接解说。',
+    ],
+    languageRules: [
+      '战斗场景用短句和动作词，突破场景用感官描写（光/声/压力）。',
+      '减少修炼过程的流水账，聚焦关键节点和突破瞬间。',
+    ],
+    rhythmRules: [
+      '突破节奏先抑后扬，压抑段不超过3段，突破段要快且有冲击力。',
+      '每章至少一个战力或境界的明确进展点。',
+    ],
+    defaultAntiAiRuleKeys: ['禁止总结主题', '禁止段尾升华', '连续三段解释性叙事'],
+  },
+  {
+    key: 'face-slapping',
+    name: '装逼打脸流',
+    description: '身份隐藏→被轻视→展露实力→全场震惊，强调反差爽感与节奏控制。',
+    category: '爽文流',
+    applicableGenres: ['都市', '玄幻', '仙侠', '重生'],
+    proseRules: [
+      '打脸前三段内必须建立轻视/挑衅，打脸过程不超过两段，震惊反应要充分。',
+      '场景单元按「隐藏→挑衅→展露→震惊→新挑衅」循环推进。',
+      '主角实力展露要有铺垫和依据，不凭空开挂。',
+    ],
+    dialogueRules: [
+      '挑衅者台词要具体且有针对性，避免泛泛的"你也配"。',
+      '主角话少而精准，用行动和结果说话，不嘴炮解释。',
+      '围观者反应分层：先不信→再震惊→最后讨好/畏惧。',
+    ],
+    languageRules: [
+      '打脸场景用短句和动作，震惊场景用群像反应。',
+      '避免"全场寂静""众人哗然"等套话，用具体人物反应代替。',
+    ],
+    rhythmRules: [
+      '快节奏，打脸间隔不超过3章，每章至少一个小反转。',
+      '装逼要克制，主角不主动炫耀，被动展露更有爽感。',
+    ],
+    defaultAntiAiRuleKeys: ['禁止总结主题', '对话纯功能推进', 'AI 高频套话'],
+  },
+  {
+    key: 'power-struggle',
+    name: '权谋博弈流',
+    description: '以信息差、布局和反制为核心，强调对话潜台词与多方博弈。',
+    category: '权谋流',
+    applicableGenres: ['历史', '宫斗', '官场', '仙侠争霸'],
+    proseRules: [
+      '每章至少一次信息不对称的利用或破解，布局要有伏笔和回收。',
+      '场景单元按「情报→布局→试探→反制→结果」推进。',
+      '多方势力各有目标和底线，不做纯粹的工具人反派。',
+    ],
+    dialogueRules: [
+      '对话充满潜台词，表面客气实则交锋，关键信息藏在半句和停顿里。',
+      '不同势力角色的语言风格和立场要明确区分。',
+      '避免角色直接说出计划和意图，通过行动和结果揭示。',
+    ],
+    languageRules: [
+      '正式、克制的语言，避免口语化和现代网络用语。',
+      '用细节（眼神/手势/器物）暗示人物真实想法。',
+    ],
+    rhythmRules: [
+      '中慢节奏，布局段可以慢，但反转和收网段要快。',
+      '每3-5章一个小高潮（布局见效或反制成功）。',
+    ],
+    defaultAntiAiRuleKeys: ['禁止解释型心理描写', '禁止直接说教', '对话纯功能推进'],
+  },
+  {
+    key: 'sweet-romance',
+    name: '甜宠撒糖流',
+    description: '高糖互动+宠溺细节+情感升温，少虐多甜，强调心动瞬间。',
+    category: '言情流',
+    applicableGenres: ['现言', '古言', '甜宠', '校园'],
+    proseRules: [
+      '每章至少一个心动或撒糖细节，情感进展要有明确节点。',
+      '场景单元按「日常互动→心动瞬间→关系推进→新暧昧」推进。',
+      '误会不超过2章，冲突要小而温馨，不搞虐恋。',
+    ],
+    dialogueRules: [
+      '对话自然亲昵，有专属称呼和互动习惯，避免书面化表白。',
+      '男主台词宠溺但不油腻，女主可以害羞但不傻白甜。',
+      '用对话中的停顿、转移话题暗示心动，不直接说"我喜欢你"。',
+    ],
+    languageRules: [
+      '温暖、细腻的语言，多用感官细节（温度/气味/触感）。',
+      '避免"心如鹿撞""脸红心跳"等套话，用具体动作代替。',
+    ],
+    rhythmRules: [
+      '中慢节奏，日常段可以慢，但心动瞬间要聚焦和放大。',
+      '每5章一个关系突破（牵手/拥抱/表白等）。',
+    ],
+    defaultAntiAiRuleKeys: ['禁止段尾升华', '禁止解释型心理描写', '鼓励无意义小动作'],
+  },
+  {
+    key: 'competitive-blood',
+    name: '竞技热血流',
+    description: '操作细节+战术博弈+赛事逆转，强调燃点密集与成长曲线。',
+    category: '竞技流',
+    applicableGenres: ['电竞', '体育', '网游', '卡牌'],
+    proseRules: [
+      '比赛场景要有具体操作/战术细节，不写"他很强"而是写"他怎么强"。',
+      '场景单元按「训练/准备→劣势→战术调整→逆转→赛后成长」推进。',
+      '对手要有实力和特点，不做纯粹的经验包。',
+    ],
+    dialogueRules: [
+      '队友对话有战术讨论和互相鼓励，对手台词有挑衅和认可。',
+      '解说/旁白可以有，但不能代替比赛过程本身。',
+      '角色在高压下的语言要简短有力，避免长篇大论。',
+    ],
+    languageRules: [
+      '比赛场景用短句和动作词，节奏快，有画面感。',
+      '操作描述要专业且准确，避免外行话。',
+    ],
+    rhythmRules: [
+      '快节奏，比赛段要紧凑，日常训练段可以稍缓。',
+      '每场比赛至少一个逆转或高光时刻，每章一个小燃点。',
+    ],
+    defaultAntiAiRuleKeys: ['禁止总结主题', '连续三段解释性叙事', 'AI 高频套话'],
+  },
+  {
+    key: 'comedy-roast',
+    name: '吐槽搞笑流',
+    description: '旁白吐槽+角色反差+无厘头，节奏轻快，强调笑点密度。',
+    category: '搞笑流',
+    applicableGenres: ['轻小说', '二次元', '都市', '无限流'],
+    proseRules: [
+      '每章至少3个笑点，笑点来自反差、误解或吐槽，不依赖网络梗。',
+      '场景单元按「正常展开→反差/误解→吐槽→意外结果」推进。',
+      '搞笑不影响主线推进，笑点服务于剧情和人物。',
+    ],
+    dialogueRules: [
+      '主角吐槽要精准且有个人风格，其他角色负责一本正经地制造槽点。',
+      '对话节奏快，有来有回，避免冷场。',
+      '允许打破第四面墙的吐槽，但不能滥用。',
+    ],
+    languageRules: [
+      '口语化、轻快的语言，允许夸张和无厘头。',
+      '吐槽用括号或单独段落，不与叙事混淆。',
+    ],
+    rhythmRules: [
+      '快节奏，笑点密集，不拖沓。',
+      '每段不超过3句，长段落要拆。',
+    ],
+    defaultAntiAiRuleKeys: ['禁止段尾升华', '禁止直接说教', '鼓励无意义小动作'],
+  },
+  {
+    key: 'atmosphere-horror',
+    name: '氛围惊悚流',
+    description: '环境细节+心理暗示+信息延迟，恐惧不直说，靠氛围营造。',
+    category: '恐怖流',
+    applicableGenres: ['灵异', '惊悚', '克苏鲁', '无限恐怖'],
+    proseRules: [
+      '恐惧来自未知和异常，不直接描写怪物/鬼魂，用反应和痕迹暗示。',
+      '场景单元按「日常→异常细节→误解/忽视→危机爆发→余悸」推进。',
+      '信息延迟：读者和主角同时发现异常，不提前剧透。',
+    ],
+    dialogueRules: [
+      '角色对话克制，恐惧通过停顿、重复、语无伦次体现。',
+      '避免角色直接说"好可怕""有鬼"，用行动和反应代替。',
+      '关键信息藏在半句和打断里。',
+    ],
+    languageRules: [
+      '冷色调、精确的环境描写，多用听觉和触觉（视觉反而少）。',
+      '句子短而碎，制造紧张感；长句用于压抑和拖延。',
+      '避免"毛骨悚然""不寒而栗"等套话，用具体感官代替。',
+    ],
+    rhythmRules: [
+      '慢节奏铺垫，快节奏爆发，爆发后留余悸。',
+      '每3章一个小高潮（异常确认或危机爆发）。',
+    ],
+    defaultAntiAiRuleKeys: ['禁止解释型心理描写', '禁止总结主题', '段落长度过于整齐'],
+  },
+  {
+    key: 'hard-scifi',
+    name: '硬核科技流',
+    description: '技术细节+逻辑推演+文明思辨，信息密度高，强调设定自洽。',
+    category: '科幻流',
+    applicableGenres: ['科幻', '星际', '赛博朋克', '机甲'],
+    proseRules: [
+      '科技设定要有逻辑自洽的原理，不做"黑箱"解释。',
+      '场景单元按「问题→技术分析→方案→实施→后果」推进。',
+      '技术服务于剧情和人物，不为炫技而炫技。',
+    ],
+    dialogueRules: [
+      '专业对话有术语和逻辑，但要让非专业读者能理解核心。',
+      '角色争论要有技术依据，不做情绪化争吵。',
+      '避免角色直接解说设定，通过问题和讨论揭示。',
+    ],
+    languageRules: [
+      '精确、理性的语言，避免模糊和情绪化表达。',
+      '技术描述要具体且可想象，不堆砌名词。',
+    ],
+    rhythmRules: [
+      '中慢节奏，技术推演段可以慢，但行动段要快。',
+      '每5章一个技术突破或危机解决。',
+    ],
+    defaultAntiAiRuleKeys: ['禁止直接说教', '禁止总结主题', '连续三段解释性叙事'],
+  },]
 
 // ---------------------------------------------------------- built-in rules
 
@@ -302,7 +509,48 @@ export const BUILTIN_ANTI_AI_RULES: AntiAiRule[] = [
     detectPatterns: [],
     builtin: true,
   },
-]
+  {
+    name: '禁止心中暗道/脑海浮现',
+    avoid: '用"心中暗道""脑海中""心里想""暗自思忖"等句式直接暴露角色内心。',
+    fix: '把内心活动改成动作、表情、语气或行为结果，让读者自己推断。',
+    detectPatterns: ['心中暗道', '脑海中', '心里想', '暗自思忖', '心中暗想', '心里暗道'],
+    builtin: true,
+  },
+  {
+    name: '禁止仿佛/好像比喻滥用',
+    avoid: '单章"仿佛""好像""犹如""宛如"等比喻词超过5次，产生AI套路感。',
+    fix: '减少比喻频率，每个比喻必须是新造的、有具体画面的，不用陈词滥调。',
+    detectPatterns: ['仿佛', '好像', '犹如', '宛如', '好似'],
+    builtin: true,
+  },
+  {
+    name: '禁止过度排比堆砌',
+    avoid: '连续3句以上相同句式或排比结构，显得机械和刻意。',
+    fix: '打散句式，用长短句交替，排比不超过2句。',
+    detectPatterns: [],
+    builtin: true,
+  },
+  {
+    name: '禁止角色全知泄露',
+    avoid: '角色说出或知道他/她不可能知道的信息，破坏视角一致性。',
+    fix: '严格遵守视角限制，角色只能基于已有信息行动和判断。',
+    detectPatterns: [],
+    builtin: true,
+  },
+  {
+    name: '鼓励环境细节锚定',
+    avoid: '（鼓励类）情绪和氛围缺少具体环境物件锚定，全靠抽象形容词。',
+    fix: '用具体物件、光线、声音、温度等环境细节承载情绪，不直接说"紧张""悲伤"。',
+    detectPatterns: [],
+    builtin: true,
+  },
+  {
+    name: '鼓励角色语言差异化',
+    avoid: '（鼓励类）所有角色说话风格雷同，没有口头禅、用词习惯或句式差异。',
+    fix: '给每个主要角色设定独特的语言习惯（口头禅/用词偏好/句式长短），对话时严格区分。',
+    detectPatterns: [],
+    builtin: true,
+  },]
 
 /** 内置题材基底库（常用网文题材树，跨书复用）。 */
 export const BUILTIN_GENRE_LIBRARY: GenreNode[] = [
@@ -358,7 +606,88 @@ export const BUILTIN_GENRE_LIBRARY: GenreNode[] = [
       { name: '进化觉醒', description: '末世异变中觉醒能力不断进化，强调战力成长与危机求生。', children: [] },
     ],
   },
-]
+  {
+    name: '都市生活',
+    description: '现代都市日常背景，无超能力或超能力为辅，读者期待身份反差、职场逆袭与生活烟火气。',
+    children: [
+      { name: '赘婿逆袭', description: '开局隐忍赘婿，展露真实身份后一路打脸，强调身份反差与爽感。', children: [] },
+      { name: '神医归来', description: '医术高超的主角回归都市，治病救人积累人脉，强调专业碾压与感恩回馈。', children: [] },
+      { name: '兵王归隐', description: '退役兵王/特工回归都市，低调行事却屡被招惹，强调武力碾压与守护。', children: [] },
+      { name: '奶爸日常', description: '主角带娃生活，温馨治愈与成长并行，强调亲子互动与生活细节。', children: [] },
+      { name: '校园青春', description: '校园背景的成长与恋爱，强调青涩感、友情与梦想。', children: [] },
+      { name: '鉴宝捡漏', description: '古玩/收藏/拍卖背景，主角凭眼力捡漏暴富，强调专业知识与反差爽感。', children: [] },
+    ],
+  },
+  {
+    name: '言情',
+    description: '以情感关系为核心，读者期待心动、拉扯、甜虐交织与情感归宿。',
+    children: [
+      { name: '现言甜宠', description: '现代背景甜蜜恋爱，男主强势专一，强调撒糖与日常互动。', children: [] },
+      { name: '古言宫斗', description: '古代后宫/宅斗背景，女主在权谋中求生与上位，强调心机与反转。', children: [] },
+      { name: '虐恋重生', description: '前世被虐重生后改写命运，爱恨交织，强调复仇与情感救赎。', children: [] },
+      { name: '快穿女配', description: '穿梭不同世界完成任务，女主逆袭原剧情，强调多变设定与成长。', children: [] },
+      { name: '年代文', description: '七八十年代背景，家长里短与发家致富，强调时代质感与生活细节。', children: [] },
+    ],
+  },
+  {
+    name: '游戏竞技',
+    description: '以游戏或体育竞技为舞台，读者期待操作碾压、战术博弈与冠军荣耀。',
+    children: [
+      { name: '电竞荣耀', description: '职业电竞选手成长，强调操作细节、团队配合与赛事热血。', children: [] },
+      { name: '网游重生', description: '重生回游戏开服前，凭先知优势抢占资源，强调攻略与碾压。', children: [] },
+      { name: '体育竞技', description: '篮球/足球/赛车等体育项目，强调训练成长、比赛逆转与体育精神。', children: [] },
+      { name: '卡牌桌游', description: '卡牌/桌游/战棋背景，强调策略构筑与阵容搭配。', children: [] },
+    ],
+  },
+  {
+    name: '二次元轻小说',
+    description: 'ACG风格叙事，节奏轻快，设定新奇，读者期待脑洞展开与角色萌点。',
+    children: [
+      { name: '异世界穿越', description: '穿越到异世界获得能力/身份，强调新奇设定与冒险展开。', children: [] },
+      { name: '系统流', description: '主角获得系统辅助成长，任务/奖励驱动剧情，强调数值与反馈。', children: [] },
+      { name: '搞笑日常', description: '以吐槽和反差制造笑点，角色个性鲜明，强调轻松愉快。', children: [] },
+      { name: '反派转生', description: '转生成游戏/小说中的反派角色，利用剧情认知规避死亡结局，强调反转与谋略。', children: [] },
+    ],
+  },
+  {
+    name: '武侠',
+    description: '江湖侠义背景，武功秘籍、门派恩怨、家国情怀，读者期待侠气与江湖质感。',
+    children: [
+      { name: '传统武侠', description: '金庸/古龙风格，江湖恩怨与侠义精神，强调武功描写与人情世故。', children: [] },
+      { name: '江湖恩怨', description: '门派/家族/帮会争斗，主角在江湖中成长与抉择，强调义气与复仇。', children: [] },
+      { name: '庙堂江湖', description: '朝堂与江湖交织，武侠与权谋结合，强调格局与抉择。', children: [] },
+    ],
+  },
+  {
+    name: '现实题材',
+    description: '贴近现实生活的行业/职场故事，读者期待专业质感、人性刻画与现实共鸣。',
+    children: [
+      { name: '职场商战', description: '商场/职场博弈，主角从底层崛起，强调商业谋略与人际周旋。', children: [] },
+      { name: '官场沉浮', description: '体制内升迁与抉择，强调政治智慧与现实质感。', children: [] },
+      { name: '医疗行业', description: '医院/医生视角，治病救人与行业生态，强调专业与人性。', children: [] },
+      { name: '法律政律', description: '律师/法官视角，案件辩护与司法博弈，强调逻辑与正义。', children: [] },
+    ],
+  },
+  {
+    name: '恐怖灵异',
+    description: '超自然/惊悚背景，读者期待氛围营造、悬念反转与心理恐惧。',
+    children: [
+      { name: '灵异惊悚', description: '鬼魂/诅咒/灵异事件，强调氛围营造与心理恐惧。', children: [] },
+      { name: '克苏鲁', description: '不可名状的未知存在与疯狂，强调悬疑与绝望感。', children: [] },
+      { name: '民俗诡异', description: '中国民间习俗/禁忌/传说，强调地域文化与诡异氛围。', children: [] },
+      { name: '无限恐怖', description: '穿梭恐怖副本求生，强调规则破解与团队协作。', children: [] },
+    ],
+  },
+  {
+    name: '科幻',
+    description: '未来/太空/科技背景，读者期待宏大设定、技术想象与文明思辨。',
+    children: [
+      { name: '星际文明', description: '太空探索与文明碰撞，强调宇宙尺度与科技发展。', children: [] },
+      { name: '机甲战争', description: '机甲驾驶与星际战争，强调战斗场面与军人成长。', children: [] },
+      { name: '赛博朋克', description: '高科技低生活的近未来，义体/黑客/大企业，强调反差与反叛。', children: [] },
+      { name: '时间穿梭', description: '时间旅行/平行世界，强调因果逻辑与命运抉择。', children: [] },
+    ],
+  },]
 
 /** 内置常用推进模式。 */
 export const BUILTIN_PROGRESSION_MODES: ProgressionMode[] = [
@@ -437,15 +766,30 @@ export function effectiveAntiAiRules(assets: ProjectAssets | undefined): AntiAiR
   return [...BUILTIN_ANTI_AI_RULES.filter(r => !customNames.has(r.name)), ...custom]
 }
 
-/** 把生效规则渲染成提示词块（压缩：avoid/fix 截断，省 token）。 */
+/** 把生效规则渲染成提示词块（禁止/鼓励分列，压缩省 token）。 */
 export function renderAntiAiRules(assets: ProjectAssets | undefined): string {
-  const rules = effectiveAntiAiRules(assets)
+  const rules = effectiveAntiAiRules(assets).filter(r => r.enabled !== false)
   if (rules.length === 0) return ''
   const clip = (value: string, max: number): string => value.length > max ? value.slice(0, max) + '…' : value
-  return [
-    '==================== 反 AI 规则（写作时必须遵守的表达边界） ====================',
-    ...rules.map(r => `- ${r.name}：避免——${clip(r.avoid, 90)}${r.fix !== '' ? `；修正——${clip(r.fix, 50)}` : ''}`),
-  ].join('\n')
+  const isEncourage = (r: AntiAiRule): boolean =>
+    r.severity === 'encourage' || r.name.startsWith('鼓励') || r.avoid.startsWith('（鼓励类）')
+  const forbidden = rules.filter(r => !isEncourage(r))
+  const encourage = rules.filter(isEncourage)
+  const lines: string[] = []
+  lines.push('==================== 反 AI 规则（写作时必须遵守的表达边界） ====================')
+  if (forbidden.length > 0) {
+    lines.push('禁止类（命中即问题，审稿时列为 high/medium）：')
+    for (const r of forbidden) {
+      lines.push(`- ${r.name}：避免——${clip(r.avoid, 90)}${r.fix !== '' ? `；修正——${clip(r.fix, 50)}` : ''}`)
+    }
+  }
+  if (encourage.length > 0) {
+    lines.push('鼓励类（希望出现，不命中不算错，审稿时只作低优先级建议、不阻塞通过）：')
+    for (const r of encourage) {
+      lines.push(`- ${r.name}：${clip(r.fix !== '' ? r.fix : r.avoid, 90)}`)
+    }
+  }
+  return lines.join('\n')
 }
 
 /** 渲染题材与推进模式提示词块。 */

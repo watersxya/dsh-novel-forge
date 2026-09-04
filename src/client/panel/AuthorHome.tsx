@@ -31,17 +31,19 @@ const NAV_ITEMS: Array<{ id: Exclude<AuthorNav, 'settings'>; label: string; icon
 ];
 
 
-export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onImportBook, onOpenSettings, onTheme, onBackground, onOpacity, adaptEnabled, progress, busy, busyLabel, liveBar, onClearProgress }: {
+export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onImportBook, onOpenSettings, onTheme, onBackground, onOpacity, onEndfieldAccent, adaptEnabled, progress, busy, busyLabel, liveBar, onClearProgress }: {
   api: NovelApi; shelf: BookshelfSnapshot;
   onOpenBook: (id: string) => void; onReadBook: (id: string) => void; onAddBook: () => void; onImportBook: () => void;
   /** 兼容旧入口：首页设置现为独立设置页，此回调保留但不再使用。 */
   onOpenSettings?: () => void;
   /** 主题/模式/密度变化回调（供面板根容器实时生效）。 */
-  onTheme?: (theme: 'liquid' | 'neumorph' | 'macos' | 'clay', mode: 'system' | 'light' | 'dark', density: 'comfort' | 'compact' | 'spacious') => void;
+  onTheme?: (theme: 'liquid' | 'neumorph' | 'macos' | 'clay' | 'endfield', mode: 'system' | 'light' | 'dark', density: 'comfort' | 'compact' | 'spacious') => void;
   /** 自定义背景变化回调。 */
   onBackground?: (bg: string | undefined, blur: number) => void;
   /** 玻璃透明度变化回调。 */
   onOpacity?: (n: number) => void;
+  /** 终末地强调色变化回调。 */
+  onEndfieldAccent?: (accent: 'valley' | 'wuling') => void;
   /** 是否启用改编模式（默认 false=隐藏入口）。 */
   adaptEnabled?: boolean;
   /** AI 进度实时状态（与书内共享同一份）。 */
@@ -162,7 +164,7 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
         {nav === 'adapt' && <AdaptModeView api={api} onOpenBook={onOpenBook} />}
         {nav === 'assets' && <AuthorAssetsView api={api} />}
         {nav === 'library' && <GlobalAssetLibraryView api={api} />}
-        {nav === 'settings' && <SettingsView api={api} onTheme={onTheme} onBackground={onBackground} onOpacity={onOpacity} />}
+        {nav === 'settings' && <SettingsView api={api} onTheme={onTheme} onBackground={onBackground} onOpacity={onOpacity} onEndfieldAccent={onEndfieldAccent} />}
       </div>
       {progressOpen && (
         <div className={css.assistantFloat} style={{ left: progressPos.x, top: progressPos.y, width: progressSize.w, height: progressSize.h }}>

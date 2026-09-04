@@ -399,6 +399,9 @@ export function StoryboardTab({
                     <span className={css.badge + ' ' + css.badgeDone}>🎨 定妆 {bindingNames(s.mangaRoleIds)}</span>
                   )}
                 </div>
+                {s.jimengCamera !== undefined && s.jimengCamera !== '' && (
+                  <span className={css.meta}>🎥 即梦运镜：{s.jimengCamera}</span>
+                )}
                 <span>🎞️ {s.visual}</span>
                 <div className={css.row} style={{ flexWrap: 'wrap' }}>
                   <span className={css.meta}>💬 {s.line !== '' ? s.line : '（无台词）'}</span>
@@ -440,6 +443,9 @@ export function StoryboardTab({
               <div className={css.row} style={{ flexWrap: 'wrap' }}>
                 <b>镜头 {x.shotId}</b>
                 <span className={css.meta}>即梦/Seedance 提示词</span>
+                {(() => { const shot = table?.shots.find(s => s.id === x.shotId); return shot !== undefined ? (
+                  <span className={css.meta}>{shot.duration}s · {shot.jimengCamera !== undefined && shot.jimengCamera !== '' ? shot.jimengCamera : cameraZh(shot.camera)}</span>
+                ) : null })()}
                 {x.mangaRoleIds !== undefined && x.mangaRoleIds.length > 0 && (
                   <span className={css.badge + ' ' + css.badgeDone}>🎨 定妆 {bindingNames(x.mangaRoleIds)}</span>
                 )}

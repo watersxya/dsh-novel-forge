@@ -211,7 +211,7 @@ export class NovelApi {
     return postJson<{ ok: boolean; filled: number }>(NOVEL_API.factsBackfill, {})
   }
 
-  /** 设定圣经局部修补。 */
+  /** 道藏局部修补。 */
   async biblePatch(patch: import('../protocol.ts').BiblePatchRequest): Promise<{ bible: import('../protocol.ts').StoryBible }> {
     return postJson<{ bible: import('../protocol.ts').StoryBible }>(NOVEL_API.biblePatch, patch)
   }
@@ -293,6 +293,11 @@ export class NovelApi {
     return postJson<import('../protocol.ts').MangaRolesResponse>(NOVEL_API.mangaRoles, req)
   }
 
+  /** 导出「即梦素材包」落盘到资产库 manga-assets/素材包/。 */
+  async exportPackage(chapterNo: number, title: string, markdown: string): Promise<{ ok: boolean; file: string }> {
+    return postJson<{ ok: boolean; file: string }>(NOVEL_API.exportPackage, { chapterNo, title, markdown })
+  }
+
   /** 场景库：AI 提炼 / 采纳 / 更新 / 删除 / 图集。 */
   async scenes(req: import('../protocol.ts').ScenesRequest): Promise<import('../protocol.ts').ScenesResponse> {
     return postJson<import('../protocol.ts').ScenesResponse>(NOVEL_API.scenes, req)
@@ -301,6 +306,11 @@ export class NovelApi {
   /** 视觉世界观规则：提炼 / 保存。 */
   async visualRules(req: import('../protocol.ts').VisualRulesRequest): Promise<import('../protocol.ts').VisualRulesResponse> {
     return postJson<import('../protocol.ts').VisualRulesResponse>(NOVEL_API.visualRules, req)
+  }
+
+  /** 道具库：从已写章节提炼常驻道具 / 保存清单。 */
+  async mangaProps(req: import('../protocol.ts').MangaPropsRequest): Promise<import('../protocol.ts').MangaPropsResponse> {
+    return postJson<import('../protocol.ts').MangaPropsResponse>(NOVEL_API.mangaProps, req)
   }
 
   /** 小说简介：AI 生成/补全（partial 留空 = 全量），或手动保存。 */

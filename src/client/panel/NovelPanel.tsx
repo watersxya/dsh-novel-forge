@@ -107,12 +107,16 @@ const NAV_GROUPS: ReadonlyArray<{ id: string; label: string; items: ReadonlyArra
 /** Settings tab — pinned to the bottom of the nav rail. */
 const SETTINGS_TAB: { id: NovelTab; label: string; icon: ReactElement } = { id: 'settings', label: tt('tab.settings'), icon: <Settings size={18} /> }
 
+/** 审稿维度中文名（审稿问题按维度标注展示）。 */
+const REVIEW_DIM_ZH: Record<string, string> = {
+  character: '人设', setting: '设定', redline: '红线', writing: '文笔', pacing: '节奏', logic: '逻辑', 'anti-ai': '反AI', presentation: '呈现', compliance: '合规',
+}
+
 
 /** 设置页内子导航分组。 */
 const SETTINGS_SECTIONS: ReadonlyArray<{ id: 'model' | 'writing' | 'image' | 'files' | 'appearance'; label: string; icon: ReactElement }> = [
   { id: 'model', label: '模型与推理', icon: <Brain size={16} /> },
   { id: 'writing', label: '写作与审稿', icon: <PenLine size={16} /> },
-  { id: 'image', label: '生图模型', icon: <Palette size={16} /> },
   { id: 'files', label: '路径与文件', icon: <Folder size={16} /> },
   { id: 'appearance', label: '外观与主题', icon: <Sparkles size={16} /> },
 ]
@@ -387,16 +391,27 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     setEditorFontSize(v)
     try { window.localStorage.setItem('dsh-novel-forge.editor.fontSize', String(v)) } catch { /* ignore */ }
   }
-  /** 面板主题（localStorage 记忆）：'liquid'=iOS 液态玻璃（绿） / 'neumorph'=新拟物（浅色） / 'macos'=macOS 玻璃（蓝，随外观自动浅深） / 'clay'=粘土拟态。 */
-  const [panelTheme, setPanelTheme] = useState<'liquid' | 'neumorph' | 'macos' | 'clay'>(() => {
+  /** 面板主题（localStorage 记忆）：'liquid'=iOS 液态玻璃（绿） / 'neumorph'=新拟物（浅色） / 'macos'=macOS 玻璃（蓝，随外观自动浅深） / 'clay'=粘土拟态 / 'endfield'=终末地纸墨工业风。 */
+  const [panelTheme, setPanelTheme] = useState<'liquid' | 'neumorph' | 'macos' | 'clay' | 'endfield'>(() => {
     try {
       const v = window.localStorage.getItem('dsh-novel-forge.theme')
-      return v === 'neumorph' || v === 'macos' || v === 'clay' ? v : 'liquid'
+      return v === 'neumorph' || v === 'macos' || v === 'clay' || v === 'endfield' ? v : 'liquid'
     } catch { return 'liquid' }
   })
-  const changePanelTheme = (next: 'liquid' | 'neumorph' | 'macos' | 'clay'): void => {
+  const changePanelTheme = (next: 'liquid' | 'neumorph' | 'macos' | 'clay' | 'endfield'): void => {
     setPanelTheme(next)
     try { window.localStorage.setItem('dsh-novel-forge.theme', next) } catch { /* ignore */ }
+  }
+  /** 终末地强调色（localStorage 记忆）：'valley'=谷地黄（默认） / 'wuling'=武陵青。 */
+  const [endfieldAccent, setEndfieldAccent] = useState<'valley' | 'wuling'>(() => {
+    try {
+      const v = window.localStorage.getItem('dsh-novel-forge.theme.endfield.accent')
+      return v === 'wuling' ? v : 'valley'
+    } catch { return 'valley' }
+  })
+  const changeEndfieldAccent = (next: 'valley' | 'wuling'): void => {
+    setEndfieldAccent(next)
+    try { window.localStorage.setItem('dsh-novel-forge.theme.endfield.accent', next) } catch { /* ignore */ }
   }
   /** 显示模式（跟随系统 / 强制浅色 / 强制深色），localStorage 记忆，只作用于小说工坊面板。 */
   const [themeMode, setThemeMode] = useState<'system' | 'light' | 'dark'>(() => {
@@ -420,16 +435,18 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     setThemeDensity(next)
     try { window.localStorage.setItem('dsh-novel-forge.theme.density', next) } catch { /* ignore */ }
   }
-  /** 恢复默认主题：清掉主题/模式/密度记忆。 */
+  /** 恢复默认主题：清掉主题/模式/密度/终末地强调色记忆。 */
   const resetTheme = (): void => {
     try {
       window.localStorage.removeItem('dsh-novel-forge.theme')
       window.localStorage.removeItem('dsh-novel-forge.theme.mode')
       window.localStorage.removeItem('dsh-novel-forge.theme.density')
+      window.localStorage.removeItem('dsh-novel-forge.theme.endfield.accent')
     } catch { /* ignore */ }
     setPanelTheme('liquid')
     setThemeMode('system')
     setThemeDensity('comfort')
+    setEndfieldAccent('valley')
   }
   /** 设置页内子导航：当前分组（localStorage 记忆）。 */
   const [settingsTab, setSettingsTab] = useState<'model' | 'writing' | 'image' | 'files' | 'appearance'>(() => {
@@ -1895,6 +1912,9 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         chapters: prev.chapters.map(c => c.no === frame.no ? { ...c, status: 'written', chars: frame.chars, file: frame.file, review: undefined } : c),
       })
       pushProgress(tt('progress.done', { no: frame.no, chars: frame.chars, file: frame.file }), 'done')
+      if (frame.type === 'done' && frame.warn !== undefined && frame.warn !== '') {
+        pushProgress(`⚠️ ${frame.warn}`, 'info')
+      }
       setGeneratedFiles(prev => prev.includes(frame.file) ? prev : [...prev, frame.file])
     } else if (frame.type === 'review') {
       clearLiveProgress()
@@ -2390,7 +2410,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   panelBgStyle['--nf-glass-opacity' as string] = String(effectiveOpacity) + '%'
 
   return (
-    <div className={css.panel} data-nf-theme={panelTheme} data-nf-mode={themeMode === 'system' ? undefined : themeMode} data-nf-density={themeDensity} style={panelBgStyle}>
+    <div className={css.panel} data-nf-theme={panelTheme} data-nf-mode={themeMode === 'system' ? undefined : themeMode} data-nf-density={themeDensity} data-nf-endfield-accent={endfieldAccent} style={panelBgStyle}>
       {viewMode === 'shelf' ? (
         /* 书架首页：作者级左侧导航 + 书架/改编/资产库/设置 */
         <AuthorHome
@@ -2408,6 +2428,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           onTheme={(t, m, d) => { changePanelTheme(t); changeThemeMode(m); changeThemeDensity(d) }}
           onBackground={(bg, blur) => { setThemeBg(bg); setThemeBgBlur(blur) }}
           onOpacity={(n) => { setThemeOpacity(n) }}
+          onEndfieldAccent={(accent) => { changeEndfieldAccent(accent) }}
           adaptEnabled={config?.enableAdaptMode === true}
           progress={progress}
           busy={busy}
@@ -2764,7 +2785,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                               title="勾选后由「按意见修订」一起修订"
                             />
                             <span>
-                              [{issue.severity}] {issue.item}
+                              [{issue.severity}{issue.dimension !== undefined ? ` · ${REVIEW_DIM_ZH[issue.dimension] ?? issue.dimension}` : ''}] {issue.item}
                               {issue.suggestion !== '' && <span style={{ color: 'var(--nf-text-2)' }}> → {issue.suggestion}</span>}
                             </span>
                           </li>
@@ -3437,7 +3458,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                                     <ul style={{ margin: 0, paddingLeft: 'var(--nf-space-18)', fontSize: 'var(--nf-fs-12)' }}>
                                       {review.issues.map((issue, i) => (
                                         <li key={i} style={{ color: severityColor(issue.severity) }}>
-                                          [{issue.severity}] {issue.item} → {issue.suggestion}
+                                          [{issue.severity}{issue.dimension !== undefined ? ` · ${REVIEW_DIM_ZH[issue.dimension] ?? issue.dimension}` : ''}] {issue.item} → {issue.suggestion}
                                         </li>
                                       ))}
                                     </ul>
@@ -3928,73 +3949,6 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
               </div>
             )}
 
-            {settingsTab === 'image' && (
-              <div className={`${css.card} ${css.settingsCard}`} style={{ gap: 'var(--nf-space-24)' }}>
-                <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span className={css.cardTitle}><Palette size={18} style={{ verticalAlign: -3 }} /> 生图模型</span>
-                  <span className={css.row} style={{ gap: 'var(--nf-space-8)', alignItems: 'center' }}>
-                    <span className={css.meta}>启用生图功能</span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={configDraft.imageApiEnabled === true}
-                      className={`${css.switch} ${configDraft.imageApiEnabled === true ? css.switchOn : ''}`}
-                      onClick={() => { setConfigDraft(prev => prev === null ? prev : { ...prev, imageApiEnabled: prev.imageApiEnabled !== true }) }}
-                    >
-                      <span className={css.switchKnob} />
-                    </button>
-                  </span>
-                </div>
-                <span className={css.meta}>支持多套 OpenAI 兼容生图接口（豆包 / 即梦 / 其他平台）；启用一条作为生成模型，保存后角色详情显示「AI 生图」按钮。</span>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-20)' }}>
-                  {(configDraft.imageModels ?? []).map(m => (
-                    <div key={m.id} style={{ border: m.enabled ? '1px solid var(--nf-accent)' : '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-12)', padding: 'var(--nf-space-14)', display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-12)', background: m.enabled ? 'var(--nf-accent-soft)' : 'transparent' }}>
-                      <div className={css.row} style={{ alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                        <div className={css.field} style={{ flex: 1, minWidth: 180 }}>
-                          <label className={css.fieldLabel}>名称</label>
-                          <input className={css.input} placeholder="如：豆包 Seedream" value={m.name} onChange={e => { updateImageModel(m.id, { name: e.target.value }) }} />
-                        </div>
-                        <div className={css.field} style={{ flex: 1, minWidth: 180 }}>
-                          <label className={css.fieldLabel}>模型 id</label>
-                          <input className={css.input} placeholder="doubao-seedream-5-0-pro-260628" value={m.model} onChange={e => { updateImageModel(m.id, { model: e.target.value }) }} />
-                        </div>
-                        <div className={css.field} style={{ flex: 1, minWidth: 200 }}>
-                          <label className={css.fieldLabel}>接口地址</label>
-                          <input className={css.input} placeholder="https://ark.cn-beijing.volces.com/api/v3" value={m.baseURL} onChange={e => { updateImageModel(m.id, { baseURL: e.target.value }) }} />
-                        </div>
-                      </div>
-                      <div className={css.field}>
-                        <label className={css.fieldLabel}>API Key</label>
-                        <input className={css.input} type="password" placeholder="ark-..." value={m.apiKey} onChange={e => { updateImageModel(m.id, { apiKey: e.target.value }) }} />
-                      </div>
-                      <div className={css.row} style={{ gap: 'var(--nf-space-8)', flexWrap: 'wrap', alignItems: 'center' }}>
-                        <button type="button" className={`${css.button} ${css.buttonSmall} ${m.enabled ? css.buttonPrimary : ''}`} onClick={() => { enableImageModel(m.id) }}>
-                          {m.enabled ? '✓ 已启用' : '设为启用'}
-                        </button>
-                        <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={imageTestState[m.id]?.testing === true} onClick={() => { void testImageModel(m) }}>
-                          <PlugZap size={13} style={{ verticalAlign: -2 }} /> {imageTestState[m.id]?.testing === true ? '测试中…' : '测试'}
-                        </button>
-                        <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { removeImageModel(m.id) }}>🗑 删除</button>
-                        <span className={css.meta}>{m.enabled ? '当前生效' : '未启用'}</span>
-                        {(() => {
-                          const st = imageTestState[m.id]
-                          if (st === undefined || st.testing) return null
-                          return st.ok === true
-                            ? <span style={{ color: 'var(--nf-success)', fontSize: 'var(--nf-fs-12)', fontWeight: 600 }}>✓ 连通 · {st.ms}ms{st.modelFound === true ? '' : st.modelFound === false ? '（模型未在列表）' : ''}</span>
-                            : <span style={{ color: 'var(--nf-error)', fontSize: 'var(--nf-fs-12)' }}>✗ {st.message ?? '失败'}</span>
-                        })()}
-                      </div>
-                    </div>
-                  ))}
-                  {(configDraft.imageModels ?? []).length === 0 && (
-                    <div className={css.meta}>还没有生图模型——点下方「＋ 添加生图模型」添加第一条（默认启用）。</div>
-                  )}
-                </div>
-                <div className={css.row}>
-                  <button type="button" className={css.button} onClick={addImageModel}>＋ 添加生图模型</button>
-                </div>
-              </div>
-            )}
 
             {settingsTab === 'files' && (
               <div className={`${css.card} ${css.settingsCard}`} style={{ gap: 'var(--nf-space-24)' }}>
@@ -4046,14 +4000,25 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                   </div>
                   <div className={css.field}>
                     <label className={css.fieldLabel} style={{ fontSize: 'var(--nf-fs-14)' }}>主题风格</label>
-                    <select className={css.input} style={{ padding: 'var(--nf-space-10) var(--nf-space-12)', fontSize: 'var(--nf-fs-14)' }} value={panelTheme} onChange={e => { changePanelTheme(e.target.value as 'liquid' | 'neumorph' | 'macos' | 'clay') }}>
+                    <select className={css.input} style={{ padding: 'var(--nf-space-10) var(--nf-space-12)', fontSize: 'var(--nf-fs-14)' }} value={panelTheme} onChange={e => { changePanelTheme(e.target.value as 'liquid' | 'neumorph' | 'macos' | 'clay' | 'endfield') }}>
                       <option value="liquid">液态玻璃 · 清新绿（默认）</option>
                       <option value="neumorph">新拟物 · 柔和浅色</option>
                       <option value="macos">macOS · 玻璃（蓝，随外观浅/深）</option>
                       <option value="clay">粘土拟态 · 柔和黏土</option>
+                      <option value="endfield">终末地 · 纸墨工业风</option>
                     </select>
                     <span className={css.meta}>{tt('settings.themeHint')}</span>
                   </div>
+                  {panelTheme === 'endfield' && (
+                    <div className={css.field}>
+                      <label className={css.fieldLabel} style={{ fontSize: 'var(--nf-fs-14)' }}>终末地强调色</label>
+                      <select className={css.input} style={{ padding: 'var(--nf-space-10) var(--nf-space-12)', fontSize: 'var(--nf-fs-14)' }} value={endfieldAccent} onChange={e => { changeEndfieldAccent(e.target.value as 'valley' | 'wuling') }}>
+                        <option value="valley">谷地黄（默认）</option>
+                        <option value="wuling">武陵青</option>
+                      </select>
+                      <span className={css.meta}>参考明日方舟：终末地官网，亮色自动使用深色档保证可读性。</span>
+                    </div>
+                  )}
                   <div className={css.field}>
                     <label className={css.fieldLabel} style={{ fontSize: 'var(--nf-fs-14)' }}>界面密度</label>
                     <select className={css.input} style={{ padding: 'var(--nf-space-10) var(--nf-space-12)', fontSize: 'var(--nf-fs-14)' }} value={themeDensity} onChange={e => { changeThemeDensity(e.target.value as 'comfort' | 'compact' | 'spacious') }}>
@@ -4460,7 +4425,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         )}
 
         {activeTab === 'manhua' && (
-          <MangaWorkspace api={api} project={project} chapters={chapters} onProjectChanged={() => refresh(false)} imageApiEnabled={config?.imageApiEnabled === true} imageModels={config?.imageModels} onProgress={(text, kind) => pushProgress(text, kind ?? 'info')} />
+          <MangaWorkspace api={api} project={project} chapters={chapters} onProjectChanged={() => refresh(false)} onProgress={(text, kind) => pushProgress(text, kind ?? 'info')} />
         )}
 
         {activeTab === 'breakdown' && (

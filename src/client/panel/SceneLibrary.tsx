@@ -16,6 +16,7 @@ export function SceneLibrary({
   refresh,
   styleId,
   filterId,
+  chapterNo: externalChapter,
   onProgress,
 }: {
   api: NovelApi
@@ -26,6 +27,8 @@ export function SceneLibrary({
   styleId?: string
   /** 可选滤镜风格 id。 */
   filterId?: string
+  /** 全局当前章节（从工作台顶部导航条传入）。 */
+  chapterNo?: number | null
   /** 上报到「AI进度」控制台。 */
   onProgress?: (text: string, kind?: 'info' | 'done' | 'error') => void
 }) {
@@ -37,8 +40,17 @@ export function SceneLibrary({
   const [uploadLabel, setUploadLabel] = useState('全景')
   const [uploadTarget, setUploadTarget] = useState<string | null>(null)
   const [draft, setDraft] = useState<SceneCard | null>(null)
-  /** 详情浮窗内提示词全局中英切换。 */
-  const [sceneLang, setSceneLang] = useState<'zh' | 'en'>('zh')
+  /** 场景分级筛选。 */
+  const [tierFilter, setTierFilter] = useState<'all' | 'core' | 'secondary' | 'passing'>('all')
+  /** 按章提取场景的章节号；undefined=全书提取（前4章）。 */
+  const [chapterNo, setChapterNo] = useState<number | undefined>(externalChapter ?? undefined)
+
+  // 外部章节变化时同步内部状态
+  useEffect(() => {
+    if (externalChapter !== undefined && externalChapter !== null) {
+      setChapterNo(externalChapter)
+    }
+  }, [externalChapter])
   const inputRef = useRef<HTMLInputElement | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
   /** 浮窗挂 body 时复制的面板主题变量（--nf-*）。 */
@@ -77,11 +89,17 @@ export function SceneLibrary({
 
   const extract = async (): Promise<void> => {
     setBusy(true); setError('')
-    report('按当前方案提炼场景…')
+    report(chapterNo !== undefined ? '按第' + chapterNo + '章提炼场景…' : '按当前方案提炼场景…')
     try {
-      const result = await api.scenes({ op: 'extract', styleId, filterId })
-      setCandidates(result.candidates ?? [])
-      report('场景提炼完成：' + (result.candidates ?? []).length + ' 个候选', 'done')
+      const result = await api.scenes({ op: 'extract', chapterNo, styleId, filterId })
+      const list = result.candidates ?? []
+      // 自动采纳全部场景（傻瓜式操作，无需手动一个个点采纳）
+      for (const s of list) {
+        try { await api.scenes({ op: 'adopt', scene: s }) } catch { /* 单个采纳失败不阻塞 */ }
+      }
+      setCandidates(null)
+      await refresh()
+      report('场景提炼完成：已自动采纳 ' + list.length + ' 个场景', 'done')
     } catch (err) {
       const m = (err as Error).message
       setError(m)
@@ -183,6 +201,7 @@ export function SceneLibrary({
   }
 
   const scenes = project.scenes ?? []
+  const filteredScenes = tierFilter === 'all' ? scenes : scenes.filter(s => (s.tier ?? 'secondary') === tierFilter)
   const detail = detailName !== null ? scenes.find(s => s.name === detailName) : undefined
 
   return (
@@ -190,26 +209,39 @@ export function SceneLibrary({
       <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <span className={css.cardTitle} style={{ fontSize: 'var(--nf-fs-16)', fontWeight: 700 }}>🏞️ 场景库</span>
         <span className={css.meta}>场景视觉锚点：提炼自正文，供漫剧分镜/生图锁定「在哪、什么氛围」</span>
-        <span className={css.meta} style={{ display: 'block', marginTop: 'var(--nf-space-2)' }}>流程位置：第⑧步（选做）· 前置：已写章节 · 分镜表会自动标注使用场景</span>
+        <span className={css.meta} style={{ display: 'block', marginTop: 'var(--nf-space-2)' }}>流程位置：第④步场景底图 · 前置：一键生成已完成 · 下一步：第⑤步导出即梦脚本</span>
       </div>
 
       <div className={css.row} style={{ flexWrap: 'wrap', gap: 'var(--nf-space-6)', margin: '8px 0' }}>
+        <span style={{ display: 'inline-flex', gap: 'var(--nf-space-2)', alignItems: 'center' }}>
+          <span className={css.meta} style={{ fontSize: 'var(--nf-fs-12)' }}>提取章节：</span>
+          <select className={css.input} style={{ fontSize: 'var(--nf-fs-12)', padding: 'var(--nf-space-2) var(--nf-space-6)', width: 'auto' }} value={chapterNo ?? ''} onChange={e => { setChapterNo(e.target.value === '' ? undefined : Number(e.target.value)) }}>
+            <option value="">全书（前4章）</option>
+            {(project?.chapters ?? []).filter(c => c.status !== 'pending' && c.status !== 'generating').map(c => (
+              <option key={c.no} value={c.no}>第{c.no}章 {c.title ?? ''}</option>
+            ))}
+          </select>
+        </span>
         <button type="button" className={`${css.button} ${css.buttonPrimary}`} disabled={busy} onClick={() => { void extract() }}>
-          {busy ? '⏳ 提炼中…' : '✨ 按当前方案提炼场景'}
+          {busy ? '⏳ 提炼中…' : '✨ 提炼场景'}
         </button>
         <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { void refresh(); report('场景库已刷新', 'done') }}>🔄 刷新</button>
-        {candidates !== null && (
+
+        <span style={{ display: 'inline-flex', gap: 'var(--nf-space-2)', alignItems: 'center' }}>
+          <span className={css.meta} style={{ fontSize: 'var(--nf-fs-12)' }}>分级：</span>
+          {(['all', 'core', 'secondary', 'passing'] as const).map(t => (
+            <button key={t} type="button" className={`${css.button} ${css.buttonSmall} ${tierFilter === t ? css.buttonPrimary : ''}`} style={{ fontSize: 'var(--nf-fs-12)', padding: 'var(--nf-space-2) var(--nf-space-6)' }} onClick={() => { setTierFilter(t) }}>
+              {t === 'all' ? '全部' : t === 'core' ? '核心' : t === 'secondary' ? '次要' : '路过'}
+            </button>
+          ))}
+        </span>
+        <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => {
+          const text = scenes.map(s => '【' + s.name + '】\n' + s.zh + '\n负面词：' + (s.negativePrompt ?? 'no people, no characters, no text, no watermark, no logo')).join('\n\n')
+          void navigator.clipboard?.writeText(text).then(() => { notify('已复制全部场景提示词') }).catch(() => { /* ignore */ })
+        }}>📋 复制全部提示词</button>        {candidates !== null && (
           <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setCandidates(null) }}>收起候选</button>
         )}
       </div>
-
-      {/* 视觉规则：只在主页面显示一次（浮窗内不再重复）。 */}
-      {(project.visualRules ?? []).length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--nf-space-4)', alignItems: 'center', margin: '4px 0 8px' }}>
-          <span className={css.meta} style={{ fontSize: 'var(--nf-fs-12)' }}>⚠️ 本书视觉规则（已内嵌到所有提示词）：</span>
-          {(project.visualRules ?? []).map((r, i) => <span key={i} style={{ border: '1px solid var(--nf-warn, #b8860b)', borderRadius: 'var(--nf-radius-999)', padding: '0 var(--nf-space-8)', fontSize: 'var(--nf-fs-12)', color: 'var(--nf-warn, #b8860b)' }}>{r}</span>)}
-        </div>
-      )}
 
       {error !== '' && <div className={css.importError}>{error}</div>}
       {notice !== '' && <div className={css.importResult} style={{ padding: 'var(--nf-space-6) var(--nf-space-10)' }}>{notice}</div>}
@@ -255,7 +287,7 @@ export function SceneLibrary({
         </div>
       )}
 
-      {scenes.length === 0 && candidates === null ? (
+      {filteredScenes.length === 0 && candidates === null ? (
         <div className={css.shelfEmpty} style={{ minHeight: 140, flex: 1 }}>
           <span className={css.shelfEmptyIcon}>🏞️</span>
           <span className={css.shelfEmptyTitle}>场景库为空</span>
@@ -263,7 +295,7 @@ export function SceneLibrary({
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 'var(--nf-space-10)' }}>
-          {scenes.map(s => {
+          {filteredScenes.map(s => {
             const cover = (s.gallery ?? [])[0]
             return (
               <div key={s.name} onClick={() => { openDetail(s.name) }} role="button" tabIndex={0} aria-label={`打开场景 ${s.name}`} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(s.name) } }} style={{ cursor: 'pointer', border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-12)', overflow: 'hidden', background: 'var(--nf-bg-inset)', display: 'flex', flexDirection: 'column' }}>
@@ -274,7 +306,11 @@ export function SceneLibrary({
                   <span style={{ position: 'absolute', bottom: 4, right: 4, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 'var(--nf-fs-12)', borderRadius: 'var(--nf-radius-6)', padding: 'var(--nf-space-2) var(--nf-space-6)' }}>🖼 {(s.gallery ?? []).length}</span>
                 </div>
                 <div style={{ padding: 'var(--nf-space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-2)' }}>
-                  <b style={{ fontSize: 'var(--nf-fs-14)' }}>{s.name}</b>{s.styleId !== undefined && <span className={css.badge} style={{ fontSize: 'var(--nf-fs-12)' }}>🎨 {s.styleId}</span>}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--nf-space-4)', flexWrap: 'wrap' }}>
+                    <b style={{ fontSize: 'var(--nf-fs-14)' }}>{s.name}</b>
+                    <span style={{ fontSize: 'var(--nf-fs-11)', padding: '1px 6px', borderRadius: 'var(--nf-radius-999)', background: (s.tier ?? 'secondary') === 'core' ? 'rgba(224,85,85,0.15)' : (s.tier ?? 'secondary') === 'passing' ? 'rgba(128,128,128,0.15)' : 'rgba(85,136,224,0.15)', color: (s.tier ?? 'secondary') === 'core' ? '#e05555' : (s.tier ?? 'secondary') === 'passing' ? '#888' : '#5588e0' }}>{(s.tier ?? 'secondary') === 'core' ? '核心' : (s.tier ?? 'secondary') === 'passing' ? '路过' : '次要'}</span>
+                    {s.styleId !== undefined && <span className={css.badge} style={{ fontSize: 'var(--nf-fs-12)' }}>🎨 {s.styleId}</span>}
+                  </div>
                   <div className={css.meta} style={{ fontSize: 'var(--nf-fs-12)' }}>{(s.moods ?? []).join('、') || s.summary.slice(0, 16)}</div>
                 </div>
               </div>
@@ -291,6 +327,7 @@ export function SceneLibrary({
             <div style={{ marginBottom: 'var(--nf-space-12)' }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--nf-space-8)', flexWrap: 'wrap' }}>
                 <b style={{ fontSize: 'var(--nf-fs-20)' }}>{detail.name}</b>
+                <span style={{ fontSize: 'var(--nf-fs-12)', padding: '2px 8px', borderRadius: 'var(--nf-radius-999)', background: (detail.tier ?? 'secondary') === 'core' ? 'rgba(224,85,85,0.15)' : (detail.tier ?? 'secondary') === 'passing' ? 'rgba(128,128,128,0.15)' : 'rgba(85,136,224,0.15)', color: (detail.tier ?? 'secondary') === 'core' ? '#e05555' : (detail.tier ?? 'secondary') === 'passing' ? '#888' : '#5588e0' }}>{(detail.tier ?? 'secondary') === 'core' ? '核心场景' : (detail.tier ?? 'secondary') === 'passing' ? '路过场景' : '次要场景'}</span>
                 {detail.styleId !== undefined && <span className={css.badge}>🎨 {detail.styleId}</span>}
                 {(detail.act !== undefined && detail.act !== '') && <span className={css.badge} style={{ borderColor: 'var(--nf-accent)', color: 'var(--nf-accent)' }}>{detail.act}</span>}
                 {(detail.moment !== undefined && detail.moment !== '') && <span className={css.meta}>{detail.moment}</span>}
@@ -339,35 +376,55 @@ export function SceneLibrary({
               <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 'var(--nf-space-6)' }}>
                 <b style={{ fontSize: 'var(--nf-fs-14)' }}>🎨 生图提示词</b>
                 <span className={css.row} style={{ gap: 'var(--nf-space-6)', flexWrap: 'wrap' }}>
-                  <button type="button" className={`${css.button} ${css.buttonSmall} ${sceneLang === 'zh' ? css.buttonPrimary : ''}`} onClick={() => { setSceneLang('zh') }}>🇨🇳 中文</button>
-                  <button type="button" className={`${css.button} ${css.buttonSmall} ${sceneLang === 'en' ? css.buttonPrimary : ''}`} onClick={() => { setSceneLang('en') }}>🇬🇧 English</button>
                   <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => {
-                    const text = '【中文】\n' + detail.zh + '\n\n【English】\n' + detail.en
-                    void navigator.clipboard?.writeText(text).then(() => { notify('已复制「' + detail.name + '」中英提示词') }).catch(() => { /* ignore */ })
+                    const text = '【中文】\n' + detail.zh
+                    void navigator.clipboard?.writeText(text).then(() => { notify('已复制「' + detail.name + '」生图提示词') }).catch(() => { /* ignore */ })
                   }}>📋 复制全部</button>
                 </span>
               </div>
               <div style={{ border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-8)', padding: 'var(--nf-space-8)' }}>
                 <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                  <b style={{ fontSize: 'var(--nf-fs-12)' }}>{sceneLang === 'zh' ? '🇨🇳 中文' : '🇬🇧 English'}</b>
+                  <b style={{ fontSize: 'var(--nf-fs-12)' }}>🇨🇳 中文</b>
                   <button type="button" className={`${css.button} ${css.buttonSmall}`} style={{ padding: 'var(--nf-space-2) var(--nf-space-6)', fontSize: 'var(--nf-fs-12)' }} onClick={() => {
-                    void navigator.clipboard?.writeText(sceneLang === 'zh' ? detail.zh : detail.en).then(() => { notify('已复制「' + detail.name + '」' + (sceneLang === 'zh' ? '中文' : '英文') + '提示词') }).catch(() => { /* ignore */ })
+                    void navigator.clipboard?.writeText(detail.zh).then(() => { notify('已复制「' + detail.name + '」生图提示词') }).catch(() => { /* ignore */ })
                   }}>复制</button>
                 </div>
-                <div className={css.meta} style={{ fontSize: 'var(--nf-fs-12)', lineHeight: 1.6, marginTop: 'var(--nf-space-4)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{sceneLang === 'zh' ? detail.zh : detail.en}</div>
+                <div className={css.meta} style={{ fontSize: 'var(--nf-fs-12)', lineHeight: 1.6, marginTop: 'var(--nf-space-4)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{detail.zh}</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--nf-space-4)', marginTop: 'var(--nf-space-8)' }}>
                   {(detail.tags ?? []).map(t => <span key={t} style={{ border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-999)', padding: 'var(--nf-space-2) var(--nf-space-8)', fontSize: 'var(--nf-fs-12)' }}>{t}</span>)}
                 </div>
+              </div>
+              {/* 负面提示词 */}
+              <div style={{ marginTop: 'var(--nf-space-8)', border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-8)', padding: 'var(--nf-space-8)' }}>
+                <div className={css.row} style={{ justifyContent: 'space-between' }}>
+                  <b style={{ fontSize: 'var(--nf-fs-12)' }}>🚫 负面提示词（场景专用）</b>
+                  <button type="button" className={`${css.button} ${css.buttonSmall}`} style={{ padding: 'var(--nf-space-2) var(--nf-space-6)', fontSize: 'var(--nf-fs-12)' }} onClick={() => {
+                    void navigator.clipboard?.writeText(detail.negativePrompt ?? 'no people, no characters, no text, no watermark, no logo, no subtitles, blurry, low quality, distorted, deformed').then(() => { notify('已复制负面提示词') }).catch(() => { /* ignore */ })
+                  }}>复制</button>
+                </div>
+                <div className={css.meta} style={{ fontSize: 'var(--nf-fs-12)', lineHeight: 1.6, marginTop: 'var(--nf-space-4)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{detail.negativePrompt ?? 'no people, no characters, no text, no watermark, no logo, no subtitles, blurry, low quality, distorted, deformed'}</div>
+              </div>
+            </div>
+
+            {/* 即梦使用指引 */}
+            <div style={{ border: '1px solid var(--nf-accent)', borderRadius: 'var(--nf-radius-10)', padding: 'var(--nf-space-8) var(--nf-space-10)', marginBottom: 'var(--nf-space-12)', fontSize: 'var(--nf-fs-12)', background: 'rgba(85,136,224,0.05)' }}>
+              <b style={{ fontSize: 'var(--nf-fs-12)', color: 'var(--nf-accent)' }}>🎬 即梦使用指引</b>
+              <div style={{ marginTop: 'var(--nf-space-4)', lineHeight: 1.7, color: 'var(--nf-text-2)' }}>
+                <div>1. 上方场景图可作为即梦「首帧参考图」或「背景参考图」上传</div>
+                <div>2. 分镜提示词中已自动标注使用的场景名，导出时会附带场景图路径</div>
+                <div>3. 核心场景建议生成多角度/多氛围图（全景/局部/氛围），提升视频一致性</div>
+                <div>4. 资产库路径：manga-assets/场景/场景名-标签.png</div>
               </div>
             </div>
 
             {/* 操作条 */}
             <div style={{ borderTop: '1px solid var(--nf-border)', paddingTop: 'var(--nf-space-10)', display: 'flex', flexWrap: 'wrap', gap: 'var(--nf-space-6)', alignItems: 'center' }}>
               <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => {
-                const text = [detail.en, detail.tags.join(', ')].filter(Boolean).join('\n')
-                void navigator.clipboard?.writeText(text).then(() => { notify('已复制「' + detail.name + '」英文生图提示词') }).catch(() => { /* ignore */ })
+                const text = detail.zh + (detail.negativePrompt !== undefined && detail.negativePrompt !== '' ? '\n负面词：' + detail.negativePrompt : '')
+                void navigator.clipboard?.writeText(text).then(() => { notify('已复制「' + detail.name + '」生图提示词') }).catch(() => { /* ignore */ })
               }}>复制提示词</button>
-              <input className={css.input} style={{ width: 130, fontSize: 'var(--nf-fs-12)', padding: 'var(--nf-space-4) var(--nf-space-6)' }} placeholder="图集标签" value={uploadLabel} onChange={e => { setUploadLabel(e.target.value) }} />
+
+                            <input className={css.input} style={{ width: 130, fontSize: 'var(--nf-fs-12)', padding: 'var(--nf-space-4) var(--nf-space-6)' }} placeholder="图集标签" value={uploadLabel} onChange={e => { setUploadLabel(e.target.value) }} />
               <input
                 ref={inputRef}
                 type="file"

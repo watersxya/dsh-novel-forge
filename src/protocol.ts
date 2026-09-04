@@ -56,6 +56,10 @@ export const NOVEL_API = {
   manhuaPlans: '/api/dsh-novel-forge/manhua/plans',
   /** 漫剧角色库：从分镜提名（规则+LLM两段式）/ 建卡 / 更新 / 删除 / 形象锚点 / 精修提示词。 */
   mangaRoles: '/api/dsh-novel-forge/manga/roles',
+  /** 漫剧道具库：从已写章节提炼常驻道具（跨镜头需一致）/ 保存清单。 */
+  mangaProps: '/api/dsh-novel-forge/manga/props',
+  /** 导出「即梦素材包」落盘到资产库 manga-assets/素材包/。 */
+  exportPackage: '/api/dsh-novel-forge/manga/export-package',
   /** 分镜·编剧级：单章 → 剧情骨架（节拍链）。 */
   storyboardSkeleton: '/api/dsh-novel-forge/storyboard/skeleton',
   /** 分镜·导演级：骨架 → 分镜表（镜头级）。 */
@@ -84,7 +88,7 @@ export const NOVEL_API = {
   charactersRefresh: '/api/dsh-novel-forge/characters/refresh',
   /** 事实库回填：对历史已生成章节批量抽取事实（旧章节无事实记录时用）。 */
   factsBackfill: '/api/dsh-novel-forge/facts/backfill',
-  /** 设定圣经局部修补（如世界观规则编辑）。 */
+  /** 道藏局部修补（如世界观规则编辑）。 */
   biblePatch: '/api/dsh-novel-forge/bible/patch',
   /** 小说简介：生成（AI）/补全（AI）/保存。 */
   blurb: '/api/dsh-novel-forge/blurb',
@@ -303,9 +307,9 @@ export interface StoryboardShot {
   camera: CameraMoveId[]
   /** 构图（可选，枚举 id）。 */
   composition?: CompositionId
-  /** 时长（秒，1-12）。 */
+  /** 时长（秒，即梦白名单：5/6/7/8/10）。 */
   duration: number
-  /** 画面内容：角色动作 + 表情 + 服装/标志物。 */
+  /** 画面内容：角色动作 + 表情 + 服装/标志物 + 主体位置。 */
   visual: string
   /** 台词/旁白（无则空字符串）。 */
   line: string
@@ -321,6 +325,10 @@ export interface StoryboardShot {
   characters?: string[]
   /** 本镜头已绑定漫剧卡的 id（定妆图引用，供出图/生视频时按卡取参考图）。 */
   mangaRoleIds?: string[]
+  /** 即梦自然语言运镜描述（如「镜头从中景缓慢推进到近景」），提示词层直接使用，无需再转换。 */
+  jimengCamera?: string
+  /** 本镜参考图 id 列表（角色定妆图+场景图），即梦图生视频时逐条投喂。 */
+  referenceImageIds?: string[]
 }
 
 /** 分镜·导演级：单章分镜表。 */
@@ -359,6 +367,14 @@ export interface StoryboardPrompt {
   text: string
   /** 本镜头绑定的漫剧卡 id（定妆图引用：出图/生视频时按卡取 imageUrl/立绘）。 */
   mangaRoleIds?: string[]
+  /** Seedance 专用：运镜方式（推/拉/摇/移/跟/升降/固定，含具体起止）。 */
+  camera?: string
+  /** Seedance 专用：运动幅度（轻微/中等/强烈）。 */
+  motion?: 'low' | 'medium' | 'high'
+  /** 负面提示词（即梦末尾追加：不要文字/水印/变形/多手/多指等）。 */
+  negativePrompt?: string
+  /** 本镜头场景名（绑定场景底图参考）。 */
+  sceneName?: string
 }
 
 /** 分镜持久化：单章的分镜产出（骨架 + 分镜表 + 视频提示词，可分别存在）。 */
@@ -396,6 +412,8 @@ export interface MangaPlan {
   styleId: string
   /** 可选滤镜风格 id（style-library 中 stackable 风格）。 */
   filterId?: string
+  /** 可选题材（玄幻/武侠/二次元/都市/科幻...），注入对应题材生成规则。 */
+  genre?: string
   /** 是否激活（分镜/角色图生成时使用）。 */
   active: boolean
   createdAt: string
@@ -411,6 +429,8 @@ export interface MangaPlansRequest {
   styleId?: string
   /** create：可选滤镜风格 id。 */
   filterId?: string
+  /** create：题材（注入对应题材规则）。 */
+  genre?: string
   /** remove/activate：方案 id。 */
   id?: string
 }
@@ -440,6 +460,8 @@ export interface MangaRoleCard {
   traits: string[]
   /** 1-2 个辨识度外貌点。 */
   appearance: string
+  /** 角色定妆级别：protagonist主角(完整四件套) / supporting配角(仅立绘) / extra路人(不做定妆)。默认 protagonist。 */
+  tier?: 'protagonist' | 'supporting' | 'extra'
   /** 3-5 个关键剧情节点。 */
   keyScenes: string[]
   /** 上场集数（分镜提名导入时记录）。 */
@@ -474,6 +496,8 @@ export interface MangaRoleCandidate {
   matchedRoleName?: string
   /** not_in_library 时给出建议：backfill=正文有该称谓但小说库漏提炼（回小说库补）；manga_new=漫剧新增角色（直接建卡）。 */
   novelHint?: 'backfill' | 'manga_new'
+  /** 智能分级：protagonist=主角（必做定妆）、supporting=配角（建议做定妆）、extra=路人/功能性（默认不导入，折叠显示）。 */
+  tier?: 'protagonist' | 'supporting' | 'extra'
   /** 采纳时预填的漫剧卡建议。 */
   suggested: {
     name: string
@@ -489,7 +513,7 @@ export interface MangaRoleCandidate {
 
 /** POST /manga/roles 请求：漫剧角色库操作。 */
 export interface MangaRolesRequest {
-  op: 'nominate' | 'adopt' | 'update' | 'remove' | 'visual' | 'promptKit' | 'image' | 'removeImage' | 'imageGenerate' | 'mode'
+  op: 'nominate' | 'adopt' | 'update' | 'remove' | 'visual' | 'promptKit' | 'image' | 'removeImage' | 'imageGenerate' | 'mode' | 'autoGenerate' | 'openAssets'
   /** op='mode'：短剧精简模式开关。 */
   shortDramaMode?: boolean
   /** op='nominate'：从哪章分镜提名角色。 */
@@ -510,7 +534,19 @@ export interface MangaRolesRequest {
   style?: string
   /** op='imageGenerate'：生图模型库条目 id（缺省用启用条目）。 */
   modelId?: string
-}
+
+  /** op='autoGenerate' 时返回一键生成结果。 */
+  autoGenerate?: {
+    chapterNo: number
+    skeletonBeats: number
+    shotCount: number
+    promptCount: number
+    importedRoles: number
+    needMakeupRoles: number
+    extraRoles: number
+    pendingCandidates: number
+    pendingRoleNames: string[]
+  }}
 
 /** POST /manga/roles 响应。 */
 export interface MangaRolesResponse {
@@ -525,6 +561,8 @@ export interface MangaRolesResponse {
   imageUrl?: string
   /** op='mode' 时的短剧精简模式状态。 */
   shortDramaMode?: boolean
+  /** op='autoGenerate' 时返回一键生成结果。 */
+  autoGenerate?: { chapterNo: number; skeletonBeats: number; shotCount: number; promptCount: number; importedRoles: number; needMakeupRoles: number; extraRoles: number; pendingCandidates: number; pendingRoleNames: string[] }
 }
 
 
@@ -593,10 +631,15 @@ export interface AuthorReview {
   reviewedAt: string
 }
 
+/** 审稿维度（结构化定位问题类别；与 review-policy.ts 的 REVIEW_DIMENSIONS 对齐）。 */
+export type ReviewDimension = 'character' | 'setting' | 'redline' | 'writing' | 'pacing' | 'logic' | 'anti-ai' | 'presentation' | 'compliance'
+
 /** One review finding. */
 export interface ReviewIssue {
   /** Severity: high = must fix, medium = should fix, low = suggestion. */
   severity: 'high' | 'medium' | 'low'
+  /** 问题维度（可选；缺省由前端按 item 推断）。 */
+  dimension?: ReviewDimension
   /** What the problem is. */
   item: string
   /** Concrete suggestion for fixing it. */
@@ -936,6 +979,8 @@ export interface RoleRecord {
     tags: string[]
     /** 依据来源说明（哪几章哪些描写）。 */
     source?: string
+    /** 即梦/生图通用负面提示词（低质量/变形/多手/文字水印等）。 */
+    negativePrompt?: string
   }
   /** 角色参考图（dataURL 或 URL）。用于漫画/漫剧出图时锁定角色一致性。 */
   imageUrl?: string
@@ -946,13 +991,13 @@ export interface RoleRecord {
   /** LLM 精修的四类生图提示词包（前端拼装版之外的高质量版，promptKit 接口生成）。 */
   promptKit?: {
     /** 立绘：全身/半身正视图。 */
-    portrait: { zh: string; en: string }
+    portrait?: { zh: string; en: string }
     /** 四视图：正面/侧面/背面设定表。 */
-    sheet: { zh: string; en: string }
+    sheet?: { zh: string; en: string }
     /** 表情：同一脸部锚换情绪，每表情一段。 */
-    expressions: { name: string; zh: string; en: string }[]
+    expressions?: { name: string; zh: string; en: string }[]
     /** 细节：标志物局部特写。 */
-    details: { zh: string; en: string }
+    details?: { zh: string; en: string }
   }
   /** 生成形象锚点/精修提示词时的漫剧方案基底风格 id（= 方案 styleId；用于检测旧风格并提示重生成）。 */
   promptStyleId?: string
@@ -966,6 +1011,26 @@ export interface RoleImage {
   label: string
   /** dataURL 或 URL。 */
   dataUrl: string
+}
+
+/** 道具卡：常驻道具（跨镜头需保持一致），含一行统一描述。 */
+export interface Prop {
+  /** 道具名（如「外卖电动车」）。 */
+  name: string
+  /** 外观/统一描述（注入提示词保持一致）。 */
+  desc: string
+}
+
+/** POST /manga/props 请求。 */
+export interface MangaPropsRequest {
+  op: 'extract' | 'save'
+  /** op=save 时的道具清单（整体替换）。 */
+  props?: Prop[]
+}
+
+/** POST /manga/props 响应。 */
+export interface MangaPropsResponse {
+  props: Prop[]
 }
 
 /** 场景库条目：从正文提炼的「镜头场景」视觉锚点（漫剧分镜/生图用）。 */
@@ -1000,15 +1065,23 @@ export interface SceneCard {
   gallery?: RoleImage[]
   /** 生成时的漫剧方案基底风格 id（场景卡随方案风格措辞）。 */
   styleId?: string
-}
+
+  /** 场景分级：core核心场景（反复出现，精修多图）/ secondary次要场景（1-2次，一张图）/ passing路过场景（不做图）。 */
+  tier?: 'core' | 'secondary' | 'passing'
+  /** 负面提示词（场景生图/生视频用，默认无人物无文字无水印）。 */
+  negativePrompt?: string
+  /** 出场章节列表（用于自动分级统计）。 */
+  appearsInChapters?: number[]}
 
 /** POST /scenes 请求：场景库提炼 / 采纳 / 更新 / 删除 / 图集。 */
 export interface ScenesRequest {
-  op: 'extract' | 'adopt' | 'update' | 'remove' | 'image' | 'removeImage'
+  op: 'extract' | 'adopt' | 'update' | 'remove' | 'image' | 'removeImage' | 'imageGenerate'
   /** op='extract' 时的漫剧基底风格 id（场景卡按方案风格措辞）。 */
   styleId?: string
   /** op='extract' 时的可选滤镜风格 id。 */
   filterId?: string
+  /** op='extract' 时按章提取；不传则全书提取（前4章）。 */
+  chapterNo?: number
   /** adopt / update 时传入的场景卡（adopt 可修改后采纳）。 */
   scene?: SceneCard
   /** remove / image 时的场景名。 */
@@ -1016,6 +1089,8 @@ export interface ScenesRequest {
   /** op='image' 时的图片 dataURL 与用途标签（全景/局部/氛围）。 */
   dataUrl?: string
   label?: string
+  /** op='imageGenerate' 时的生图模型 id（缺省用启用模型）。 */
+  modelId?: string
 }
 
 /** POST /visual-rules 请求：视觉世界观规则提炼 / 保存。 */
@@ -1035,6 +1110,8 @@ export interface ScenesResponse {
   scenes: SceneCard[]
   /** op=extract 时的 AI 候选场景。 */
   candidates?: SceneCard[]
+  /** op=imageGenerate 时返回的生成图 dataURL。 */
+  dataUrl?: string
 }
 
 /** POST /roles 请求：角色库增删改 + AI 提炼 + 参考图上传。 */
@@ -1109,7 +1186,7 @@ export interface RolesResponse {
   imageUrl?: string
 }
 
-/** POST /bible/patch 请求：局部修补设定圣经。 */
+/** POST /bible/patch 请求：局部修补道藏。 */
 export interface BiblePatchRequest {
   worldRules?: string[]
   redLines?: string[]
@@ -1241,6 +1318,8 @@ export interface ProjectState {
   shortDramaMode?: boolean
   /** 场景库（作者维护 + AI 提炼的主表）。 */
   scenes?: SceneCard[]
+  /** 道具库：常驻道具（如外卖电动车/外卖箱），统一描述，注入提示词保持跨镜头一致。 */
+  props?: Prop[]
   /** 视觉世界观规则（生图/生视频必须遵守，从道藏提炼，注入所有提示词）。 */
   visualRules?: string[]
   /** 分镜工作台产出（骨架/分镜表，按章持久化，刷新/切换不丢）。 */
@@ -1567,7 +1646,7 @@ export type JobFrame =
   | { type: 'start'; no: number; title: string }
   | { type: 'delta'; text: string }
   | { type: 'progress'; chars: number }
-  | { type: 'done'; no: number; file: string; chars: number; title: string }
+  | { type: 'done'; no: number; file: string; chars: number; title: string; warn?: string }
   | { type: 'review'; no: number; report: ReviewReport }
   | { type: 'author-review'; no: number; review: AuthorReview }
   | { type: 'author-backfill-done'; count: number }
@@ -1747,6 +1826,12 @@ export interface AntiAiRule {
   detectPatterns?: string[]
   /** 是否内置全局规则（内置规则随插件发布，项目规则为用户自定义）。 */
   builtin?: boolean
+  /** 规则类型：forbidden=禁止类（命中即问题）/ encourage=鼓励类（不命中不算错，只作建议）。缺省按名称「鼓励」前缀推断。 */
+  severity?: 'forbidden' | 'encourage'
+  /** 是否启用（缺省 true）。 */
+  enabled?: boolean
+  /** 作用域（缺省 all）。 */
+  scope?: Array<'writing' | 'review' | 'polish' | 'all'>
 }
 
 /** 预置写法模板（来自 AI-Novel-Writing-Assistant 内置数据，一键绑定无需样本文本）。 */
@@ -2094,7 +2179,7 @@ export interface AdaptMaterializeResponse {
   bookName: string
   /** 改编后总纲。 */
   outline: string
-  /** 改编后设定圣经（道藏）。 */
+  /** 改编后道藏。 */
   bible: StoryBible
   /** 改编后角色库。 */
   roles: RoleRecord[]
@@ -2116,7 +2201,7 @@ export interface AdaptMaterializeSaveRequest {
   outputDir?: string
   /** 改编后总纲。 */
   outline: string
-  /** 改编后设定圣经（道藏）。 */
+  /** 改编后道藏。 */
   bible: StoryBible
   /** 改编后角色库。 */
   roles: RoleRecord[]

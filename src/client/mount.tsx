@@ -12,7 +12,7 @@ import css from './panel/panel.module.css'
 /** The injected panel container. */
 export const PANEL_VIEW_SELECTOR = '[data-dsh-novelforge-view]'
 
-const CONVERSATION_COLUMN_SELECTOR = '[data-pane="conversation"]'
+const CONVERSATION_COLUMN_SELECTOR = '[data-pane="conversation"], [class*="centerCol"]'
 const ACTIVE_ATTR = 'data-dsh-novelforge-active'
 /** Sibling panels' activation attributes (evicted when this panel opens). */
 const OTHER_ACTIVE_ATTRS = ['data-dsh-taskboard-active', 'data-dsh-ssh-active']

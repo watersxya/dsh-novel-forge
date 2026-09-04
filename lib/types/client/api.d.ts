@@ -74,7 +74,7 @@ export declare class NovelApi {
         ok: boolean;
         filled: number;
     }>;
-    /** 设定圣经局部修补。 */
+    /** 道藏局部修补。 */
     biblePatch(patch: import('../protocol.ts').BiblePatchRequest): Promise<{
         bible: import('../protocol.ts').StoryBible;
     }>;
@@ -116,10 +116,17 @@ export declare class NovelApi {
     roles(req: import('../protocol.ts').RolesRequest): Promise<import('../protocol.ts').RolesResponse>;
     /** 漫剧角色库：从分镜提名 / 建卡 / 更新 / 删除 / 形象锚点 / 精修提示词。 */
     mangaRoles(req: import('../protocol.ts').MangaRolesRequest): Promise<import('../protocol.ts').MangaRolesResponse>;
+    /** 导出「即梦素材包」落盘到资产库 manga-assets/素材包/。 */
+    exportPackage(chapterNo: number, title: string, markdown: string): Promise<{
+        ok: boolean;
+        file: string;
+    }>;
     /** 场景库：AI 提炼 / 采纳 / 更新 / 删除 / 图集。 */
     scenes(req: import('../protocol.ts').ScenesRequest): Promise<import('../protocol.ts').ScenesResponse>;
     /** 视觉世界观规则：提炼 / 保存。 */
     visualRules(req: import('../protocol.ts').VisualRulesRequest): Promise<import('../protocol.ts').VisualRulesResponse>;
+    /** 道具库：从已写章节提炼常驻道具 / 保存清单。 */
+    mangaProps(req: import('../protocol.ts').MangaPropsRequest): Promise<import('../protocol.ts').MangaPropsResponse>;
     /** 小说简介：AI 生成/补全（partial 留空 = 全量），或手动保存。 */
     blurb(action: 'generate' | 'save', text?: string, partial?: string): Promise<{
         blurb: string;

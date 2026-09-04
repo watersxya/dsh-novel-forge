@@ -52,6 +52,7 @@ interface Draft {
   traits: string
   appearance: string
   keyScenes: string
+  tier: 'protagonist' | 'supporting' | 'extra'
 }
 
 const emptyDraft = (): Draft => ({
@@ -63,9 +64,10 @@ const emptyDraft = (): Draft => ({
   traits: '',
   appearance: '',
   keyScenes: '',
+  tier: 'protagonist',
 })
 
-const draftFromSuggested = (s: MangaRoleCandidate['suggested']): Draft => ({
+const draftFromSuggested = (s: MangaRoleCandidate['suggested'], tier?: MangaRoleCard['tier']): Draft => ({
   name: s.name,
   identity: s.identity,
   coreFunction: s.coreFunction,
@@ -74,6 +76,7 @@ const draftFromSuggested = (s: MangaRoleCandidate['suggested']): Draft => ({
   traits: s.traits.join('、'),
   appearance: s.appearance,
   keyScenes: s.keyScenes.join('；'),
+  tier: tier ?? 'protagonist',
 })
 
 const draftFromCard = (c: MangaRoleCard): Draft => ({
@@ -85,6 +88,7 @@ const draftFromCard = (c: MangaRoleCard): Draft => ({
   traits: c.traits.join('、'),
   appearance: c.appearance,
   keyScenes: c.keyScenes.join('；'),
+  tier: c.tier ?? 'protagonist',
 })
 
 /** 草稿 → 漫剧卡（保留已有形象资产；新建时 id 为空由服务端分配）。 */
@@ -107,6 +111,7 @@ const draftToCard = (d: Draft, sourceRoleName: string | undefined, chapterNo: nu
     speechStyle: d.speechStyle.trim(),
     traits,
     appearance: d.appearance.trim(),
+    tier: d.tier,
     keyScenes,
     appearsInEpisodes: episodes,
     status: existing?.status ?? 'imported',
@@ -127,10 +132,9 @@ export function MangaRoleLibrary({
   refresh,
   styleId,
   filterId,
-  imageApiEnabled,
-  imageModels,
   focus,
   showCards,
+  chapterNo: externalChapter,
   onProgress,
 }: {
   api: NovelApi
@@ -146,6 +150,8 @@ export function MangaRoleLibrary({
   focus?: 'import' | 'cards'
   /** 是否显示「已建漫剧卡」列表（第⑤步导入页可隐藏，只留导入区）。 */
   showCards?: boolean
+  /** 全局当前章节（从工作台顶部导航条传入）。 */
+  chapterNo?: number | null
   onProgress?: (text: string, kind?: 'info' | 'done' | 'error') => void
 }) {
   const cards = useMemo(() => project?.mangaRoles ?? [], [project?.mangaRoles])
@@ -157,13 +163,21 @@ export function MangaRoleLibrary({
       .sort((a, b) => a.no - b.no)
   }, [project?.storyboards, project?.chapters])
 
+  // 外部章节变化时同步内部状态
+  useEffect(() => {
+    if (externalChapter !== undefined && externalChapter !== null) {
+      setChapterNo(externalChapter)
+    }
+  }, [externalChapter])
+
   const [busy, setBusy] = useState(false)
-  const [actingId, setActingId] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [importOpen, setImportOpen] = useState(false)
-  const [chapterNo, setChapterNo] = useState<number>(0)
+  const [chapterNo, setChapterNo] = useState<number>(externalChapter ?? 0)
   const [candidates, setCandidates] = useState<MangaRoleCandidate[] | null>(null)
+  const [showExtraCandidates, setShowExtraCandidates] = useState(false)
+  const [ignoredCandidates, setIgnoredCandidates] = useState<Set<string>>(new Set())
   const [drafts, setDrafts] = useState<Record<string, Draft>>({})
   const [chosen, setChosen] = useState<Record<string, string>>({})
   const [createOpen, setCreateOpen] = useState(false)
@@ -172,9 +186,14 @@ export function MangaRoleLibrary({
   const [editDraft, setEditDraft] = useState<Draft | null>(null)
   /** 定妆图上传目标卡 id（null=未打开）。 */
   const [uploadTarget, setUploadTarget] = useState<string | null>(null)
+  const [actingId, setActingId] = useState('')
   const [uploadLabel, setUploadLabel] = useState('立绘')
-  /** 豆包生成定妆图时选择的模型条目 id（'' = 用设置中启用的模型）。 */
-  const [imageModelId, setImageModelId] = useState('')
+  /** 详情弹窗当前角色卡 id（null=未打开）。 */
+  const [detailCardId, setDetailCardId] = useState<string | null>(null)
+  /** tier 筛选：all/protagonist/supporting/extra。 */
+  const [tierFilter, setTierFilter] = useState<'all' | 'protagonist' | 'supporting' | 'extra'>('all')
+  const [showShortDramaCheck, setShowShortDramaCheck] = useState(false)
+  const [showAdvancedPrompts, setShowAdvancedPrompts] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   /** 步骤页滚动目标（第⑤步导入区 / 第⑥步卡片列表）。 */
   const headerCardRef = useRef<HTMLDivElement | null>(null)
@@ -184,12 +203,22 @@ export function MangaRoleLibrary({
   useEffect(() => {
     if (focus === 'import') {
       setImportOpen(true)
+      // 自动选中第一个有分镜的章节
+      if (chapterNo === 0 && sbChapters[0] !== undefined) setChapterNo(sbChapters[0].no)
       window.setTimeout(() => { headerCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 60)
     } else if (focus === 'cards') {
       setImportOpen(false)
       window.setTimeout(() => { cardsCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 60)
     }
   }, [focus])
+
+  // 聚焦到导入页且章节已选、候选未加载时，自动提名（无需用户再点按钮）。
+  useEffect(() => {
+    if (focus === 'import' && chapterNo > 0 && candidates === null && !busy) {
+      void runNominate()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, chapterNo])
 
   const notify = (msg: string): void => { setNotice(msg); setTimeout(() => { setNotice('') }, 4000) }
   const report = (text: string, kind: 'info' | 'done' | 'error' = 'info'): void => { onProgress?.(text, kind) }
@@ -205,11 +234,12 @@ export function MangaRoleLibrary({
     try {
       const res = await api.mangaRoles({ op: 'nominate', chapterNo })
       setCandidates(res.candidates ?? null)
+      setIgnoredCandidates(new Set())
       const d: Record<string, Draft> = {}
       const c: Record<string, string> = {}
       for (const cand of res.candidates ?? []) {
         if (cand.verdict === 'already_imported') continue
-        d[cand.rawName] = draftFromSuggested(cand.suggested)
+        d[cand.rawName] = draftFromSuggested(cand.suggested, cand.tier)
         if (cand.matchedRoleName !== undefined) c[cand.rawName] = cand.matchedRoleName
       }
       setDrafts(d)
@@ -349,22 +379,25 @@ export function MangaRoleLibrary({
     }
   }
 
-  /** 豆包等生图接口按形象锚点出定妆图（写回 imageUrl）。 */
-  const genReferenceImage = async (c: MangaRoleCard): Promise<void> => {
-    setActingId(c.id)
-    setError('')
-    report('生成「' + c.name + '」定妆图…')
-    try {
-      await api.mangaRoles({ op: 'imageGenerate', id: c.id, modelId: imageModelId !== '' ? imageModelId : undefined })
-      await refresh()
-      report('已生成「' + c.name + '」定妆图', 'done')
-    } catch (err) {
-      const m = (err as Error).message
-      setError(m)
-      report('定妆图生成失败：' + m, 'error')
-    } finally {
-      setActingId('')
+
+  /** 一键复制所有角色提示词。 */
+  const copyAllPrompts = async (): Promise<void> => {
+    const lines: string[] = []
+    for (const c of cards) {
+      if (c.imagePrompt === undefined) continue
+      lines.push('=== ' + c.name + '（' + (c.tier === 'extra' ? '路人' : c.tier === 'supporting' ? '配角' : '主角') + '）===')
+      lines.push('正面：' + c.imagePrompt.zh)
+      if (c.imagePrompt.negativePrompt !== undefined && c.imagePrompt.negativePrompt !== '') {
+        lines.push('负面：' + c.imagePrompt.negativePrompt)
+      }
+      lines.push('')
     }
+    if (lines.length === 0) {
+      notify('还没有角色生成提示词')
+      return
+    }
+    await navigator.clipboard?.writeText(lines.join('\n'))
+    notify('已复制 ' + cards.filter(c => c.imagePrompt !== undefined).length + ' 个角色的提示词')
   }
 
   /** 短剧精简模式开关（5-8 上镜角色 / 功能标签 / 关系闭环 / 人设极致化）。 */
@@ -474,6 +507,14 @@ export function MangaRoleLibrary({
         <input className={css.input} value={d.appearance} onChange={e => onChange({ appearance: e.target.value })} />
       </div>
       <div className={css.field}>
+        <label className={css.fieldLabel}>定妆级别</label>
+        <select className={css.input} value={d.tier} onChange={e => onChange({ tier: e.target.value as Draft['tier'] })}>
+          <option value="protagonist">主角（完整四件套）</option>
+          <option value="supporting">配角（仅立绘）</option>
+          <option value="extra">路人（不做定妆）</option>
+        </select>
+      </div>
+      <div className={css.field}>
         <label className={css.fieldLabel}>口头禅/说话方式</label>
         <input className={css.input} value={d.speechStyle} onChange={e => onChange({ speechStyle: e.target.value })} />
       </div>
@@ -529,40 +570,45 @@ export function MangaRoleLibrary({
             </button>
           </div>
         </div>
-        <span className={css.meta}>漫剧角色库 = 上镜角色（要建模/出图/锁一致性）。由分镜提名导入，独立于小说角色库；来源只读追溯、不回写。</span>
-        <span className={css.meta} style={{ display: 'block', marginTop: 'var(--nf-space-2)' }}>流程位置：第⑤⑥步 · 前置：分镜已生成（提名来自分镜 characters）· 下一步：回「分镜」生成视频提示词（重新生成后自动带定妆绑定）</span>
+        <span className={css.meta}>漫剧角色库 = 上镜角色（要出定妆图/锁一致性）。由分镜提名导入，独立于小说角色库；来源只读追溯、不回写。</span>
+        <span className={css.meta} style={{ display: 'block', marginTop: 'var(--nf-space-2)' }}>流程位置：第③步角色定妆 · 前置：一键生成已完成（分镜+提名+提示词已自动生成）· 下一步：第④步场景底图 → 第⑤步导出即梦脚本</span>
         {styleId !== undefined && (
           <span className={css.meta} style={{ display: 'block', marginTop: 'var(--nf-space-4)' }}>
             🎨 当前方案：{styleId}（锚点/精修按此风格生成）
           </span>
         )}
         {shortDrama && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-4)', marginTop: 'var(--nf-space-8)', border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-10)', padding: 'var(--nf-space-8) var(--nf-space-10)' }}>
-            <div className={css.row} style={{ flexWrap: 'wrap' }}>
+          <div style={{ marginTop: 'var(--nf-space-8)', border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-10)', overflow: 'hidden' }}>
+            <button type="button" onClick={() => { setShowShortDramaCheck(prev => !prev) }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 'var(--nf-space-6)', padding: 'var(--nf-space-6) var(--nf-space-10)', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
               <b>📺 短剧精简检查</b>
               <span className={css.badge + (cards.length >= 5 && cards.length <= 8 ? ' ' + css.badgeDone : ' ' + css.badgePending)}>
                 上镜角色 {cards.length}/5-8
               </span>
-              {cards.length > 8 && <span className={css.meta}>⚠ 超员：建议把功能性/低戏份角色归档或删除</span>}
-              {cards.length < 5 && cards.length > 0 && <span className={css.meta}>提示：5 人以下张力偏弱，可补关键角色</span>}
-            </div>
-            <div className={css.row} style={{ flexWrap: 'wrap' }}>
-              <span className={css.meta}>功能覆盖：</span>
-              {CORE_FUNCTIONS.filter(f => f.id !== 'functional').map(f => (
-                <span key={f.id} className={css.badge + (presentFunctions.has(f.id) ? ' ' + css.badgeDone : ' ' + css.badgePending)}>
-                  {f.label}{presentFunctions.has(f.id) ? '' : '（缺）'}
-                </span>
-              ))}
-            </div>
-            <div className={css.row} style={{ flexWrap: 'wrap' }}>
-              <span className={css.meta}>关系闭环（与主角）：</span>
-              {RELATIONS.map(r => (
-                <span key={r.id} className={css.badge + (presentRelations.has(r.id) ? ' ' + css.badgeDone : ' ' + css.badgePending)}>
-                  {r.label}{presentRelations.has(r.id) ? '' : '（缺）'}
-                </span>
-              ))}
-            </div>
-            <span className={css.meta}>人设极致化：提名只保留上镜角色；锚点/精修已注入「性格标签极致化、1-2 个最强辨识度外貌点」提示。</span>
+              <span style={{ marginLeft: 'auto', fontSize: 'var(--nf-fs-12)', color: 'var(--nf-text-secondary)' }}>{showShortDramaCheck ? '▲ 收起' : '▼ 展开'}</span>
+            </button>
+            {showShortDramaCheck && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-4)', padding: '0 var(--nf-space-10) var(--nf-space-8)', borderTop: '1px solid var(--nf-border)' }}>
+                {cards.length > 8 && <span className={css.meta}>⚠ 超员：建议把功能性/低戏份角色归档或删除</span>}
+                {cards.length < 5 && cards.length > 0 && <span className={css.meta}>提示：5 人以下张力偏弱，可补关键角色</span>}
+                <div className={css.row} style={{ flexWrap: 'wrap' }}>
+                  <span className={css.meta}>功能覆盖：</span>
+                  {CORE_FUNCTIONS.filter(f => f.id !== 'functional').map(f => (
+                    <span key={f.id} className={css.badge + (presentFunctions.has(f.id) ? ' ' + css.badgeDone : ' ' + css.badgePending)}>
+                      {f.label}{presentFunctions.has(f.id) ? '' : '（缺）'}
+                    </span>
+                  ))}
+                </div>
+                <div className={css.row} style={{ flexWrap: 'wrap' }}>
+                  <span className={css.meta}>关系闭环（与主角）：</span>
+                  {RELATIONS.map(r => (
+                    <span key={r.id} className={css.badge + (presentRelations.has(r.id) ? ' ' + css.badgeDone : ' ' + css.badgePending)}>
+                      {r.label}{presentRelations.has(r.id) ? '' : '（缺）'}
+                    </span>
+                  ))}
+                </div>
+                <span className={css.meta}>人设极致化：提名只保留上镜角色；锚点/精修已注入「性格标签极致化、1-2 个最强辨识度外貌点」提示。</span>
+              </div>
+            )}
           </div>
         )}
         {error !== '' && <div className={css.importError}>{error}</div>}
@@ -591,11 +637,23 @@ export function MangaRoleLibrary({
             {candidates !== null && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-8)', marginTop: 'var(--nf-space-6)' }}>
                 <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                  <b>提名候选（{candidates.length}）</b>
-                  <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { setCandidates(null) }}>收起</button>
+                  <b>提名候选（{candidates.filter(c => !ignoredCandidates.has(c.rawName)).length}）· 主角 {candidates.filter(c => c.tier === 'protagonist' && !ignoredCandidates.has(c.rawName)).length} · 配角 {candidates.filter(c => c.tier === 'supporting' && !ignoredCandidates.has(c.rawName)).length} · 路人 {candidates.filter(c => (c.tier === 'extra' || c.tier === undefined) && !ignoredCandidates.has(c.rawName)).length}</b>
+                  <div className={css.row} style={{ gap: 'var(--nf-space-4)' }}>
+                    {candidates.some(c => (c.tier === 'extra' || c.tier === undefined) && !ignoredCandidates.has(c.rawName)) && (
+                      <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => {
+                        const extraNames = candidates.filter(c => (c.tier === 'extra' || c.tier === undefined)).map(c => c.rawName)
+                        setIgnoredCandidates(prev => new Set([...prev, ...extraNames]))
+                      }}>全部忽略路人</button>
+                    )}
+                    <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { setCandidates(null) }}>收起</button>
+                  </div>
                 </div>
                 {candidates.length === 0 && <span className={css.meta}>该章分镜的角色已全部导入漫剧角色库。</span>}
-                {candidates.map(cand => {
+                {(() => {
+                  const prot = candidates.filter(c => c.tier === 'protagonist' && !ignoredCandidates.has(c.rawName))
+                  const supp = candidates.filter(c => c.tier === 'supporting' && !ignoredCandidates.has(c.rawName))
+                  const extra = candidates.filter(c => (c.tier === 'extra' || c.tier === undefined) && !ignoredCandidates.has(c.rawName))
+                  const renderCand = (cand: MangaRoleCandidate) => {
                   if (cand.verdict === 'already_imported') {
                     return (
                       <div key={cand.rawName} style={{ display: 'flex', gap: 'var(--nf-space-8)', alignItems: 'center', border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-10)', padding: 'var(--nf-space-6) var(--nf-space-10)', opacity: 0.65 }}>
@@ -611,6 +669,9 @@ export function MangaRoleLibrary({
                     <div key={cand.rawName} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-10)', padding: 'var(--nf-space-8) var(--nf-space-10)' }}>
                       <div className={css.row} style={{ flexWrap: 'wrap' }}>
                         <b>🎭 {cand.rawName}</b>
+                        {cand.tier === 'protagonist' && <span className={css.badge + ' ' + css.badgePrimary}>主角</span>}
+                        {cand.tier === 'supporting' && <span className={css.badge}>配角</span>}
+                        {(cand.tier === 'extra' || cand.tier === undefined) && <span className={css.badge + ' ' + css.badgePending}>路人</span>}
                         {isMatched && <span className={css.badge + ' ' + css.badgeDone}>✓ 匹配：{chosen[cand.rawName] ?? cand.matchedRoleName ?? ''}</span>}
                         {isAmbiguous && <span className={css.badge + ' ' + css.badgePending}>？多个候选待定</span>}
                         {cand.verdict === 'not_in_library' && cand.novelHint === 'backfill' && (
@@ -643,11 +704,31 @@ export function MangaRoleLibrary({
                         <button type="button" className={css.button + ' ' + css.buttonSmall + ' ' + css.buttonPrimary} disabled={busy} onClick={() => { void adoptCandidate(cand) }}>
                           📥 导入为漫剧卡
                         </button>
+                        <button type="button" className={css.button + ' ' + css.buttonSmall} disabled={busy} onClick={() => { setIgnoredCandidates(prev => new Set(prev).add(cand.rawName)) }}>
+                          忽略
+                        </button>
                         <span className={css.meta}>导入后可在下方卡片继续生成形象锚点</span>
                       </div>
                     </div>
+                                    )
+                  }
+                  return (
+                    <>
+                      {prot.length > 0 && <div style={{ fontWeight: 600, fontSize: 'var(--nf-fs-13)', marginTop: 'var(--nf-space-4)' }}>⭐ 主角（{prot.length}）</div>}
+                      {prot.map(renderCand)}
+                      {supp.length > 0 && <div style={{ fontWeight: 600, fontSize: 'var(--nf-fs-13)', marginTop: 'var(--nf-space-4)' }}>👥 配角（{supp.length}）</div>}
+                      {supp.map(renderCand)}
+                      {extra.length > 0 && (
+                        <div style={{ marginTop: 'var(--nf-space-4)' }}>
+                          <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { setShowExtraCandidates(prev => !prev) }}>
+                            {showExtraCandidates ? '▼ 收起路人' : '▶ 展开路人（' + extra.length + '）'}
+                          </button>
+                          {showExtraCandidates && extra.map(renderCand)}
+                        </div>
+                      )}
+                    </>
                   )
-                })}
+                })()}
               </div>
             )}
           </div>
@@ -668,143 +749,254 @@ export function MangaRoleLibrary({
       </div>
 
       {showCards !== false && (
-      <div ref={cardsCardRef} className={css.card}>
-        <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-          <b>已建漫剧卡（{cards.length}）</b>
-          <span className={css.meta}>{cards.filter(c => c.status === 'anchored').length} 张已定妆</span>
-        </div>
-        {cards.length === 0 && (
-          <div className={css.meta} style={{ marginTop: 'var(--nf-space-8)' }}>
-            还没有漫剧角色卡。点上方「从本集分镜导入角色」从分镜提名导入，或「直接新建」。
-          </div>
-        )}
-        {cards.map(c => {
-          const editing = editId === c.id
-          const styleMismatch = styleId !== undefined && c.promptStyleId !== undefined && c.promptStyleId !== styleId
+<div ref={cardsCardRef} className={css.card}>
+  <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+    <b>已建漫剧卡（{cards.length}）· {cards.filter(c => c.status === 'anchored').length} 张已定妆</b>
+    <div className={css.row} style={{ flexWrap: 'wrap', gap: 'var(--nf-space-6)' }}>
+      <select
+        className={css.input}
+        style={{ width: 'auto', padding: 'var(--nf-space-4) var(--nf-space-10)', fontSize: 'var(--nf-fs-12)' }}
+        value={tierFilter}
+        onChange={e => { setTierFilter(e.target.value as typeof tierFilter) }}
+      >
+        <option value="all">全部角色</option>
+        <option value="protagonist">主角</option>
+        <option value="supporting">配角</option>
+        <option value="extra">路人</option>
+      </select>
+      <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { void copyAllPrompts() }}>
+        📋 复制全部提示词
+      </button>
+    </div>
+  </div>
+  <span className={css.meta} style={{ display: 'block', marginTop: 'var(--nf-space-4)' }}>点击卡片查看详情和各图说明；路人角色不做定妆，仅保留提示词。</span>
+
+  {(() => {
+    const filtered = tierFilter === 'all' ? cards : cards.filter(c => (c.tier ?? 'protagonist') === tierFilter)
+    if (filtered.length === 0) {
+      return <div className={css.meta} style={{ marginTop: 'var(--nf-space-8)' }}>该分类下暂无角色。</div>
+    }
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 'var(--nf-space-8)', marginTop: 'var(--nf-space-10)' }}>
+        {filtered.map(c => {
+          const isExtra = c.tier === 'extra'
+          const hasImage = c.imageUrl !== undefined
+          const tierLabel = c.tier === 'supporting' ? '配角' : c.tier === 'extra' ? '路人' : '主角'
+          const tierColor = c.tier === 'extra' ? '#9ca3af' : c.tier === 'supporting' ? '#3b82f6' : '#ef4444'
+          const funcLabel = CORE_FUNCTIONS.find(f => f.id === c.coreFunction)?.label ?? c.coreFunction
+          const relLabel = RELATIONS.find(r => r.id === c.protagonistRelation)?.label ?? c.protagonistRelation
           return (
-            <div key={c.id} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-10)', padding: 'var(--nf-space-8) var(--nf-space-10)', marginTop: 'var(--nf-space-8)' }}>
-              <div className={css.row} style={{ flexWrap: 'wrap' }}>
-                <b>🎭 {c.name}</b>
-                <span className={css.badge + ' ' + (STATUS_CLASS[c.status] ?? '')}>{STATUS_LABEL[c.status]}</span>
-                <span className={css.badge}>{CORE_FUNCTIONS.find(f => f.id === c.coreFunction)?.label ?? c.coreFunction}</span>
-                <span className={css.badge}>{RELATIONS.find(r => r.id === c.protagonistRelation)?.label ?? c.protagonistRelation}</span>
-                <span className={css.meta}>{c.appearsInEpisodes.length > 0 ? '上场：' + c.appearsInEpisodes.map(n => '第' + n + '集').join('、') : '尚未标记上场'}</span>
-                {c.sourceRoleName !== undefined && <span className={css.meta}>来源：{c.sourceRoleName}</span>}
+            <div
+              key={c.id}
+              onClick={() => { setDetailCardId(c.id) }}
+              style={{
+                cursor: 'pointer',
+                border: '1px solid var(--nf-border)',
+                borderRadius: 'var(--nf-radius-10)',
+                padding: 'var(--nf-space-8)',
+                display: 'flex',
+                flexDirection: 'row',
+                gap: 'var(--nf-space-8)',
+                opacity: isExtra ? 0.55 : 1,
+                background: hasImage ? 'rgba(82,196,26,0.04)' : 'transparent',
+                transition: 'box-shadow 0.15s',
+                alignItems: 'flex-start',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = 'none' }}
+            >
+              <div style={{ width: 120, minWidth: 120, aspectRatio: '3/4', borderRadius: 'var(--nf-radius-8)', overflow: 'hidden', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {hasImage ? (
+                  <img src={c.imageUrl} alt={c.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                ) : isExtra ? (
+                  <span style={{ fontSize: 'var(--nf-fs-11)', color: '#9ca3af', textAlign: 'center' }}>路人·不做图</span>
+                ) : (
+                  <span style={{ fontSize: 'var(--nf-fs-11)', color: '#9ca3af', textAlign: 'center' }}>待定妆</span>
+                )}
               </div>
-              {styleMismatch && (
-                <span className={css.meta} style={{ color: 'var(--nf-warn, #b45309)' }}>
-                  ⚠ 提示词风格（{c.promptStyleId}）与当前方案（{styleId}）不一致，重生成锚点/精修可对齐。
-                </span>
-              )}
-              {editing && editDraft !== null ? (
-                <>
-                  {draftFields(editDraft, patch => { setEditDraft(prev => (prev === null ? prev : { ...prev, ...patch })) })}
-                  <div className={css.row}>
-                    <button type="button" className={css.button + ' ' + css.buttonSmall + ' ' + css.buttonPrimary} disabled={busy} onClick={() => { void saveEdit() }}>💾 保存</button>
-                    <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { setEditId(null); setEditDraft(null) }}>取消</button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  {c.identity !== '' && <span>身份：{c.identity}</span>}
-                  {c.traits.length > 0 && (
-                    <div className={css.row} style={{ flexWrap: 'wrap' }}>
-                      <span className={css.meta}>性格：</span>
-                      {c.traits.map(t => <span key={t} className={css.badge}>{t}</span>)}
-                    </div>
-                  )}
-                  {c.appearance !== '' && <span className={css.meta}>外貌点：{c.appearance}</span>}
-                  {c.speechStyle !== '' && <span className={css.meta}>说话：{c.speechStyle}</span>}
-                  {c.keyScenes.length > 0 && <span className={css.meta}>关键剧情：{c.keyScenes.join('；')}</span>}
-                  {c.imagePrompt !== undefined && (
-                    <div className={css.importPreview} style={{ marginTop: 'var(--nf-space-4)' }}>
-                      <span className={css.meta}>🎨 锚点（{c.imagePrompt.zh.length} 字）：</span>
-                      <span>{c.imagePrompt.zh.slice(0, 140)}{c.imagePrompt.zh.length > 140 ? '…' : ''}</span>
-                    </div>
-                  )}
-                  {c.promptKit !== undefined && (
-                    <span className={css.meta}>✨ 精修包：立绘/四视图/表情×{c.promptKit.expressions.length}/细节</span>
-                  )}
-                  {c.imageUrl !== undefined && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--nf-space-8)', alignItems: 'flex-start' }}>
-                      <img src={c.imageUrl} alt={c.name + ' 定妆图'} style={{ maxHeight: 110, borderRadius: 'var(--nf-radius-8)', border: '1px solid var(--nf-border)' }} />
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-4)' }}>
-                        <span className={css.meta}>🖼 参考图（定妆图，分镜出图时按卡绑定）</span>
-                        <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { void removeImage(c, '') }}>移除参考图</button>
-                      </div>
-                    </div>
-                  )}
-                  {c.gallery !== undefined && c.gallery.length > 0 && (
-                    <div className={css.row} style={{ flexWrap: 'wrap' }}>
-                      <span className={css.meta}>🖼 图集：</span>
-                      {c.gallery.map(g => (
-                        <span key={g.label} className={css.badge}>
-                          {g.label}
-                          <button type="button" style={{ marginLeft: 'var(--nf-space-4)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--nf-text)' }} onClick={() => { void removeImage(c, g.label) }}>✕</button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {uploadTarget === c.id ? (
-                    <div className={css.row} style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                      <div className={css.field} style={{ minWidth: 140 }}>
-                        <label className={css.fieldLabel}>用途标签</label>
-                        <input className={css.input} value={uploadLabel} onChange={e => { setUploadLabel(e.target.value) }} placeholder="立绘/四视图/表情-xx" />
-                      </div>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/*"
-                        style={{ display: 'none' }}
-                        onChange={e => { void onUploadFile(c.id, e.target.files?.[0] ?? null); e.target.value = '' }}
-                      />
-                      <button type="button" className={css.button + ' ' + css.buttonSmall} disabled={actingId === c.id} onClick={() => { fileInputRef.current?.click() }}>
-                        {actingId === c.id ? '上传中…' : '📤 选择图片上传'}
-                      </button>
-                      <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { setUploadTarget(null) }}>取消</button>
-                    </div>
-                  ) : (
-                    <div className={css.row} style={{ flexWrap: 'wrap' }}>
-                      <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { setUploadTarget(c.id); setUploadLabel('立绘') }}>🖼 上传定妆图</button>
-                      {(imageModels ?? []).length > 1 && (
-                        <select
-                          className={css.input}
-                          style={{ width: 'auto', padding: 'var(--nf-space-4) var(--nf-space-10)', fontSize: 'var(--nf-fs-12)' }}
-                          value={imageModelId}
-                          onChange={e => { setImageModelId(e.target.value) }}
-                        >
-                          <option value="">（默认生图模型）</option>
-                          {imageModels?.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                        </select>
-                      )}
-                      <button
-                        type="button"
-                        className={css.button + ' ' + css.buttonSmall}
-                        disabled={actingId === c.id || c.imagePrompt === undefined || imageApiEnabled !== true}
-                        title={c.imagePrompt === undefined ? '先生成形象锚点' : imageApiEnabled !== true ? '生图未启用（设置中配置）' : '按形象锚点出定妆图'}
-                        onClick={() => { void genReferenceImage(c) }}
-                      >
-                        {actingId === c.id ? '生成中…' : '⚡ 生成定妆图'}
-                      </button>
-                    </div>
-                  )}
-                  <div className={css.row} style={{ flexWrap: 'wrap' }}>
-                    <button type="button" className={css.button + ' ' + css.buttonSmall} disabled={actingId === c.id} onClick={() => { void genVisual(c.id, c.name) }}>
-                      {actingId === c.id ? '生成中…' : '🎨 生成形象锚点'}
-                    </button>
-                    <button type="button" className={css.button + ' ' + css.buttonSmall} disabled={actingId === c.id || c.imagePrompt === undefined} onClick={() => { void genKit(c.id, c.name) }}>
-                      ✨ 精修提示词
-                    </button>
-                    <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { startEdit(c) }}>✏️ 编辑</button>
-                    <button type="button" className={css.button + ' ' + css.buttonSmall + ' ' + css.buttonDanger} disabled={actingId === c.id} onClick={() => { void removeCard(c) }}>🗑 删除</button>
-                  </div>
-                </>
-              )}
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-2)' }}>
+                <div className={css.row} style={{ gap: 'var(--nf-space-4)', flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 600, fontSize: 'var(--nf-fs-14)' }}>{c.name}</span>
+                  <span style={{ fontSize: 'var(--nf-fs-11)', color: tierColor, border: '1px solid ' + tierColor + '40', borderRadius: 'var(--nf-radius-999)', padding: '0 var(--nf-space-6)' }}>{tierLabel}</span>
+                </div>
+                {c.identity !== '' && <span style={{ fontSize: 'var(--nf-fs-12)', color: 'var(--nf-text-secondary)' }}>{c.identity}</span>}
+                <span style={{ fontSize: 'var(--nf-fs-12)', color: 'var(--nf-text-secondary)' }}>功能：{funcLabel} · 关系：{relLabel}</span>
+                {c.traits.length > 0 && <span style={{ fontSize: 'var(--nf-fs-12)', color: 'var(--nf-text-secondary)' }}>性格：{c.traits.join('、')}</span>}
+                {c.appearance !== '' && <span style={{ fontSize: 'var(--nf-fs-12)', color: 'var(--nf-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>外貌：{c.appearance}</span>}
+                <span style={{ fontSize: 'var(--nf-fs-12)', color: hasImage ? '#52C41A' : '#9ca3af', marginTop: 'auto' }}>{hasImage ? '✅ 已定妆' : isExtra ? '— 跳过' : '⏳ 待生成'}</span>
+              </div>
             </div>
           )
         })}
       </div>
-      )}
+    )
+  })()}
+</div>
+)}
+
+{/* 角色详情弹窗 */}
+{detailCardId !== null && (() => {
+  const c = cards.find(x => x.id === detailCardId)
+  if (c === undefined) return null
+  const isExtra = c.tier === 'extra'
+  const tierLabel = c.tier === 'supporting' ? '配角' : c.tier === 'extra' ? '路人' : '主角'
+  const tierColor = c.tier === 'extra' ? 'var(--nf-text-secondary)' : c.tier === 'supporting' ? '#3b82f6' : '#ef4444'
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--nf-space-10)' }}
+      onClick={() => { setDetailCardId(null) }}
+    >
+      <div
+        className={css.card}
+        style={{ maxWidth: 680, width: '100%', maxHeight: '85vh', overflowY: 'auto', margin: 0 }}
+        onClick={e => { e.stopPropagation() }}
+      >
+        <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <div>
+            <span className={css.cardTitle}>🎭 {c.name}</span>
+            <span style={{ marginLeft: 'var(--nf-space-6)', fontSize: 'var(--nf-fs-12)', color: tierColor }}>[{tierLabel}]</span>
+            {c.identity !== '' && <span className={css.meta} style={{ marginLeft: 'var(--nf-space-6)' }}>{c.identity}</span>}
+          </div>
+          <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { setDetailCardId(null) }}>✕ 关闭</button>
+        </div>
+
+        {/* 基本信息 */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 'var(--nf-space-4)', marginTop: 'var(--nf-space-8)' }}>
+          <span className={css.meta}>功能：{CORE_FUNCTIONS.find(f => f.id === c.coreFunction)?.label ?? c.coreFunction}</span>
+          <span className={css.meta}>与主角：{RELATIONS.find(r => r.id === c.protagonistRelation)?.label ?? c.protagonistRelation}</span>
+          {c.traits.length > 0 && <span className={css.meta}>性格：{c.traits.join('、')}</span>}
+          {c.appearance !== '' && <span className={css.meta}>外貌：{c.appearance}</span>}
+          {c.speechStyle !== '' && <span className={css.meta}>说话：{c.speechStyle}</span>}
+        </div>
+
+        {/* 立绘 */}
+        {!isExtra && (
+          <div style={{ marginTop: 'var(--nf-space-10)', borderTop: '1px solid var(--nf-border)', paddingTop: 'var(--nf-space-8)' }}>
+            <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 600 }}>📌 立绘（即梦智能角色参考图）</span>
+              <span className={css.meta}>上传到即梦「智能角色」，全片保持脸盲一致</span>
+            </div>
+            <div className={css.row} style={{ marginTop: 'var(--nf-space-6)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              {c.imageUrl !== undefined ? (
+                <img src={c.imageUrl} alt={c.name + ' 立绘'} style={{ maxHeight: 180, borderRadius: 'var(--nf-radius-8)', border: '1px solid var(--nf-border)' }} />
+              ) : (
+                <div style={{ width: 120, height: 160, background: 'var(--nf-bg)', borderRadius: 'var(--nf-radius-8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span className={css.meta}>待定妆</span>
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-4)' }}>
+                <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { setUploadTarget(c.id); setUploadLabel('立绘') }}>🖼 上传立绘</button>
+                {c.imageUrl !== undefined && <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { void removeImage(c, '') }}>移除立绘</button>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 上传区 */}
+        {uploadTarget === c.id && !isExtra && (
+          <div style={{ marginTop: 'var(--nf-space-8)', border: '1px dashed var(--nf-border)', borderRadius: 'var(--nf-radius-8)', padding: 'var(--nf-space-8)' }}>
+            <div className={css.row} style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div className={css.field} style={{ minWidth: 140 }}>
+                <label className={css.fieldLabel}>用途标签</label>
+                <input className={css.input} value={uploadLabel} onChange={e => { setUploadLabel(e.target.value) }} placeholder="立绘/四视图/表情-xx" />
+              </div>
+              <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { void onUploadFile(c.id, e.target.files?.[0] ?? null); e.target.value = '' }} />
+              <button type="button" className={css.button + ' ' + css.buttonSmall} disabled={actingId === c.id} onClick={() => { fileInputRef.current?.click() }}>{actingId === c.id ? '上传中…' : '📤 选择图片'}</button>
+              <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { setUploadTarget(null) }}>取消</button>
+            </div>
+          </div>
+        )}
+
+        {/* 精修提示词（立绘+负面词+表情图高级可选） */}
+        {!isExtra && c.promptKit !== undefined && (
+          <div style={{ marginTop: 'var(--nf-space-10)', borderTop: '1px solid var(--nf-border)', paddingTop: 'var(--nf-space-8)' }}>
+            <div className={css.row} style={{ justifyContent: 'space-between' }}>
+              <span style={{ fontWeight: 600 }}>🎨 精修提示词</span>
+              <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => {
+                const kit = c.promptKit!
+                const neg = c.imagePrompt?.negativePrompt ?? '低质量,模糊,变形,多指,断肢,文字,水印,丑陋,比例失调'
+                const parts: string[] = []
+                if (kit.portrait) parts.push('【立绘】\n' + kit.portrait.zh)
+                parts.push('【负面词】\n' + neg)
+                if (showAdvancedPrompts && kit.expressions) for (const e of kit.expressions) parts.push('【表情-' + e.name + '】\n' + e.zh)
+                void navigator.clipboard?.writeText(parts.join('\n\n'))
+              }}>📋 复制全部</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', marginTop: 'var(--nf-space-4)' }}>
+              {c.promptKit.portrait !== undefined && (
+                <div style={{ border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-8)', padding: 'var(--nf-space-8)' }}>
+                  <div className={css.row} style={{ justifyContent: 'space-between' }}>
+                    <b>📌 立绘（智能角色参考图）</b>
+                    <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { void navigator.clipboard?.writeText(c.promptKit!.portrait!.zh) }}>复制</button>
+                  </div>
+                  <div style={{ fontSize: 'var(--nf-fs-12)', marginTop: 'var(--nf-space-4)' }}>{c.promptKit.portrait.zh}</div>
+                </div>
+              )}
+              {c.imagePrompt?.negativePrompt !== undefined && c.imagePrompt.negativePrompt !== '' ? (
+                <div style={{ border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-8)', padding: 'var(--nf-space-8)' }}>
+                  <div className={css.row} style={{ justifyContent: 'space-between' }}>
+                    <b>🚫 负面词（复制到即梦反向提示词框）</b>
+                    <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { void navigator.clipboard?.writeText(c.imagePrompt!.negativePrompt!) }}>复制</button>
+                  </div>
+                  <div style={{ fontSize: 'var(--nf-fs-12)', marginTop: 'var(--nf-space-4)', color: 'var(--nf-text-secondary)' }}>{c.imagePrompt.negativePrompt}</div>
+                </div>
+              ) : (
+                <div style={{ border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-8)', padding: 'var(--nf-space-8)' }}>
+                  <div className={css.row} style={{ justifyContent: 'space-between' }}>
+                    <b>🚫 负面词（复制到即梦反向提示词框）</b>
+                    <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { void navigator.clipboard?.writeText('低质量,模糊,变形,多指,断肢,文字,水印,丑陋,比例失调') }}>复制</button>
+                  </div>
+                  <div style={{ fontSize: 'var(--nf-fs-12)', marginTop: 'var(--nf-space-4)', color: 'var(--nf-text-secondary)' }}>低质量,模糊,变形,多指,断肢,文字,水印,丑陋,比例失调</div>
+                </div>
+              )}
+              {c.promptKit.expressions !== undefined && c.promptKit.expressions.length > 0 && (
+                <div style={{ border: '1px dashed var(--nf-border)', borderRadius: 'var(--nf-radius-8)', padding: 'var(--nf-space-8)' }}>
+                  <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { setShowAdvancedPrompts(prev => !prev) }} style={{ width: '100%', textAlign: 'left' }}>
+                    {showAdvancedPrompts ? '▼ 高级可选：表情图（点击收起）' : '▶ 高级可选：表情图（' + c.promptKit.expressions.length + '个，点击展开）'}
+                  </button>
+                  {showAdvancedPrompts && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-4)', marginTop: 'var(--nf-space-4)' }}>
+                      {c.promptKit.expressions.map((e, i) => (
+                        <div key={i} style={{ fontSize: 'var(--nf-fs-12)' }}>
+                          <div className={css.row} style={{ justifyContent: 'space-between' }}>
+                            <span style={{ fontWeight: 600 }}>😊 {e.name}</span>
+                            <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { void navigator.clipboard?.writeText(e.zh) }}>复制</button>
+                          </div>
+                          <div style={{ marginTop: 'var(--nf-space-2)' }}>{e.zh}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 即梦使用指引 */}
+        {!isExtra && c.promptKit !== undefined && (
+          <div style={{ marginTop: 'var(--nf-space-10)', borderTop: '1px solid var(--nf-border)', paddingTop: 'var(--nf-space-8)' }}>
+            <span style={{ fontWeight: 600 }}>💡 即梦使用指引</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-2)', marginTop: 'var(--nf-space-4)' }}>
+              <span className={css.meta}>• <b>立绘</b> → 即梦「智能角色」上传（正面全身纯白背景，全片锁脸锁服装）</span>
+              <span className={css.meta}>• <b>多角度</b> → 立绘上传即梦画布，用「多角度编辑」生成侧面/背面（无需单独生四视图）</span>
+              <span className={css.meta}>• <b>负面词</b> → 复制到即梦「反向提示词」框（生图生视频都有），每次都粘贴</span>
+              <span className={css.meta}>• <b>表情图</b>（高级可选）→ 特定情绪镜头时投喂对应表情图，锁脸部</span>
+            </div>
+          </div>
+        )}
+
+        {/* 底部操作 */}
+        <div style={{ marginTop: 'var(--nf-space-10)', borderTop: '1px solid var(--nf-border)', paddingTop: 'var(--nf-space-8)', display: 'flex', gap: 'var(--nf-space-6)', flexWrap: 'wrap' }}>
+          {!isExtra && <button type="button" className={css.button + ' ' + css.buttonSmall} disabled={actingId === c.id} onClick={() => { void genVisual(c.id, c.name) }}>{actingId === c.id ? '生成中…' : '🎨 生成形象锚点'}</button>}
+          {c.tier === 'protagonist' && <button type="button" className={css.button + ' ' + css.buttonSmall} disabled={actingId === c.id || c.imagePrompt === undefined} onClick={() => { void genKit(c.id, c.name) }}>✨ 精修提示词</button>}
+          <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { startEdit(c); setDetailCardId(null) }}>✏️ 编辑</button>
+          <button type="button" className={css.button + ' ' + css.buttonSmall + ' ' + css.buttonDanger} disabled={actingId === c.id} onClick={() => { void removeCard(c); setDetailCardId(null) }}>🗑 删除</button>
+        </div>
+      </div>
+    </div>
+  )
+})()}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 /**
  * 漫剧工作台·全流程步骤条（唯一导航，方案X）：
- * ①创建方案 → ②视觉规则 → ③剧情骨架 → ④分镜表 → ⑤导入角色 → ⑥角色定妆 → ⑦视频提示词 → ⑧场景库 → ⑨导出使用。
+ * ①创建方案 → ②一键生成 → ③分镜 → ④角色定妆 → ⑤场景底图 → ⑥导出使用。
  * 每个步骤对应一个独立页面主体；完成度自动判定（读 project 现有字段）。
  */
 import type { ProjectState } from '../../protocol.ts'
@@ -16,7 +16,8 @@ export type FlowTarget =
   | 'makeup'    // ⑥ 角色定妆页（角色·卡片）
   | 'prompts'   // ⑦ 视频提示词页（分镜·提示词）
   | 'scenes'    // ⑧ 场景库页
-  | 'export'    // ⑨ 导出使用页
+  | 'props'     // ⑨ 道具库页
+  | 'export'    // ⑩ 导出使用页
 
 export interface FlowStep {
   no: number
@@ -26,37 +27,37 @@ export interface FlowStep {
   target: FlowTarget
 }
 
-/** 依据 project 数据计算 9 步完成度（与存储顺序无关，按生产顺序排列）。 */
-export function computeFlowSteps(project: ProjectState | null): FlowStep[] {
+/** 依据 project 数据计算 6 步完成度（与存储顺序无关，按生产顺序排列）。 */
+export function computeFlowSteps(project: ProjectState | null, exported?: boolean): FlowStep[] {
   const plans = project?.mangaPlans ?? []
   const rules = project?.visualRules ?? []
   const sbs = project?.storyboards ?? []
   const manga = project?.mangaRoles ?? []
   const scenes = project?.scenes ?? []
+  const props = project?.props ?? []
   const hasSkeleton = sbs.some(e => e.skeleton !== undefined)
   const hasTable = sbs.some(e => e.table !== undefined)
   const hasPrompts = sbs.some(e => (e.prompts ?? []).length > 0)
   return [
-    { no: 1, label: '创建方案', hint: '选基底风格+可选滤镜并命名；此后所有提示词按此风格生成', done: plans.length > 0, target: 'plan' },
-    { no: 2, label: '视觉规则', hint: '从道藏提炼 3-6 条视觉世界观规则，自动注入所有生图/生视频提示词', done: rules.length > 0, target: 'rules' },
-    { no: 3, label: '剧情骨架', hint: '分镜①：本章弧线+节拍链+出场角色（characters 提名地基）', done: hasSkeleton, target: 'skeleton' },
-    { no: 4, label: '分镜表', hint: '分镜②：骨架展开为镜头级画面（景别/机位/台词/每镜头角色）', done: hasTable, target: 'table' },
-    { no: 5, label: '导入角色', hint: '从本集分镜提名→小说库匹配（规则+LLM 两段式）→导入为漫剧卡', done: manga.length > 0, target: 'import' },
-    { no: 6, label: '角色定妆', hint: '生成形象锚点→精修提示词→上传/生成定妆图（status=已定妆）', done: manga.some(c => c.status === 'anchored'), target: 'makeup' },
-    { no: 7, label: '视频提示词', hint: '分镜③：每镜头一段即梦可粘贴提示词，带风格词块与定妆绑定', done: hasPrompts, target: 'prompts' },
-    { no: 8, label: '场景库', hint: '（选做）从正文提炼场景卡并采纳，分镜表会标注使用场景', done: scenes.length > 0, target: 'scenes' },
-    { no: 9, label: '导出使用', hint: '复制提示词到即梦/豆包/ComfyUI 出图生视频；定妆卡按 mangaRoleIds 绑定参考图', done: hasPrompts, target: 'export' },
+    { no: 1, label: '创建方案', hint: '选基底风格+题材并命名；此后所有提示词按此风格生成', done: plans.length > 0, target: 'plan' },
+    { no: 2, label: '一键生成', hint: '选章节后自动做 剧情骨架→分镜表→角色导入；视频提示词留到⑤', done: hasTable, target: 'import' },
+    { no: 3, label: '角色库', hint: '主要角色定妆图提示词→去即梦出图→建智能角色', done: manga.some(c => c.status === 'anchored'), target: 'makeup' },
+    { no: 4, label: '场景库', hint: '（选做）从正文提炼场景卡并出场景参考图，提示词自动引用', done: scenes.length > 0, target: 'scenes' },
+    { no: 5, label: '道具库', hint: '（选做）从正文提炼常驻道具，提示词里道具外观跨镜头统一', done: props.length > 0, target: 'props' },
+    { no: 6, label: '分镜·提示词', hint: '生成逐镜即梦提示词（可粘贴）→复制去即梦；含导出存档', done: hasPrompts, target: 'prompts' },
   ]
 }
 
 export function FlowGuide({
   project,
   onNavigate,
+  exported,
 }: {
   project: ProjectState | null
   onNavigate: (target: FlowTarget) => void
+  exported?: boolean
 }) {
-  const steps = computeFlowSteps(project)
+  const steps = computeFlowSteps(project, exported)
   const doneCount = steps.filter(s => s.done).length
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', marginTop: 'var(--nf-space-8)' }}>

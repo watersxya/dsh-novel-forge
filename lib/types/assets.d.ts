@@ -23,7 +23,7 @@ export declare const BUILTIN_PLOT_BEATS: PlotBeatTemplate[];
 export declare function emptyProjectAssets(): ProjectAssets;
 /** 合并项目资产与内置库：返回「生效的反 AI 规则」（内置全局 + 项目自定义）。 */
 export declare function effectiveAntiAiRules(assets: ProjectAssets | undefined): AntiAiRule[];
-/** 把生效规则渲染成提示词块（压缩：avoid/fix 截断，省 token）。 */
+/** 把生效规则渲染成提示词块（禁止/鼓励分列，压缩省 token）。 */
 export declare function renderAntiAiRules(assets: ProjectAssets | undefined): string;
 /** 渲染题材与推进模式提示词块。 */
 export declare function renderGenreAndProgression(assets: ProjectAssets | undefined): string;

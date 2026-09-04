@@ -4,7 +4,7 @@
  * problems are logged, never thrown — the web shell fails the whole boot when
  * a plugin apply throws.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { NovelApi } from './api.ts'
 import { mountPanel } from './mount.tsx'
 import { PanelController } from './panel/controller.ts'

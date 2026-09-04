@@ -1,8 +1,8 @@
 /**
  * 风格库（内置模板）：漫剧方案的视觉基底 + 可叠加滤镜。
- * 字段来自通用风格模板（豆包整理），keywords 即风格前缀词块，生成时直接套用。
+ * 关键词针对即梦 Seedream 优化：画风定义 + 质感描述 + 光影色彩 + 即梦质量词（8K/五官清晰/真实材质）。
  */
-export type StyleCategory = '3d' | 'game' | '2d' | 'film' | 'craft';
+export type StyleCategory = '3d' | 'game' | '2d' | 'craft' | 'film';
 export interface ArtStyle {
     id: string;
     /** 风格名（用户可见）。 */
@@ -23,7 +23,7 @@ export declare const STYLE_CATEGORIES: ReadonlyArray<{
     icon: string;
     desc: string;
 }>;
-/** 内置风格模板（18 个）。 */
+/** 内置风格模板（基底 21 个 + 滤镜 3 个）。 */
 export declare const STYLE_LIBRARY: ArtStyle[];
 /** 按分类取风格。 */
 export declare function stylesByCategory(category: StyleCategory): ArtStyle[];

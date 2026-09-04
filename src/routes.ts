@@ -90,6 +90,8 @@ import {
   type SceneCard,
   type ScenesRequest,
   type ScenesResponse,
+  type MangaPropsRequest,
+  type MangaPropsResponse,
   type VisualRulesRequest,
   type VisualRulesResponse,
   type OutlineSuggestRequest,
@@ -99,6 +101,7 @@ import {
   type SensitiveCheckRequest,
   type SensitiveCheckResponse,
   type SensitiveHit,
+  type ProjectState,
   type StatusResponse,
   type StoryBible,
   type StoryboardSkeletonRequest,
@@ -175,6 +178,7 @@ import {
   generateRolePromptKit,
   generateMangaRolePromptKit,
   extractVisualRules,
+  extractProps,
   extractRoleVisual,
   extractMangaRoleVisual,
   nominateMangaRoles,
@@ -187,9 +191,7 @@ import {
   rewriteAdaptationBook,
   materializeAdaptedBook,
   saveMaterializedBook,
-  generateRoleReferenceImage,
-  generateMangaRoleReferenceImage,
-  testImageEndpoint,
+  getActiveMangaStyle,
   testLlmModel,
   registerLlmModel,
   listLlmVendors,
@@ -199,6 +201,9 @@ import {
   generateStoryboardSkeleton,
   generateStoryboardTable,
   generateStoryboardPrompts,
+  autoGenerateMangaChapter,
+  mangaAssetsDir,
+  saveMangaAssetPackage,
   checkSensitiveText,
   suggestForeshadows,
   suggestPlotlines,
@@ -336,13 +341,36 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         syncProjectWithDisk(project, config.outputDir)
         saveProject(config.outputDir, project)
       }
-      const response: StatusResponse = {
-        config,
+      const slim = new URL(req.url ?? '/', 'http://localhost').searchParams.get('slim') === '1'
+      let projectPayload: StatusResponse['project']
+      if (project === undefined) {
+        projectPayload = undefined
+      } else if (slim) {
+        // slim 瘦身：轮询/角标只需章节状态与分数 + 轻量元数据，
+        // 去掉正文、beats、图集（base64）、道藏/大世界/资产等重字段，避免长书轮询反复传输大体积。
+        projectPayload = {
+          bookName: project.bookName,
+          outline: project.outline.slice(0, 200),
+          chapters: project.chapters.map(c => ({
+            no: c.no,
+            volume: c.volume,
+            title: c.title,
+            status: c.status,
+            chars: c.chars,
+            error: c.error,
+            review: c.review !== undefined ? { score: c.review.score, passed: c.review.passed } : undefined,
+          })) as unknown as ProjectState['chapters'],
+          createdAt: project.createdAt,
+          updatedAt: project.updatedAt,
+        } as unknown as ProjectState
+      } else {
         // 瘦身：facts 只回最近 80 条（客户端最多展示 60），避免长篇后
         // status 响应体随编年录无限膨胀。
-        project: project !== undefined
-          ? { ...project, facts: (project.facts ?? []).slice(-80) }
-          : undefined,
+        projectPayload = { ...project, facts: (project.facts ?? []).slice(-80) }
+      }
+      const response: StatusResponse = {
+        config,
+        project: projectPayload,
         generatedFiles: listChapterFiles(config.outputDir),
         audit: auditState,
       }
@@ -562,7 +590,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           if (step.frame === 'delta') {
             send({ type: 'delta', text: step.text })
           } else if (step.frame === 'done') {
-            send({ type: 'done', no, file: step.file, chars: step.chars, title: chapter.title })
+            send({ type: 'done', no, file: step.file, chars: step.chars, title: chapter.title, warn: step.warn })
           }
         }
         // Auto pipeline: summary + facts（一次调用）-> review（unless skipped）。
@@ -1462,7 +1490,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
   }
 
   // ---------------------------------------------------------- bible patch
-  /** 设定圣经局部修补（世界观规则/红线/风格）。 */
+  /** 道藏局部修补（世界观规则/红线/风格）。 */
   const biblePatchRoute: WebRoute = {
     kind: 'exact',
     path: NOVEL_API.biblePatch,
@@ -1898,22 +1926,6 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         saveProject(config.outputDir, project)
         writeJson(res, 200, { roles: project.roles } satisfies RolesResponse)
         return
-      } else if (op === 'imageGenerate') {
-        const name = body?.name?.trim()
-        if (name === undefined || name === '') {
-          writeJson(res, 400, { error: 'name（角色名）必填' })
-          return
-        }
-        try {
-          const imageUrl = await generateRoleReferenceImage(ctx, config, project, config.outputDir, name, body?.style ?? '', body?.modelId)
-          project.updatedAt = new Date().toISOString()
-          saveProject(config.outputDir, project)
-          writeJson(res, 200, { roles: project.roles, imageUrl } satisfies RolesResponse)
-          return
-        } catch (error) {
-          writeJson(res, 500, { error: `角色参考图生成失败：${(error as Error).message}` })
-          return
-        }
       } else if (op === 'visual') {
         // 动漫形象描述词提炼：扫描正文外貌描写 → LLM 提炼 → 写入角色卡。
         const name = body?.name?.trim()
@@ -2059,7 +2071,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           return
         }
         try {
-          const visual = await extractMangaRoleVisual(ctx, config, project, config.outputDir, id, body?.styleId, body?.filterId)
+          const activeStyle = getActiveMangaStyle(project); const visual = await extractMangaRoleVisual(ctx, config, project, config.outputDir, id, body?.styleId ?? activeStyle.styleId, body?.filterId ?? activeStyle.filterId)
           project.updatedAt = new Date().toISOString()
           saveProject(config.outputDir, project)
           writeJson(res, 200, { cards: project.mangaRoles, visual } satisfies MangaRolesResponse)
@@ -2075,7 +2087,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           return
         }
         try {
-          const kit = await generateMangaRolePromptKit(ctx, config, project, id, body?.styleId, body?.filterId)
+          const activeStyle2 = getActiveMangaStyle(project); const kit = await generateMangaRolePromptKit(ctx, config, project, id, body?.styleId ?? activeStyle2.styleId, body?.filterId ?? activeStyle2.filterId)
           project.updatedAt = new Date().toISOString()
           saveProject(config.outputDir, project)
           writeJson(res, 200, { cards: project.mangaRoles, promptKit: kit } satisfies MangaRolesResponse)
@@ -2132,22 +2144,6 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         saveProject(config.outputDir, project)
         writeJson(res, 200, { cards: project.mangaRoles } satisfies MangaRolesResponse)
         return
-      } else if (op === 'imageGenerate') {
-        const id = body?.id?.trim()
-        if (id === undefined || id === '') {
-          writeJson(res, 400, { error: 'id（漫剧卡 id）必填' })
-          return
-        }
-        try {
-          const imageUrl = await generateMangaRoleReferenceImage(ctx, config, project, config.outputDir, id, body?.style ?? '', body?.modelId)
-          project.updatedAt = new Date().toISOString()
-          saveProject(config.outputDir, project)
-          writeJson(res, 200, { cards: project.mangaRoles, imageUrl } satisfies MangaRolesResponse)
-          return
-        } catch (error) {
-          writeJson(res, 500, { error: `定妆图生成失败：${(error as Error).message}` })
-          return
-        }
       } else if (op === 'mode') {
         // 短剧精简模式开关（漫剧角色库 5-8 人 / 功能标签 / 关系闭环 / 人设极致化）。
         project.shortDramaMode = body?.shortDramaMode === true
@@ -2155,9 +2151,51 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         saveProject(config.outputDir, project)
         writeJson(res, 200, { cards: project.mangaRoles, shortDramaMode: project.shortDramaMode } satisfies MangaRolesResponse)
         return
+            } else if (op === 'autoGenerate') {
+        const chapterNo = body?.chapterNo
+        if (typeof chapterNo !== 'number' || chapterNo <= 0) { writeJson(res, 400, { error: 'chapterNo（章号）必填' }); return }
+        try {
+          const activeStyle3 = getActiveMangaStyle(project); const result = await autoGenerateMangaChapter(ctx, config, project, config.outputDir, chapterNo, body?.styleId ?? activeStyle3.styleId, body?.filterId ?? activeStyle3.filterId)
+          writeJson(res, 200, { cards: project.mangaRoles, autoGenerate: result } satisfies MangaRolesResponse)
+          return
+        } catch (error) { writeJson(res, 500, { error: '一键生成失败：' + (error as Error).message }); return }
+      } else if (op === 'openAssets') {
+        const dir = mangaAssetsDir(config.outputDir)
+        try {
+          mkdirSync(dir, { recursive: true })
+          if (process.platform === 'win32') { spawn('explorer', [dir], { detached: true }) }
+          else if (process.platform === 'darwin') { spawn('open', [dir], { detached: true }) }
+          else { spawn('xdg-open', [dir], { detached: true }) }
+          writeJson(res, 200, { ok: true, dir })
+          return
+        } catch (error) { writeJson(res, 500, { error: '打开资产库失败：' + (error as Error).message, dir }); return }
       } else {
         writeJson(res, 400, { error: '未知的 manga/roles op' })
         return
+      }
+    },
+  }
+
+  // --------------------------------------------------- manga export-package
+  /** 导出「即梦素材包」落盘到资产库 manga-assets/素材包/（前端组装 markdown，后端写文件）。 */
+  const exportPackageRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.exportPackage,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const config = getConfig()
+      const body = await readJsonBody<{ chapterNo?: number; title?: string; markdown?: string }>(req)
+      const chapterNo = Number(body?.chapterNo)
+      const markdown = body?.markdown ?? ''
+      if (!Number.isInteger(chapterNo) || chapterNo < 1 || markdown.trim() === '') {
+        writeJson(res, 400, { error: 'chapterNo 须为正整数，且 markdown 不能为空' })
+        return
+      }
+      try {
+        const file = saveMangaAssetPackage(config.outputDir, chapterNo, (body?.title ?? '').trim(), markdown)
+        writeJson(res, 200, { ok: true, file })
+      } catch (error) {
+        writeJson(res, 500, { error: (error as Error).message })
       }
     },
   }
@@ -2459,31 +2497,10 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         return
       }
       try {
-        const prompts = await generateStoryboardPrompts(ctx, config, project, config.outputDir, no, body.table, body?.styleId, body?.filterId)
+        const activeStyle5 = getActiveMangaStyle(project); const prompts = await generateStoryboardPrompts(ctx, config, project, config.outputDir, no, body.table, body?.styleId ?? activeStyle5.styleId, body?.filterId ?? activeStyle5.filterId)
         writeJson(res, 200, { prompts } satisfies StoryboardPromptsResponse)
       } catch (error) {
         writeJson(res, 500, { error: `视频提示词生成失败：${(error as Error).message}` })
-      }
-    },
-  }
-
-  // --------------------------------------------------------- image-test
-  /** 生图接口连通性测试：GET {baseURL}/models + 计时（设置页模型条目用）。 */
-  const imageTestRoute: WebRoute = {
-    kind: 'exact',
-    path: NOVEL_API.imageTest,
-    handler: async (req, res) => {
-      if (!guard(req, res, 'POST')) return
-      const body = await readJsonBody<ImageTestRequest>(req)
-      if (body?.baseURL === undefined || body?.apiKey === undefined) {
-        writeJson(res, 400, { error: 'baseURL 与 apiKey 必填' })
-        return
-      }
-      try {
-        const result = await testImageEndpoint(body.baseURL, body.apiKey, body.model)
-        writeJson(res, 200, result satisfies ImageTestResponse)
-      } catch (error) {
-        writeJson(res, 500, { error: `测试失败：${(error as Error).message}` })
       }
     },
   }
@@ -2620,7 +2637,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         return
       }
       try {
-        const table = await generateStoryboardTable(ctx, config, project, config.outputDir, no, body.skeleton, body?.styleId, body?.filterId)
+        const activeStyle6 = getActiveMangaStyle(project); const table = await generateStoryboardTable(ctx, config, project, config.outputDir, no, body.skeleton, body?.styleId ?? activeStyle6.styleId, body?.filterId ?? activeStyle6.filterId)
         writeJson(res, 200, { table } satisfies StoryboardTableResponse)
       } catch (error) {
         writeJson(res, 500, { error: `分镜表生成失败：${(error as Error).message}` })
@@ -2657,6 +2674,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           name: name.slice(0, 40),
           styleId,
           filterId: body.filterId?.trim() !== '' ? body.filterId?.trim() : undefined,
+          genre: body.genre?.trim() !== '' ? body.genre?.trim() : undefined,
           active: project.mangaPlans.length === 0,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -2667,6 +2685,10 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         if (removed?.active === true && project.mangaPlans.length > 0) {
           project.mangaPlans[0].active = true
         }
+        // 删除方案时同时清除该方案的漫剧产出：分镜（骨架/表/提示词）、角色卡
+        // 场景库与视觉规则是全书资产，保留供后续方案复用
+        project.storyboards = []
+        project.mangaRoles = []
       } else if (body?.op === 'activate' && body.id !== undefined) {
         project.mangaPlans.forEach(p => { p.active = p.id === body.id })
       } else {
@@ -2781,7 +2803,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
       const op = body?.op
       if (op === 'extract') {
         try {
-          const candidates = await extractScenes(ctx, config, project, body?.styleId, body?.filterId)
+          const activeStyle4 = getActiveMangaStyle(project); const candidates = await extractScenes(ctx, config, project, body?.chapterNo, body?.styleId ?? activeStyle4.styleId, body?.filterId ?? activeStyle4.filterId)
           writeJson(res, 200, { scenes: project.scenes, candidates } satisfies ScenesResponse)
           return
         } catch (error) {
@@ -2856,6 +2878,43 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         project.updatedAt = new Date().toISOString()
         saveProject(config.outputDir, project)
         writeJson(res, 200, { rules: project.visualRules } satisfies VisualRulesResponse)
+        return
+      }
+      writeJson(res, 400, { error: 'op 须为 extract 或 save' })
+    },
+  }
+
+  const mangaPropsRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.mangaProps,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const config = getConfig()
+      const project = requireProject(res)
+      if (project === undefined) return
+      const body = await readJsonBody<MangaPropsRequest>(req)
+      if (body?.op === 'extract') {
+        try {
+          const props = await extractProps(ctx, config, project)
+          if (props.length > 0) {
+            project.props = props
+            project.updatedAt = new Date().toISOString()
+            saveProject(config.outputDir, project)
+          }
+          writeJson(res, 200, { props: project.props ?? [] } satisfies MangaPropsResponse)
+          return
+        } catch (error) {
+          writeJson(res, 500, { error: `道具提炼失败：${(error as Error).message}` })
+          return
+        }
+      } else if (body?.op === 'save' && Array.isArray(body.props)) {
+        project.props = body.props
+          .filter(p => typeof p === 'object' && p !== null && typeof p.name === 'string' && p.name.trim() !== '')
+          .map(p => ({ name: p.name.trim().slice(0, 20), desc: (typeof p.desc === 'string' ? p.desc.trim() : '').slice(0, 120) }))
+          .slice(0, 8)
+        project.updatedAt = new Date().toISOString()
+        saveProject(config.outputDir, project)
+        writeJson(res, 200, { props: project.props } satisfies MangaPropsResponse)
         return
       }
       writeJson(res, 400, { error: 'op 须为 extract 或 save' })
@@ -3302,7 +3361,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     plotlinesRoute,
     rolesRoute,
     mangaRolesRoute,
+    exportPackageRoute,
     scenesRoute,
+    mangaPropsRoute,
     visualRulesRoute,
     sensitiveRoute,
     reviewBackfillRoute,
@@ -3316,7 +3377,6 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     manhuaPlansRoute,
     styleImageRoute,
     storyboardSkeletonRoute,
-    imageTestRoute,
     llmTestRoute,
     addModelRoute,
     llmVendorsRoute,
