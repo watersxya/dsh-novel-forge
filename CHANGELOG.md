@@ -1,3 +1,13 @@
+## [2.0.1-alpha] - 2026-09-05
+
+### 🐛 修复：skill 注册缺 `provider` 导致 dsh ≥0.1.3 轮次崩溃
+
+- 运行时 skill `novel-forge-chapter-batch` 的 `skillsService.register` 补齐 `provider: 'dsh-novel-forge'`。
+- dsh `SkillSummary` 要求 `provider: string`（必填），缺省会令 web 轮次发起时读 `undefined.length` 而失败（headless/旧版不受影响）。
+- 同步更新 `skillsService` 类型声明。
+
+---
+
 ## [2.0.0-alpha.1] - 2026-09-04
 
 ### 🎬 漫剧工作台（V2.0 大改版 · ALPHA 预发布）

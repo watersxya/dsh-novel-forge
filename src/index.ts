@@ -275,10 +275,11 @@ export function apply(ctx: Context, config?: Config): void {
 
   // 运行时 skill：章节批量生产与值守处理（只在本插件环境可用）。
   // 通过 ctx.get('skills') 获取注册表（服务存在时注册，缺失则跳过，不影响其他能力）。
-  const skillsService = ctx.get('skills') as { register?: (skill: { name: string; description: string; content: string }) => () => void } | undefined
+  const skillsService = ctx.get('skills') as { register?: (skill: { name: string; provider: string; description: string; content: string }) => () => void } | undefined
   if (skillsService?.register !== undefined) {
     const disposeSkill = skillsService.register({
       name: 'novel-forge-chapter-batch',
+      provider: 'dsh-novel-forge',
       description: '批量生成小说章节并值守处理审稿未过的章节（豁免/按意见修订/验证模式/重新生成），依赖 dsh-novel-forge 的 /api/dsh-novel-forge/* 路由。',
       content: [
         '# 小说章节批量生产与值守处理',
