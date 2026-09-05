@@ -18,7 +18,7 @@ export declare const zh: {
     readonly 'tab.plan': "章节";
     readonly 'tab.bible': "道藏";
     readonly 'tab.foreshadow': "暗线";
-    readonly 'tab.assistant': "AI 助手";
+    readonly 'tab.assistant': "AI 编辑 Agent";
     readonly 'tab.settings': "设置";
     readonly 'workflow.title': "创作工作台";
     readonly 'workflow.step1': "① 加载总纲";
@@ -195,13 +195,13 @@ export declare const zh: {
     readonly 'progress.rewriting': "正在修订第 {no} 章…";
     readonly 'progress.polishing': "正在润色第 {no} 章…";
     readonly 'progress.empty': "生成/审稿进度将显示在这里";
-    readonly 'assistant.hint': "和 AI 编辑讨论剧情、人设、暗线；达成一致后可让它直接修改总纲、道藏、章节内容。";
+    readonly 'assistant.hint': "和 AI 编辑 Agent 讨论剧情、人设、暗线；达成一致后可让它直接修改总纲、道藏、章节内容。";
     readonly 'assistant.placeholder': "例如：我想让第 2 章结尾加一个悬念——墟境里传来爷爷的声音…";
     readonly 'assistant.send': "发送";
     readonly 'assistant.toolStart': "⚙ 执行操作：{name}…";
     readonly 'assistant.toolDone': "✓ {name} 完成：{detail}";
     readonly 'assistant.toolError': "✗ {name} 失败：{detail}";
-    readonly 'assistant.empty': "还没有对话。和 AI 编辑聊聊剧情吧。";
+    readonly 'assistant.empty': "还没有对话。和 AI 编辑 Agent 聊聊剧情吧。";
     readonly 'status.projectNone': "输出目录中还没有项目。请先加载大纲。";
     readonly 'status.files': "已生成文件";
     readonly 'api.error': "请求失败";

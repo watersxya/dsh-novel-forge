@@ -7,10 +7,26 @@ Your personal AI novel-writing plugin for DSH: turn an outline into a complete n
 
 > **⚠️ 版本状态 / Version status（read this first）**
 >
-> - 本插件当前**唯一发布 / 更新线为 V2.0 ALPHA（`2.0.0-alpha.1`）**，适用于 **DSH ≥ 0.1.3-alpha.1**（依赖 DSH 提供的 `cosmokit`，不能在纯 Node 环境单独运行）。
+> - 本插件当前**唯一发布 / 更新线为 V2.0 ALPHA（`2.1.0-alpha`）**，适用于 **DSH ≥ 0.1.3-alpha.1**（依赖 DSH 提供的 `cosmokit`，不能在纯 Node 环境单独运行）。
 > - **V1.0 RC（`1.10.1`）为最终稳定版，已停止更新**；需要稳定版请显式安装 `@waterwx/dsh-novel-forge@1.10.1`。
 > - **安装前请确认你的 DSH 版本**：在 `0.1.3-alpha.1` 以前的 DSH 上安装 V2.0 ALPHA 会加载失败。
 > - npm `latest` 现指向 V2.0 ALPHA：`npm i @waterwx/dsh-novel-forge` 会安装预发布版；想要最终稳定 RC 请用 `@1.10.1`。
+
+<p align="center">
+  <img src="https://img.shields.io/badge/DSH-0.1.3--alpha.1%2B-blue" alt="DSH ≥ 0.1.3-alpha.1" />
+  <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License" />
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/%E5%88%9B%E4%BD%9C%E5%B7%A5%E4%BD%9C%E6%B5%81-%E2%9C%93-blue" alt="创作工作流" />
+  <img src="https://img.shields.io/badge/AI%20%E7%BC%96%E8%BE%91%20Agent-%E2%9C%93-blue" alt="AI 编辑 Agent" />
+  <img src="https://img.shields.io/badge/%E8%87%AA%E5%8A%A8%E5%AF%BC%E6%BC%94-%E2%9C%93-blue" alt="自动导演" />
+  <img src="https://img.shields.io/badge/%E7%9F%A5%E8%AF%86%E5%BA%93%20RAG-%E2%9C%93-blue" alt="知识库 RAG" />
+  <img src="https://img.shields.io/badge/%E9%A2%98%E6%9D%90%E9%9B%B7%E8%BE%BE%E2%86%92%E7%81%B5%E6%84%9F-%E2%9C%93-blue" alt="题材雷达→灵感" />
+  <img src="https://img.shields.io/badge/%E6%BC%AB%E5%89%A7%E5%B7%A5%E4%BD%9C%E5%8F%B0-%E2%9C%93-blue" alt="漫剧工作台" />
+  <img src="https://img.shields.io/badge/%E5%A4%9A%E4%B8%BB%E9%A2%98-%E2%9C%93-blue" alt="多主题" />
+  <img src="https://img.shields.io/badge/%E5%85%A8%E6%9C%AC%E5%AF%BC%E5%87%BA-%E2%9C%93-blue" alt="全本导出" />
+</p>
 
 ---
 
@@ -59,7 +75,20 @@ Your personal AI novel-writing plugin for DSH: turn an outline into a complete n
 | **视觉世界观规则（⚠️）**：从道藏提炼生图纠偏规则（如"货架商品=活人，禁止画成常规超市商品"），自动注入所有角色/场景提示词——反常识设定的书不再被生图模型画跑偏 | **Visual world rules**: extraction-time guardrails from the story bible (e.g. "shelf items are living people, no cans/bottles"), auto-injected into every prompt — counter-intuitive settings render correctly |
 | **漫剧工作台（V2.0 新增）**：创建方案（风格/滤镜/题材）→ 一键生成（拆剧情→分镜→提名角色→视频提示词）→ 分镜工作台（骨架/分镜表/提示词）→ 角色定妆 → 场景底图 → 导出即梦脚本 | **Manga Workbench (V2.0, new)**: create a plan (style/filter/genre) → one-click generate (skeleton→storyboard→role nominations→video prompts) → storyboard studio (skeleton/table/prompts) → character styling → scene base → export Jimeng scripts |
 
-## 快速开始 / Quick Start
+## 最近更新 / What's New（本次迭代）
+
+本次迭代把「专业工作流」交给 **AI 编辑 Agent** 代办，并新增一批策划/灵感/编排能力：
+
+- 💬 **AI 编辑 Agent**：书内助手改名并升级，一句话即可代办——拆书、自动导演、知识库（增/查/列）、剧情线、导演待办、全书质检、简介、章节生成/审稿/修订、大纲/道藏/暗线/资产、导出；写操作有安全放行 + 收敛规则，不会循环或乱改。
+- 📡 **题材雷达 → 灵感**：扫榜（番茄/起点/晋江）→ 题材信号 / 生产底座 / 开书简报 → 一键「用这些信号生成灵感」，得到贴合市场的多个开书方向。
+- 🎬 **自动导演**：基于本书分卷/剧情线/伏笔/事实，给出下一阶段节点、节奏板、风险与修复；可一键采纳为剧情线或待办。
+- 📚 **知识库 / RAG**：书内自由参考文档，生成时按章节检索注入，提升一致性。
+- 📊 **书分析 / 拆书**：输入任意文本 → 卖点 / 结构 / 可借鉴 / 风险。
+- 💡 **创意灵感**：一句话/题材 → 多个差异化开书灵感，可「以此方向开书」。
+- 🧭 **进阶工具折叠**：默认只露创作流水线 + 核心（助手 / AI 进度）+ 资产，进阶工具收进折叠组；创作页新增「问 AI 编辑 Agent」入口。
+- 🃏 **结构化结果卡片**：拆书 / 导演 / 质检 / 知识库列表等工具结果，在对话里直接渲染成卡片。
+
+
 
 ```sh
 pnpm install        # 安装依赖 / install dependencies
@@ -111,6 +140,20 @@ dsh plugin --profile web add @waterwx/dsh-novel-forge
 npm 分发的是预构建产物，无需任何构建授权。
 npm distribution ships prebuilt artifacts — no build authorization needed.
 
+### 在 DSH 插件社区发现 / Find it in the DSH plugin community
+
+在 DSH 插件社区（[dshfind](https://github.com/hikariming/dshfind)、[WhaleHub](https://github.com/vvlife/whalehub-dsh) 等市场/registry）里，可用关键词 `dsh`、`dsh-plugin`、`小说工坊`、`novel-forge` 检索到本插件；GitHub 仓库带有 `dsh`、`dsh-plugin`、`dsh-novel-forge` 等 topics 以便自动化收录。一键安装：
+
+```sh
+dsh plugin --profile web add @waterwx/dsh-novel-forge
+```
+
+Discover it in the DSH plugin community (e.g. [dshfind](https://github.com/hikariming/dshfind), [WhaleHub](https://github.com/vvlife/whalehub-dsh)) via keywords `dsh`, `dsh-plugin`, `novel-forge`; the repo carries `dsh` / `dsh-plugin` / `dsh-novel-forge` GitHub topics for automated indexing. One-line install:
+
+```sh
+dsh plugin --profile web add @waterwx/dsh-novel-forge
+```
+
 ### 本地开发 / Local development
 
 ```sh
@@ -121,6 +164,25 @@ dsh plugin --profile web add link:"<本目录绝对路径>"
 ## 工作流程 / Workflow
 
 一条主线：**开书 → 立设定 → 排章节 → 逐章编译 → 质检定稿 → 导出**。所有步骤都在侧边栏「小说工坊」面板内完成。
+
+```mermaid
+flowchart TD
+    A[① 开书<br/>粘贴大纲 / 导入 docx] --> B[② 立设定<br/>道藏 · 大世界 · 写作资产]
+    B --> C[③ 排章节<br/>卷计划 · 章节计划 / 续写模式]
+    C --> D[④ 逐章编译<br/>生成正文 → 摘要·事实 → 审稿]
+    D --> E{审稿通过?}
+    E -->|否| F[⑤ 修订循环<br/>按意见修订 / 局部改 / 润色]
+    F --> D
+    E -->|是| G[⑥ 全书定稿<br/>全书质检 · 敏感词 · 维护]
+    G --> H[⑦ 导出<br/>全本 TXT / MD]
+
+    R1[💬 AI 编辑 Agent<br/>拆书 / 导演 / 知识库 / 质检 / 简介 / 待办] -.-> B
+    R1 -.-> C
+    R1 -.-> D
+    R1 -.-> G
+    R2[🧵 剧情线 · 👥 角色库 · 📊 进度] -.-> D
+    R2 -.-> G
+```
 
 ```
 ① 开书（书架 → 开书向导：粘贴大纲文本 / 导入 docx，书名自动识别）
@@ -243,6 +305,34 @@ and mount it any time.
   style templates / anti-AI rules / custom style engine), full-book export,
   blurb & cover
 
+## What's New
+
+This iteration hands the professional workflows over to the **AI Editor Agent**
+and adds a batch of planning / inspiration / orchestration capabilities:
+
+- 💬 **AI Editor Agent**: the in-book assistant renamed & upgraded — say one line
+  and it handles 拆书 (book teardown), 自动导演 (auto-director), knowledge base
+  (add/search/list), plotlines, director todos, book audit, blurb, chapter
+  generate/review/revise, outline/bible/foreshadow/assets, export; write actions
+  are gated and convergence-guarded so it never loops or edits on its own.
+- 📡 **Market radar → inspiration**: scan public leaderboards (Fanqie / Qidian /
+  Jinjiang) → signals / production foundation / creative brief → one-click
+  "generate inspiration from these signals" for market-fit book ideas.
+- 🎬 **Auto-director**: from this book's volumes / plotlines / foreshadows / facts,
+  outputs next-arc nodes, pacing board, risks and fixes; adoptable into plotlines
+  or todos in one click.
+- 📚 **Knowledge base / RAG**: free-form reference docs per book, retrieved and
+  injected per chapter at generation time for consistency.
+- 📊 **Book analysis / teardown**: paste any text → selling points / structure /
+  lessons / risks.
+- 💡 **Creative inspiration**: one idea/genre → several differentiated book ideas,
+  with "start a book this way".
+- 🧭 **Advanced tools folded**: by default only the pipeline + core (assistant /
+  AI progress) + assets are shown; advanced tools collapse into a group, and the
+  dashboard gains a "Ask the AI Editor Agent" entry.
+- 🃏 **Structured result cards**: tool results (teardown / director / audit /
+  knowledge list) render as cards right in the conversation.
+
 ## Getting Started
 
 ```sh
@@ -271,6 +361,25 @@ Restart dsh web, and the "Novel Forge" entry appears in the sidebar.
 One main pipeline — **open a book → build the setting → plan chapters →
 compile chapter by chapter → audit & finalize → export**. Everything happens
 inside the "Novel Forge" panel in the sidebar.
+
+```mermaid
+flowchart TD
+    A[1. Open a book<br/>paste outline / import docx] --> B[2. Build the setting<br/>story bible · world · assets]
+    B --> C[3. Plan chapters<br/>volume plan · chapter plan / continuation]
+    C --> D[4. Compile each chapter<br/>generate → summary·facts → review]
+    D --> E{Review passed?}
+    E -->|No| F[5. Revise loop<br/>revise per feedback / local edit / polish]
+    F --> D
+    E -->|Yes| G[6. Finalize book<br/>audit · sensitive scan · maintain]
+    G --> H[7. Export<br/>full book TXT / MD]
+
+    R1[AI Editor Agent<br/>teardown / director / KB / audit / blurb / todos] -.-> B
+    R1 -.-> C
+    R1 -.-> D
+    R1 -.-> G
+    R2[Plotlines · Roles · Progress] -.-> D
+    R2 -.-> G
+```
 
 ```
 ① Open a book (bookshelf → book wizard: paste outline text / import docx; book name auto-detected)

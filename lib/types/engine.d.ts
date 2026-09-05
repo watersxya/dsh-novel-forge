@@ -12,7 +12,7 @@
  */
 export declare const COMPLIANCE_REDLINES: ReadonlyArray<string>;
 import type { Context } from '@deepseek-ai/cordis';
-import type { AdaptationDimension, AdaptAnalyzeResponse, AdaptationMapping, AdaptationRules, AdaptProposeResponse, AuditIssue, AuthorReview, BreakdownResponse, ChapterPlan, Foreshadow, NovelConfig, OutlineCandidate, Plotline, PlotlineHealthReport, PlotlinePlan, ProjectState, ReviewReport, RoleRecord, RoleStatusCard, SceneCard, StoryBible, StoryboardSkeleton, StoryboardTable, StoryboardPrompt, AddModelRequest, AddModelResponse, LlmModelsResponse, LlmVendorsResponse, LlmProvidersResponse, RemoveProviderRequest, RemoveProviderResponse, LlmTestResponse, MangaRoleCandidate, Prop, Volume, WorldState, AdaptMaterializeRequest, AdaptMaterializeResponse, AdaptMaterializeSaveRequest, AdaptMaterializeSaveResponse } from './protocol.ts';
+import type { AdaptationDimension, AdaptAnalyzeResponse, AdaptationMapping, AdaptationRules, AdaptProposeResponse, AuditIssue, AuthorReview, BreakdownResponse, ChapterPlan, Foreshadow, NovelConfig, OutlineCandidate, Plotline, PlotlineHealthReport, PlotlinePlan, ProjectState, ReviewReport, RoleRecord, RoleStatusCard, SceneCard, StoryBible, StoryboardSkeleton, StoryboardTable, StoryboardPrompt, AddModelRequest, AddModelResponse, LlmModelsResponse, LlmVendorsResponse, LlmProvidersResponse, RemoveProviderRequest, RemoveProviderResponse, LlmTestResponse, MangaRoleCandidate, Prop, Volume, WorldState, AdaptMaterializeRequest, AdaptMaterializeResponse, AdaptMaterializeSaveRequest, AdaptMaterializeSaveResponse, MarketRadarRequest, MarketRadarResult, MarketRadarSignal, MarketRadarBriefRequest, ProductionFoundation, MarketCreativeBrief, BookAnalysisRequest, BookAnalysisResult, IdeaInspirationRequest, IdeaInspirationResult, DirectorRequest, DirectorAdvice } from './protocol.ts';
 /** Project state file name inside the output dir. */
 export declare const PROJECT_FILE = "novel-project.json";
 /** Chapter output file name, e.g. 第001章_开篇.md */
@@ -361,7 +361,35 @@ export declare function extractStyleAsset(ctx: Context, config: NovelConfig, sam
     dialogueRules: string[];
     descriptionRules: string[];
     boundaries: string[];
+    preset?: 'imitate' | 'balanced' | 'transfer';
+    fingerprintRisk?: 'low' | 'medium' | 'high';
+    writingGuidance?: string[];
+    forbiddenEntities?: string[];
 }>;
+/** 分层提取写作公式（basic/standard/deep）。 */
+export declare function extractStyleFormula(ctx: Context, config: NovelConfig, sampleText: string, depth: 'basic' | 'standard' | 'deep'): Promise<{
+    name: string;
+    focusAreas: string[];
+    formula: string;
+    applyGuidance: string;
+}>;
+/** 题材雷达：输入平台/题材/榜单文本 → 信号 + 生产底座 + 开书创意。 */
+export declare function runMarketRadar(ctx: Context, config: NovelConfig, req: MarketRadarRequest): Promise<MarketRadarResult>;
+/** 开书创意简报：用选中的市场信号 + 影响模式生成可执行 constraint / creative seed。 */
+export declare function runMarketCreativeBrief(ctx: Context, config: NovelConfig, req: MarketRadarBriefRequest): Promise<MarketCreativeBrief>;
+/** 书分析/拆书：输入一本书/章节文本 → 卖点/结构/可借鉴点/风险。 */
+export declare function runBookAnalysis(ctx: Context, config: NovelConfig, req: BookAnalysisRequest): Promise<BookAnalysisResult>;
+/** 创意灵感：一句话/题材 → 多方向开书灵感。 */
+export declare function runIdeaInspiration(ctx: Context, config: NovelConfig, req: IdeaInspirationRequest): Promise<IdeaInspirationResult>;
+/** 雷达→灵感：基于市场信号/生产底座/创意简报，生成贴合市场的开书灵感。 */
+export declare function runMarketIdeaInspiration(ctx: Context, config: NovelConfig, req: {
+    signals?: MarketRadarSignal[];
+    foundation?: ProductionFoundation;
+    brief?: MarketCreativeBrief;
+    count?: number;
+}): Promise<IdeaInspirationResult>;
+/** 自动导演编排建议：基于全书上下文，给出下一卷/阶段编排 + 修复再平衡。 */
+export declare function runDirectorAdvice(ctx: Context, config: NovelConfig, project: ProjectState, req: DirectorRequest): Promise<DirectorAdvice>;
 /** Export the whole book as one txt/md file. */
 export declare function exportBook(outputDir: string, project: ProjectState, format: 'txt' | 'md'): {
     file: string;

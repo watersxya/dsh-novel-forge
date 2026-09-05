@@ -7,10 +7,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { NovelApi } from '../api.ts'
+import { setCurrentBook } from '../api.ts'
 import type { PanelController } from './controller.ts'
 import { tt } from './helpers.ts'
 import { ModelManager } from './ModelManager.tsx'
 import { ReasoningSection } from './ReasoningSection.tsx'
+import LiveFeedLog from './LiveFeedLog.tsx'
 import { BarChart3, Book, BookMarked, BookOpen, Brain, Clapperboard, Factory, FileText, Folder, GitBranch, Library, MessageSquare, Palette, PenLine, PlugZap, RotateCcw, ScrollText, Search, Settings, Sparkles, Wrench } from 'lucide-react'
 import { AssistantTab } from './AssistantTab.tsx'
 import { AssetsTab } from './AssetsTab.tsx'
@@ -22,6 +24,8 @@ import { CreateBookView } from './CreateBookView.tsx'
 import { ImportModal } from './ImportModal.tsx'
 import { WorldTab } from './WorldTab.tsx'
 import { MangaWorkspace } from './MangaWorkspace.tsx'
+import DirectorView from './DirectorView.tsx'
+import KnowledgeBaseView from './KnowledgeBaseView.tsx'
 import { AuditIssueRow, PlotlineCard, PlotlineHealthPanel, PlotlinePlanPanel, PlotlineSuggestionPanel, RoleCandidateRow, RoleCard, StatCell, TodoRow } from './views.tsx'
 import { extractDocxTextFromBuffer } from '../docx.ts'
 import type {
@@ -47,7 +51,7 @@ import css from './panel.module.css'
 /** The panel's tab identifiers. */
 export type NovelTab =
   | 'workflow' | 'overview' | 'blurb' | 'plan' | 'bible' | 'world' | 'foreshadow' | 'assistant' | 'settings'
-  | 'characters' | 'roles' | 'facts' | 'plotlines' | 'reviews' | 'progress' | 'breakdown'
+  | 'characters' | 'roles' | 'facts' | 'plotlines' | 'reviews' | 'progress' | 'breakdown' | 'director' | 'knowledge'
   | 'assetsGenre' | 'assetsProgression' | 'assetsTemplates' | 'assetsRules' | 'assetsStyle' | 'run' | 'manhua'
   | 'book' | 'assets'
 
@@ -71,7 +75,7 @@ interface ProgressLine {
 }
 
 /** The navigation groups (AI-Novel-Writing-Assistant style grouping). */
-const NAV_GROUPS: ReadonlyArray<{ id: string; label: string; items: ReadonlyArray<{ id: NovelTab; label: string; icon: ReactElement }> }> = [
+const NAV_GROUPS: ReadonlyArray<{ id: string; label: string; collapsible?: boolean; items: ReadonlyArray<{ id: NovelTab; label: string; icon: ReactElement }> }> = [
   {
     id: 'create',
     label: '创作',
@@ -85,12 +89,21 @@ const NAV_GROUPS: ReadonlyArray<{ id: string; label: string; items: ReadonlyArra
     ],
   },
   {
-    id: 'tools',
-    label: '工具',
+    id: 'core',
+    label: '核心',
     items: [
       { id: 'assistant', label: tt('tab.assistant'), icon: <MessageSquare size={18} /> },
       { id: 'progress', label: 'AI 进度', icon: <BarChart3 size={18} /> },
+    ],
+  },
+  {
+    id: 'advanced',
+    label: '进阶工具',
+    collapsible: true,
+    items: [
       { id: 'breakdown', label: '拆书分析', icon: <Search size={18} /> },
+      { id: 'director', label: '自动导演', icon: <Brain size={18} /> },
+      { id: 'knowledge', label: '知识库', icon: <BookOpen size={18} /> },
       { id: 'manhua', label: '漫剧工作台', icon: <Clapperboard size={18} /> },
       { id: 'run', label: '生产单', icon: <Factory size={18} /> },
     ],
@@ -347,6 +360,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const [expandedVolumes, setExpandedVolumes] = useState<Record<number, boolean>>({})
   const [chapterText, setChapterText] = useState('')
   const progressId = useRef(0)
+  /** 面板已绑定的书（打开即锁，不随全局 active 漂移，避免串书）。 */
+  const bookBoundRef = useRef(false)
   /** id of the single live progress row (generation counter), if any. */
   const liveProgressId = useRef<number | null>(null)
   /** last chars value rendered into the live row (throttle for streaming). */
@@ -586,6 +601,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   }, [])
   /** AI 助手悬浮窗：是否打开。 */
   const [assistantOpen, setAssistantOpen] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   /** AI进度悬浮窗：是否打开。 */
   const [progressOpen, setProgressOpen] = useState(false)
   /** AI进度悬浮窗位置（localStorage 记忆）。 */
@@ -680,6 +696,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   })
   /** 视图：shelf = 书架首页；create = 开书向导；workspace = 当前书工作台。 */
   const [viewMode, setViewMode] = useState<'shelf' | 'create' | 'workspace' | 'reader'>('shelf')
+  /** 从「创意灵感」采纳后带入开书向导的预填（书名 + 一句话想法）。 */
+  const [createPrefill, setCreatePrefill] = useState<{ name: string; idea: string } | null>(null)
   const [showImport, setShowImport] = useState(false)
 
   /** Refresh bookshelf. */
@@ -687,6 +705,11 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     try {
       const snapshot = await api.bookshelf()
       setShelf(snapshot)
+      if (!bookBoundRef.current) {
+        bookBoundRef.current = true
+        const initialId = snapshot.activeBookId ?? snapshot.books[0]?.id ?? null
+        setCurrentBook(initialId)
+      }
     } catch { /* shelf is best-effort */ }
   }, [api])
 
@@ -750,6 +773,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     setError('')
     try {
       await api.bookActivate(id)
+      // 显式切书：重绑当前书（之后所有书级请求明确带 bookId，不再被全局 active 串书）。
+      setCurrentBook(id)
       // 切换书后重置本地编辑状态，重新拉取目标书。
       setOutlineText('')
       setProject(null)
@@ -2090,6 +2115,9 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         outputDir: configDraft.outputDir,
         provider: configDraft.provider,
         model: configDraft.model,
+        generateModel: configDraft.generateModel,
+        reviewModel: configDraft.reviewModel,
+        auditModel: configDraft.auditModel,
         reasoningEffort: configDraft.reasoningEffort ?? 'off',
         chapterChars: configDraft.chapterChars,
         maxTokens: configDraft.maxTokens,
@@ -2333,6 +2361,16 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         onClick: () => { if (firstPending !== undefined) gotoChapter(firstPending.no) },
       }
     }
+    if ((project?.todos ?? []).some(t => !t.done)) {
+      const n = (project?.todos ?? []).filter(t => !t.done).length
+      return {
+        eyebrow: '需要你确认',
+        title: `还有 ${n} 条导演待办未处理`,
+        reason: '自动导演给出的风险/修复建议已加入待办，点进去逐条处理或勾掉。',
+        actionLabel: '去处理',
+        onClick: () => { setActiveTab('director') },
+      }
+    }
     return {
       eyebrow: '全部完成 🎉',
       title: '《' + project.bookName + '》已全部生成',
@@ -2378,8 +2416,21 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         })
       }
     }
+    // 导演采纳的待办：风险/修复清单（来自「工具 → 自动导演」）
+    if (project !== null) {
+      for (const td of (project.todos ?? []).filter(t => !t.done)) {
+        if (items.length >= 6) break
+        items.push({
+          tone: 'warning',
+          title: `导演待办：${td.text.length > 26 ? td.text.slice(0, 26) + '…' : td.text}`,
+          description: '自动导演给出的风险/修复，点进去逐条处理或勾掉',
+          actionLabel: '去处理',
+          onClick: () => { setActiveTab('director') },
+        })
+      }
+    }
     return items
-  }, [chapters, openWorkspace, gotoChapter])
+  }, [chapters, openWorkspace, gotoChapter, project])
 
   /** 资产健康（设定/卷/写作资产/伏笔）。 */
   const assetSummary = (() => {
@@ -2422,8 +2473,15 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           onReadBook={async (id) => {
             await activateBook(id, 'reader')
           }}
-          onAddBook={() => { setViewMode('create') }}
+          onAddBook={() => { setCreatePrefill(null); setViewMode('create') }}
           onImportBook={() => { setShowImport(true) }}
+          onUseIdea={(idea) => {
+            setCreatePrefill({
+              name: idea.title,
+              idea: `《${idea.title}》\n题材：${idea.genre}\n视角：${idea.pov}\n钩子：${idea.hook}\n长期兑现：${idea.payoff}`,
+            })
+            setViewMode('create')
+          }}
           onOpenSettings={() => { void openSettingsFromHome() }}
           onTheme={(t, m, d) => { changePanelTheme(t); changeThemeMode(m); changeThemeDensity(d) }}
           onBackground={(bg, blur) => { setThemeBg(bg); setThemeBgBlur(blur) }}
@@ -2440,6 +2498,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         /* 开书向导：独立页面 */
         <CreateBookView
           api={api}
+          initialName={createPrefill?.name}
+          initialIdea={createPrefill?.idea}
           onBack={() => { setViewMode('shelf') }}
           onCreated={async (id) => {
             setBusy(true)
@@ -2490,7 +2550,13 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           {NAV_GROUPS.map(group => (
             <div key={group.id} className={css.navGroup}>
               {!navCollapsed && <div className={css.navGroupLabel}>{group.label}</div>}
-              {group.items.map(tab => (
+              {group.collapsible === true && (
+                <button type="button" className={css.navTab} onClick={() => setAdvancedOpen(v => !v)} title={group.label}>
+                  <span className={css.navTabIcon}>{advancedOpen ? '▾' : '▸'}</span>
+                  {!navCollapsed && <span className={css.navTabLabel}>{advancedOpen ? '收起进阶' : '展开进阶'}</span>}
+                </button>
+              )}
+              {(group.collapsible !== true || advancedOpen) && group.items.map(tab => (
                 <button
                   key={tab.id}
                   type="button"
@@ -2848,6 +2914,11 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                   </button>
                 </div>
               )}
+              {/* 问编辑老师：把拆书/导演/知识库/待办交给 AI 编辑 Agent */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--nf-space-8)', marginTop: 'var(--nf-space-8)', flexWrap: 'wrap' }}>
+                <button type="button" className={css.button} onClick={() => { setAssistantOpen(true) }}>💬 问 AI 编辑 Agent</button>
+                <span className={css.meta}>拆书 / 自动导演 / 知识库 / 待办，一句话交给它帮你跑。</span>
+              </div>
               {/* 创作旅程进度 */}
               <div className={css.dashJourney}>
                 <div className={css.busyRow}>
@@ -3454,6 +3525,12 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                                     </span>
                                   </div>
                                   <div className={css.meta}><b>{tt('plan.reviewVerdict')}:</b> {review.verdict}</div>
+                                  {review.riskScore !== undefined && (
+                                    <div className={css.meta}><b>风险分:</b> {review.riskScore}/100</div>
+                                  )}
+                                  {review.aiFlavor !== undefined && (
+                                    <div className={css.meta}><b>AI 味指数:</b> {review.aiFlavor}/100{(review.aiPhrases?.length ?? 0) > 0 && ` · 套话：` + review.aiPhrases.map(p => `${p.word}×${p.count}`).join('、')}</div>
+                                  )}
                                   {review.issues.length > 0 && (
                                     <ul style={{ margin: 0, paddingLeft: 'var(--nf-space-18)', fontSize: 'var(--nf-fs-12)' }}>
                                       {review.issues.map((issue, i) => (
@@ -3585,7 +3662,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           <div className={css.card} style={{ gap: 'var(--nf-space-12)' }}>
             <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
               <span className={css.cardTitle} style={{ fontSize: 'var(--nf-fs-16)', fontWeight: 700 }}>📚 本书设定</span>
-              <span className={css.meta}>当前书的知识与资料（参考 AI-Novel-Writing-Assistant：世界观/角色准备收进书内）</span>
+              <span className={css.meta}>结构化设定/道藏（世界观·角色·境界·红线）。零散补充资料请用「工具 → 知识库」。</span>
             </div>
             <div className={css.row} style={{ flexWrap: 'wrap', gap: 'var(--nf-space-6)' }}>
               <button
@@ -3877,6 +3954,26 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                   analysisReasoning={configDraft.analysisReasoning ?? 'low'}
                   onChange={patch => setConfigDraft({ ...configDraft, ...patch })}
                 />
+                <div className={`${css.card} ${css.settingsCard}`} style={{ gap: 'var(--nf-space-24)' }}>
+                  <span className={css.cardTitle}><Settings size={18} style={{ verticalAlign: -3 }} /> 任务级模型路由</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-24)' }}>
+                    <div className={css.field}>
+                      <label className={css.fieldLabel}>正文生成模型</label>
+                      <input className={css.input} value={configDraft.generateModel ?? ''} placeholder={configDraft.model} onChange={e => setConfigDraft({ ...configDraft, generateModel: e.target.value })} />
+                      <span className={css.meta}>留空则跟随全局模型（当前 {configDraft.model}）</span>
+                    </div>
+                    <div className={css.field}>
+                      <label className={css.fieldLabel}>审稿模型</label>
+                      <input className={css.input} value={configDraft.reviewModel ?? ''} placeholder={configDraft.model} onChange={e => setConfigDraft({ ...configDraft, reviewModel: e.target.value })} />
+                      <span className={css.meta}>留空则跟随全局模型</span>
+                    </div>
+                    <div className={css.field}>
+                      <label className={css.fieldLabel}>AI 复核/质检模型</label>
+                      <input className={css.input} value={configDraft.auditModel ?? ''} placeholder={configDraft.model} onChange={e => setConfigDraft({ ...configDraft, auditModel: e.target.value })} />
+                      <span className={css.meta}>留空则跟随全局模型</span>
+                    </div>
+                  </div>
+                </div>
               </>
             )}
 
@@ -4420,6 +4517,10 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           </div>
         )}
 
+        {activeTab === 'director' && <DirectorView api={api} todos={project?.todos ?? []} onTodosChange={(todos) => setProject(prev => prev === null ? prev : { ...prev, todos, updatedAt: new Date().toISOString() })} />}
+
+        {activeTab === 'knowledge' && <KnowledgeBaseView api={api} />}
+
         {activeTab === 'run' && (
           <RunPanel api={api} totalChapters={chapters.length} />
         )}
@@ -4514,8 +4615,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
               dragState.current = { type: 'move', target: 'assistant', startX: e.clientX, startY: e.clientY, origX: assistantPos.x, origY: assistantPos.y, origW: assistantSize.w, origH: assistantSize.h }
             }}
           >
-            <span>💬 AI 助手 <span className={css.meta}>（拖动标题栏移动 · 右下角拉大小）</span></span>
-            <button type="button" className={css.iconButton} title="关闭" aria-label="关闭 AI 助手" onClick={() => { setAssistantOpen(false) }}>×</button>
+            <span>💬 AI 编辑 Agent <span className={css.meta}>（拖动标题栏移动 · 右下角拉大小）</span></span>
+            <button type="button" className={css.iconButton} title="关闭" aria-label="关闭 AI 编辑 Agent" onClick={() => { setAssistantOpen(false) }}>×</button>
           </div>
           <div className={css.assistantFloatBody}>
             <AssistantTab api={api} />
@@ -4558,7 +4659,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
               <button type="button" className={css.iconButton} title="关闭" aria-label="关闭AI进度" onClick={() => { setProgressOpen(false) }}>×</button>
             </span>
           </div>
-          <div className={css.assistantFloatBody} style={{ padding: 'var(--nf-space-10)', display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-8)', overflow: 'hidden' }}>
+          <div className={css.assistantFloatBody} style={{ padding: 'var(--nf-space-10)', display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-8)', overflow: 'hidden', flex: 1, minHeight: 0 }}>
             {/* 当前任务大进度条：进行中显示 */}
             {(busy && (busyLabel !== '' || liveBar !== null)) && (
               <div style={{ border: '1px solid var(--nf-accent)', borderRadius: 'var(--nf-radius-10)', padding: 'var(--nf-space-8) var(--nf-space-12)', display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', background: 'color-mix(in srgb, var(--nf-accent) 6%, transparent)' }}>
@@ -4574,12 +4675,11 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
               </div>
             )}
             {/* 活动记录列表（标题行已并入窗口标题栏，清空按钮在右上角） */}
-            <div className={css.progress} style={{ flex: 1, minHeight: 0, overflowY: 'auto', border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-10)', background: 'var(--nf-bg-inset)', padding: 'var(--nf-space-8)', display: 'flex', flexDirection: 'column' }}>
+            <div className={css.progress} style={{ flex: '0 1 auto', maxHeight: '42%', minHeight: 0, overflowY: 'auto', border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-10)', background: 'var(--nf-bg-inset)', padding: 'var(--nf-space-8)', display: 'flex', flexDirection: 'column' }}>
               {progress.length === 0 ? (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 'var(--nf-space-4)', color: 'var(--nf-text-3)', fontSize: 'var(--nf-fs-12)', minHeight: 120 }}>
-                  <span style={{ fontSize: 'var(--nf-fs-22)' }}>📭</span>
-                  <span>暂无活动记录</span>
-                  <span>生成、审稿等操作会显示在这里</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--nf-space-6)', color: 'var(--nf-text-3)', fontSize: 'var(--nf-fs-12)', padding: 'var(--nf-space-4) 2px' }}>
+                  <span>📭</span>
+                  <span>暂无活动记录，生成、审稿等操作会显示在这里</span>
                 </div>
               ) : (
                 progress.map(line => (
@@ -4595,6 +4695,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
               )}
               <div ref={progressEndRef} />
             </div>
+            <LiveFeedLog />
           </div>
           <div
             className={css.assistantResize}

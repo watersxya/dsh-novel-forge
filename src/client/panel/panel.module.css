@@ -1758,8 +1758,7 @@ select.input {
 
 .chatScroll {
   flex: 1;
-  min-height: 240px;
-  max-height: 480px;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -1772,7 +1771,7 @@ select.input {
 
 .chatBubbleUser {
   align-self: flex-end;
-  max-width: 90%;
+  max-width: 72%;
   background: linear-gradient(180deg, var(--nf-accent), var(--nf-accent-hover));
   color: var(--nf-accent-fg);
   border-radius: var(--nf-radius-14, 14px) var(--nf-radius-14, 14px) var(--nf-radius-4, 4px) var(--nf-radius-14, 14px);

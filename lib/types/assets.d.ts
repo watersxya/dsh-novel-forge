@@ -8,7 +8,7 @@
  * Assets persist with the project (novel-project.json) and are injected into
  * generation / planning / review prompts, and available to the AI assistant.
  */
-import type { AntiAiRule, GenreNode, PlotBeatTemplate, ProgressionMode, ProjectAssets, StyleAsset, StyleTemplate } from './protocol.ts';
+import type { AntiAiRule, GenreNode, PlotBeatTemplate, ProgressionMode, ProjectAssets, StarterStyleProfile, StyleAsset, StyleTemplate } from './protocol.ts';
 /** 预置写法模板（来自 AI-Novel-Writing-Assistant 内置 DEFAULT_STYLE_TEMPLATES）。 */
 export declare const BUILTIN_STYLE_TEMPLATES: StyleTemplate[];
 /** 内置全局反 AI 规则（来自 AI-Novel-Writing-Assistant 内置 DEFAULT_ANTI_AI_RULES）。 */
@@ -23,7 +23,12 @@ export declare const BUILTIN_PLOT_BEATS: PlotBeatTemplate[];
 export declare function emptyProjectAssets(): ProjectAssets;
 /** 合并项目资产与内置库：返回「生效的反 AI 规则」（内置全局 + 项目自定义）。 */
 export declare function effectiveAntiAiRules(assets: ProjectAssets | undefined): AntiAiRule[];
-/** 把生效规则渲染成提示词块（禁止/鼓励分列，压缩省 token）。 */
+/** 安定 key：内置规则全局基线（globalBaselineEnabled）在新书/旧书一律生效。 */
+export declare function ensureGlobalBaseline(assets: ProjectAssets | undefined): ProjectAssets;
+/** 内置库种子化 upsert（对齐上游 SystemResourceBootstrapService 精神）。
+ *  missing_only 仅补齐缺失的全局基线规则；sync_existing 还会按 key 刷新已内置规则的结构化字段。 */
+export declare function ensureBuiltinAssets(assets: ProjectAssets | undefined, mode?: 'missing_only' | 'sync_existing'): ProjectAssets;
+/** 把生效规则渲染成提示词块（禁止/风险/鼓励三档分列，压缩省 token）。 */
 export declare function renderAntiAiRules(assets: ProjectAssets | undefined): string;
 /** 渲染题材与推进模式提示词块。 */
 export declare function renderGenreAndProgression(assets: ProjectAssets | undefined): string;
@@ -33,5 +38,13 @@ export declare function renderStyleAssets(assets: ProjectAssets | undefined): st
 export declare function renderAllAssets(assets: ProjectAssets | undefined): string;
 /** 预置写法模板 → 可直接绑定的 StyleAsset。 */
 export declare function styleTemplateToAsset(template: StyleTemplate): StyleAsset;
-/** 写法引擎：从样本文本提取风格资产的系统提示词。 */
+/** 起始风格画像库：无样本文本也能快速绑定一套写法（对齐上游 DEFAULT_STARTER_STYLE_PROFILES）。 */
+export declare const BUILTIN_STARTER_STYLE_PROFILES: StarterStyleProfile[];
+/** 起始风格画像 → 可直接绑定的 StyleAsset（绑定对应模板，名称用画像名）。 */
+export declare function starterProfileToAsset(profile: StarterStyleProfile): StyleAsset | null;
+/** 根据指纹风险推荐仿写预设：low→imitate / medium→balanced / high→transfer。 */
+export declare function recommendStylePreset(fingerprintRisk?: 'low' | 'medium' | 'high'): 'imitate' | 'balanced' | 'transfer';
+/** 写法引擎：从样本文本提取风格资产的系统提示词（含 preset / 指纹 / 净化管线）。 */
 export declare function styleEngineSystemPrompt(): string;
+/** 写作公式提取系统提示词（分层：basic 骨架 / standard 完整 / deep 逐句细化）。 */
+export declare function styleFormulaSystemPrompt(depth: 'basic' | 'standard' | 'deep'): string;

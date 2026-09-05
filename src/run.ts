@@ -80,21 +80,22 @@ export class ProductionRunner {
   }
 
   /** 启动/续跑生产单：startNo..endNo 区间，endNo 超出计划时先自动补计划。 */
-  async start(startNo: number, endNo: number): Promise<RunState> {
+  async start(startNo: number, endNo: number, runDir?: string): Promise<RunState> {
     const config = this.deps.getConfig()
     if (this.working) throw new Error('生产单正在运行中，请先暂停或停止')
-    let project = loadProject(config.outputDir)
+    const outputDir = runDir ?? config.outputDir
+    let project = loadProject(outputDir)
     if (project === undefined) throw new Error('输出目录中没有项目')
 
     // 计划补足：目标区间超出已有计划 → 续写规划追加。
     if (endNo > project.chapters.length) {
       const need = endNo - project.chapters.length
       this.log(`计划不足，追加 ${need} 章计划…`)
-      const chapters = await planChapters(this.deps.ctx, config, project, need, undefined, config.outputDir)
-      mergeVolatileFromDisk(config.outputDir, project)
+      const chapters = await planChapters(this.deps.ctx, config, project, need, undefined, outputDir)
+      mergeVolatileFromDisk(outputDir, project)
       project.chapters.push(...chapters)
       project.updatedAt = new Date().toISOString()
-      saveProject(config.outputDir, project)
+      saveProject(outputDir, project)
       this.log(`计划已追加，全书 ${project.chapters.length} 章`)
     }
 
@@ -113,7 +114,7 @@ export class ProductionRunner {
     this.pauseRequested = false
     this.stopRequested = false
     // 绑定生产单目录（快照）：运行期间切书不影响本单的读写目标。
-    this.bookDir = config.outputDir
+    this.bookDir = outputDir
     this.working = true
     this.persist()
     void this.loop()
@@ -215,7 +216,7 @@ export class ProductionRunner {
     chapter.generatingAt = new Date().toISOString()
     mergeVolatileFromDisk(outputDir, project)
     saveProject(outputDir, project)
-    this.log(wasError ? `第${no}章《${chapter.title}》重新生成…` : `第${no}章《${chapter.title}》生成…`)
+    this.log(`${wasError ? '重新生成' : '生成'} 第${no}章《${chapter.title}》…（模型 ${config.generateModel || config.model}）`)
     try {
       for await (const step of generateChapterStream(ctx, config, project, outputDir, no)) { /* drain */ }
       try { await summarizeAndExtractFacts(ctx, config, project, outputDir, no) } catch (e) { console.warn('[dsh-novel-forge] run summary/facts:', (e as Error).message) }
@@ -223,7 +224,7 @@ export class ProductionRunner {
       if (config.autoReview ?? true) {
         const report = await reviewChapter(ctx, config, project, outputDir, no)
         if (this.state !== null) this.state.stats[wasError ? 'regenerated' : 'generated']++
-        this.log(`第${no}章 审稿 ${report.score}分 ${report.passed ? '✅ 通过' : '⚠️ 被拒'}`)
+        this.log(`第${no}章 审稿 ${report.score}分 ${report.passed ? '✅ 通过' : '⚠️ 被拒'}（模型 ${config.reviewModel || config.model}）`)
       } else {
         chapter.status = 'approved'
         mergeVolatileFromDisk(outputDir, project)
@@ -241,6 +242,12 @@ export class ProductionRunner {
             const review = await authorReviewChapter(ctx, config, project, no, body, prevTail)
             chapter.authorReview = review
             if (review.advancedLines !== undefined) autoLinkPlotlines(project, no, review.advancedLines)
+            // 结果回灌：把本章状态变化/新线索写进编年录事实库，供后续计划与整本控制用。
+            const backfillFacts: string[] = [...(review.stateChanges ?? []), ...(review.clues ?? [])]
+            if (backfillFacts.length > 0) {
+              project.facts ??= []
+              for (const text of backfillFacts) project.facts.push({ chapterNo: no, text })
+            }
             mergeVolatileFromDisk(outputDir, project)
             saveProject(outputDir, project)
           }

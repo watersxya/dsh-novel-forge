@@ -73,7 +73,7 @@ export function AdaptModeView({ api, onOpenBook }: { api: NovelApi; onOpenBook?:
       setResult(res);
       const next: Record<string, EditState> = {};
       for (const d of res.dimensions) {
-        next[d.key] = { enabled: d.mutability !== 'locked', target: d.candidates?.[0] ?? '' };
+        next[d.key] = { enabled: d.mutability !== 'locked', target: d.candidates?.[0]?.name ?? '' };
       }
       setEdits(next);
       setStep(2);
@@ -289,7 +289,7 @@ export function AdaptModeView({ api, onOpenBook }: { api: NovelApi; onOpenBook?:
                 </div>
                 <div className={css.dimCurrent}><b>当前值</b>：{d.current}</div>
                 {(d.evidence !== undefined && d.evidence !== '') && <div className={css.meta}>证据：{d.evidence}</div>}
-                {(d.candidates ?? []).length > 0 && <div className={css.meta}>候选：{(d.candidates ?? []).join(' / ')}</div>}
+                {(d.candidates ?? []).length > 0 && <div className={css.meta}>候选：{(d.candidates ?? []).map(c => `${c.name}${c.desc !== undefined && c.desc !== '' ? `（${c.desc}）` : ''}`).join(' / ')}</div>}
                 <div className={css.meta}>影响：{d.impact}</div>
               </div>
             ))}
@@ -325,7 +325,22 @@ export function AdaptModeView({ api, onOpenBook }: { api: NovelApi; onOpenBook?:
                       <input className={css.input} value={target} disabled={!enabled} placeholder="改为什么？" onChange={e2 => setEdit(d.key, { target: e2.target.value })} />
                     </div>
                   )}
-                  {(d.candidates ?? []).length > 0 && <div className={css.meta}>候选：{(d.candidates ?? []).join(' / ')}</div>}
+                  {(d.candidates ?? []).length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--nf-space-6)', marginTop: 6 }}>
+                      {(d.candidates ?? []).map((c, ci) => (
+                        <button
+                          key={ci}
+                          type="button"
+                          className={css.badge}
+                          title={c.desc ?? ''}
+                          style={{ cursor: 'pointer', borderColor: target === c.name ? 'var(--nf-accent)' : 'var(--nf-border)', color: target === c.name ? 'var(--nf-accent)' : 'var(--nf-text-2)', background: 'transparent' }}
+                          onClick={() => setEdit(d.key, { enabled: true, target: c.name })}
+                        >
+                          {c.name}{c.desc !== undefined && c.desc !== '' ? ` · ${c.desc}` : ''}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className={css.meta}>影响：{d.impact}</div>
                 </div>
               );

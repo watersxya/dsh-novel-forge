@@ -31,11 +31,13 @@ import { join, basename, extname, dirname } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
 import { createUserMessage, BlockAssembler, ReasoningEffortId, type GenerateOptions, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
-import { emptyProjectAssets, renderAllAssets, styleEngineSystemPrompt } from './assets.ts'
+import { BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, emptyProjectAssets, recommendStylePreset, renderAllAssets, styleEngineSystemPrompt, styleFormulaSystemPrompt } from './assets.ts'
 import { getComicStylePrompt } from './comic-presets.ts'
 import { getGenreRules } from './manga-genre-rules.ts'
 import { findStyle, styleKeywords } from './style-library.ts'
 import { scanAiFlavor } from './ai-scan.ts'
+import { emitLive, nextSessionId } from './llm-live.ts'
+import { renderOfficialChapterWriterSkeleton } from './prompting.ts'
 import { buildChapterContext, renderContextBlocks } from './novel-context.ts'
 import {
   normalizeShotSize,
@@ -105,6 +107,18 @@ import type {
   AdaptMaterializeResponse,
   AdaptMaterializeSaveRequest,
   AdaptMaterializeSaveResponse,
+  MarketRadarRequest,
+  MarketRadarResult,
+  MarketRadarSignal,
+  MarketRadarBriefRequest,
+  ProductionFoundation,
+  MarketCreativeBrief,
+  BookAnalysisRequest,
+  BookAnalysisResult,
+  IdeaInspirationRequest,
+  IdeaInspirationResult,
+  DirectorRequest,
+  DirectorAdvice,
 } from './protocol.ts'
 import { LLM_VENDORS } from './protocol.ts'
 
@@ -360,15 +374,20 @@ export function createProject(outline: string, outlinePath?: string): ProjectSta
 async function complete(
   ctx: Context,
   config: NovelConfig,
-  options: { system: string; user: string; temperature?: number; maxTokens?: number; reasoning?: 'off' | 'low' | 'high' | 'max' },
+  options: { system: string; user: string; temperature?: number; maxTokens?: number; reasoning?: 'off' | 'low' | 'high' | 'max'; model?: string; liveLabel?: string },
 ): Promise<string> {
+  const liveLabel = options.liveLabel ?? 'LLM 调用'
+  const sessionId = nextSessionId()
+  const effModel = options.model || config.model
+  emitLive({ type: 'session_started', sessionId, label: liveLabel, model: effModel, at: new Date().toISOString(), context: { interactionId: sessionId } })
+  emitLive({ type: 'phase_changed', sessionId, phase: 'streaming', phaseMessage: '模型正在返回内容', at: new Date().toISOString() })
   const messages: Message[] = [createUserMessage({
     content: [{ type: 'text', text: options.user }],
     source: { kind: 'plugin', plugin: 'dsh-novel-forge' },
   })]
   const request: GenerateOptions = {
     provider: config.provider,
-    model: config.model,
+    model: options.model || config.model,
     messages,
     system: options.system,
     maxTokens: options.maxTokens ?? config.maxTokens,
@@ -408,7 +427,22 @@ async function complete(
       .trim()
     if (reasoning !== '') text = reasoning
   }
+  emitLive({ type: 'session_completed', sessionId, totalChars: text.length, preview: text.slice(0, 320), at: new Date().toISOString(), phase: text === '' ? 'failed' : 'completed' })
   return text
+}
+
+/** 解析 JSON 数组；失败或为空时给模型一次修复重试（对齐上游 structuredInvokeRepair 精神）。 */
+async function completeJsonArray(
+  ctx: Context,
+  config: NovelConfig,
+  options: { system: string; user: string; temperature?: number; maxTokens?: number; reasoning?: 'off' | 'low' | 'high' | 'max'; model?: string; liveLabel?: string },
+  parse: (text: string) => unknown[],
+): Promise<unknown[]> {
+  let parsed = parse(await complete(ctx, config, options))
+  if (Array.isArray(parsed) && parsed.length > 0) return parsed
+  const repairOptions = { ...options, user: options.user + '\n\n注意：你上一次输出不是合法且非空的 JSON 数组。请重新输出：只输出一个合法 JSON 数组（不要 Markdown、不要解释、不要思考过程、不要代码块标记）。' }
+  const parsed2 = parse(await complete(ctx, config, repairOptions))
+  return Array.isArray(parsed2) ? parsed2 : []
 }
 
 /**
@@ -695,7 +729,9 @@ function volumeOf(chapterNo: number, volumes: Volume[] | undefined): number {
 function planSystemPrompt(volumes: Volume[] | undefined): string {
   const volumeBlock = volumes !== undefined && volumes.length > 0
     ? ['\n全书分卷结构（规划章节时需落在对应卷内）：']
-      .concat(volumes.map(v => `第${v.no}卷《${v.title}》：${v.summary}（章节 ${v.chapterStart}-${v.chapterEnd}）`))
+      .concat(volumes.map(v => `第${v.no}卷《${v.title}》：${v.summary}（章节 ${v.chapterStart}-${v.chapterEnd}）` +
+        (v.strategy !== undefined && v.strategy !== '' ? `\n  卷战略：${v.strategy}` : '') +
+        (v.pacing !== undefined && v.pacing !== '' ? `\n  卷节奏板：${v.pacing}` : '')))
       .join('\n')
     : ''
   return [
@@ -707,6 +743,7 @@ function planSystemPrompt(volumes: Volume[] | undefined): string {
     '3. 严格遵循大纲的人设、金手指规则、战力体系与世界观设定，不得自行发明冲突设定。',
     '4. 输出必须是合法的 JSON 数组，不要输出任何其他文字或 Markdown 代码块标记。',
     '5. 数组每个元素格式：{"title": "章节标题（10字以内，有网文感）", "beats": "结构化剧情要点（150-250字，必须包含四段，段间用换行分隔）：\\n本章目标：本章要完成的核心推进；\\n剧情要点：主要情节的起承转合（2-4 句）；\\n爽点/钩子：本章的爽点兑现或情绪钩子；\\n结尾钩子：本章结尾为下一章埋下的悬念"}',
+    '6. 每个章节对象可额外包含以下可选字段（尽量给出，缺失则跳过）：mustAdvance（数组，本章必须推进的局面/关系/信息/风险/决策变化）；mustPreserve（数组，本章必须保持不破坏的项）；characterHardFacts（数组，本章不可违背的人物硬事实：身份/阵营/境界/当前位置/知情度）；endingHook（字符串，本章结尾钩子要求）；obligation（字符串，本章义务合约一句话）。',
     '重要：beats 字段内部必须使用 \\n 转义表示换行（JSON 字符串内不得有真实换行符），其余字符串值也不得包含真实换行符，JSON 必须在一段内完整结束。',
     '重要：直接输出 JSON 结果本身，不要把思考过程或推理内容写在输出里。',
     volumeBlock,
@@ -800,6 +837,15 @@ function writeSystemPrompt(project: ProjectState, targetChars?: number, lengthRu
   sections.push('==================== 内容合规红线（平台硬性要求，最高优先级，违反即失败） ====================')
   sections.push(COMPLIANCE_REDLINES.join('\n'))
   sections.push('以上九条为硬性底线，任何情况下不得以任何形式出现或影射；若剧情确需涉及（如批判、反讽），只能以明确否定、揭露、批判的立场呈现，且不得展开细节。')
+  sections.push(renderOfficialChapterWriterSkeleton({
+    targetChars: target,
+    minChars: lo,
+    maxChars: hi,
+    pov: '第三人称有限视角，严格跟随主角所见所知。',
+    endingHookPreference: '章末留一个明确钩子（新信息、新风险或未闭合选择）。',
+    tonePreference: '动作、对话、心理交替推进；重大信息用对话/动作/发现呈现。',
+    antiAiRules: '严格遵循上方「反 AI 规则」与写法资产，避免套话与 AI 腔。',
+  }))
   return sections.join('\n')
 }
 
@@ -861,6 +907,19 @@ export async function planChapters(
       : continuation
         ? `本书已有 ${existing.length} 章已规划/已写作（见下方「已有章节」）。请规划**后续**章节：从第 ${startNo} 章开始。`
         : '请规划全书开篇章节。',
+    (() => {
+      const c = project.bookContract
+      const primary = project.assets?.primaryProgression
+      const aux = project.assets?.auxiliaryProgressions ?? []
+      const genre = project.assets?.genre
+      const parts: string[] = []
+      if (c?.promise !== undefined && c.promise !== '') parts.push(`书籍承诺：${c.promise}`)
+      if ((c?.primaryModeName ?? primary?.name) !== undefined) parts.push(`主推进模式：${c?.primaryModeName ?? primary!.name}`)
+      if (aux.length > 0) parts.push(`辅助推进模式：${aux.map(a => a.name).join('、')}`)
+      if ((c?.tone ?? genre?.template) !== undefined) parts.push(`文风基调：${c?.tone ?? genre!.template}`)
+      if (c?.targetPlatform !== undefined && c.targetPlatform !== '') parts.push(`目标平台：${c.targetPlatform}`)
+      return parts.length > 0 ? '【开书定盘】（章节规划须符合此定位）\n' + parts.join('\n') : ''
+    })(),
     continuation
       ? (() => {
           // 从最近章节摘要动态生成「已发生事件禁令」，不绑定任何特定书
@@ -894,11 +953,16 @@ export async function planChapters(
   const system = planSystemPrompt(project.volumes) + (continuation
     ? '\n重要：本次是**续写规划**——已有章节的剧情不得重写或重复，新章节标题不得与已有章节标题相同，新章节的剧情必须从上一章结尾自然接续（人物状态、时间线、地点衔接一致）。'
     : '')
-  const text = await complete(ctx, config, { system, user, temperature: 0.7, maxTokens: Math.max(config.maxTokens, 40000) })
-  const parsed = parseJsonArray<Record<string, unknown>>(text)
+  const parsed = (await completeJsonArray(
+    ctx, config,
+    { system, user, temperature: 0.7, maxTokens: Math.max(config.maxTokens, 40000), liveLabel: '章节规划' },
+    t => parseJsonArray<Record<string, unknown>>(t),
+  )) as Record<string, unknown>[]
   const chapters: ChapterPlan[] = []
   const existingNos = new Set(existing.map(c => c.no))
   const existingTitles = new Set(existing.map(c => c.title))
+  const strArr = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : []
+  const str = (v: unknown): string => typeof v === 'string' ? v.trim() : ''
   let cursor = startNo
   for (const item of parsed) {
     if (chapters.length >= chapterCount) break
@@ -911,6 +975,19 @@ export async function planChapters(
     if (title !== '' && existingTitles.has(title)) continue
     while (existingNos.has(cursor)) cursor++
     const no = cursor++
+    const pd: ChapterPlan['payoffDirectives'] = Array.isArray(entry.payoffDirectives)
+      ? entry.payoffDirectives
+          .filter((v): v is Record<string, unknown> => typeof v === 'object' && v !== null)
+          .map(p => ({
+            no: typeof p.no === 'number' ? p.no : undefined,
+            operation: (['seed', 'touch', 'pressure', 'partial_reveal', 'payoff', 'forbid'] as const).includes(p.operation as never)
+              ? p.operation as 'seed' | 'touch' | 'pressure' | 'partial_reveal' | 'payoff' | 'forbid'
+              : undefined,
+            text: str(p.text).slice(0, 120),
+          }))
+          .filter(p => p.text !== '' || p.operation !== undefined)
+          .slice(0, 4)
+      : undefined
     chapters.push({
       no,
       volume: volumeOf(no, project.volumes),
@@ -918,12 +995,36 @@ export async function planChapters(
       beats,
       targetChars: config.chapterChars,
       status: 'pending',
+      mustAdvance: strArr(entry.mustAdvance).slice(0, 4),
+      mustPreserve: strArr(entry.mustPreserve).slice(0, 4),
+      characterHardFacts: strArr(entry.characterHardFacts).slice(0, 6),
+      payoffDirectives: pd,
+      endingHook: str(entry.endingHook).slice(0, 120) || undefined,
+      obligation: str(entry.obligation).slice(0, 200) || undefined,
     })
   }
   if (chapters.length === 0) {
     throw new Error('章节计划生成失败：模型没有返回有效章节')
   }
   return chapters
+}
+
+/** 书内知识库检索：按查询词匹配文档标题/内容，返回相关片段（供生成/规划注入）。 */
+function retrieveKnowledge(project: ProjectState, query: string, topN = 3): string {
+  const docs = project.knowledgeDocs ?? []
+  if (docs.length === 0) return ''
+  const terms = (query ?? '').split(/[\s,，。；;、/]+/).map(t => t.trim()).filter(t => t.length >= 2)
+  if (terms.length === 0) return ''
+  const scored = docs.map(d => {
+    let score = 0
+    for (const t of terms) {
+      if (d.title.includes(t)) score += 4
+      if (d.content.includes(t)) score += 1
+    }
+    return { d, score }
+  }).filter(x => x.score > 0).sort((a, b) => b.score - a.score).slice(0, topN)
+  if (scored.length === 0) return ''
+  return '【书内知识库参考（与本章相关，写作时须遵守/可引用）】\n' + scored.map(x => `- 《${x.d.title}》：${x.d.content.slice(0, 300)}`).join('\n')
 }
 
 // ------------------------------------------------------------------ writing
@@ -944,8 +1045,10 @@ function reviewSystemPrompt(project: ProjectState): string {
     '8. 呈现方式：整章是否纯内心推理铺陈（无对话/无对抗，推理全靠解说）；反派是否纯背景板无行动；重要配角是否无名标签化（瘦高个/灰衣人全程代称）——命中即列为问题。',
     '9. 内容合规（最高优先级）：逐条核对下方「内容合规红线」，任何一条命中（含影射、暗示、详细描写）必须列为 high，并给出改写建议。',
     '输出必须是合法 JSON 对象，不要输出任何其他文字：',
-    '{"score": 0-100的整数, "verdict": "一句话总评", "issues": [{"severity": "high|medium|low", "dimension": "character|setting|redline|writing|pacing|logic|anti-ai|presentation|compliance", "item": "问题描述", "suggestion": "修改建议"}]}',
+    '{"score": 0-100的整数, "riskScore": 0-100的整数(越高越需人工处理,可结合本地AI味指数), "verdict": "一句话总评", "issues": [{"severity": "high|medium|low", "dimension": "character|setting|redline|writing|pacing|logic|anti-ai|presentation|compliance", "item": "问题描述", "suggestion": "修改建议", "ruleName": "命中的反AI规则名(见反AI规则清单)", "ruleType": "forbidden|risk|encourage", "category": "套话|句式|段落|心理|设定|节奏|对话|其他", "excerpt": "命中的原文摘录(不超过50字)", "reason": "判定理由", "canAutoRewrite": true|false}]}',
     '维度 dimension 与上方 9 个审查维度一一对应：人设=character、设定=setting、红线=redline、文笔=writing、节奏=pacing、逻辑=logic、反AI=anti-ai、呈现=presentation、合规=compliance。每条 issue 都必须填 dimension。',
+    '反 AI 类 issue 尽量给出 ruleName/ruleType/category/excerpt/reason/canAutoRewrite，便于统计与自动改写。',
+    'AI 套话高频模板词示例（集中出现必须整体降密度）：仿佛、似乎、极其、完美、深不见底、形成了、莫名、无法形容、难以言喻、精心雕琢、肤光胜雪、眉目如画、歌舞升平、觥筹交错、妙语连珠、不可名状、另一层真相、命运、真相。',
     '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
     '重要：直接输出 JSON 结果本身，不要把思考过程写在输出里。',
   ]
@@ -998,8 +1101,8 @@ export async function reviewChapter(
     '==================== 章节正文 ====================',
     bodyText,
   ].filter(line => line !== '').join('\n')
-  const text = await complete(ctx, config, { system: reviewSystemPrompt(project), user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 8000) })
-  const raw = parseJsonObject<{ score?: unknown; verdict?: unknown; issues?: unknown; resolvedIds?: unknown; unresolvedIds?: unknown }>(text)
+  const text = await complete(ctx, config, { system: reviewSystemPrompt(project), user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 8000), model: config.reviewModel, liveLabel: '审稿' })
+  const raw = parseJsonObject<{ score?: unknown; riskScore?: unknown; verdict?: unknown; issues?: unknown; resolvedIds?: unknown; unresolvedIds?: unknown }>(text)
   const issues = Array.isArray(raw.issues)
     ? raw.issues
         .filter((v): v is Record<string, unknown> => typeof v === 'object' && v !== null)
@@ -1012,10 +1115,19 @@ export async function reviewChapter(
             : undefined,
           item: typeof entry.item === 'string' ? entry.item : '',
           suggestion: typeof entry.suggestion === 'string' ? entry.suggestion : '',
+          ruleName: typeof entry.ruleName === 'string' ? entry.ruleName : undefined,
+          ruleType: (['forbidden', 'risk', 'encourage'] as const).includes(entry.ruleType as never)
+            ? entry.ruleType as 'forbidden' | 'risk' | 'encourage'
+            : undefined,
+          category: typeof entry.category === 'string' ? entry.category : undefined,
+          excerpt: typeof entry.excerpt === 'string' ? entry.excerpt.slice(0, 80) : undefined,
+          reason: typeof entry.reason === 'string' ? entry.reason.slice(0, 200) : undefined,
+          canAutoRewrite: typeof entry.canAutoRewrite === 'boolean' ? entry.canAutoRewrite : undefined,
         }))
         .filter(issue => issue.item !== '')
     : []
   const score = typeof raw.score === 'number' ? Math.max(0, Math.min(100, Math.round(raw.score))) : 60
+  const riskScore = typeof raw.riskScore === 'number' ? Math.max(0, Math.min(100, Math.round(raw.riskScore))) : undefined
   // 通过条件：有 high 必须 ≥ reviewPassScore；无 high 可降 5 分但最低 65（避免低分稿直接放行）
   const hasHigh = issues.some(i => i.severity === 'high')
   const softThreshold = Math.max(65, config.reviewPassScore - 5)
@@ -1025,6 +1137,9 @@ export async function reviewChapter(
     passed,
     verdict: typeof raw.verdict === 'string' ? raw.verdict.slice(0, 200) : '',
     issues,
+    riskScore,
+    aiFlavor: aiScan.aiScore,
+    aiPhrases: aiScan.clicheHits.slice(0, 8),
     reviewedAt: new Date().toISOString(),
   }
   chapter.review = report
@@ -1061,7 +1176,7 @@ export async function reviewChapterText(
   ].join('\n')
   // 验证模式：携带上一轮报告时，逐条核对原意见是否解决 + 只挑新增 high，不再全新找茬。
   const system = previousReport !== undefined ? verifySystemPrompt(project) : reviewSystemPrompt(project)
-  const raw = parseJsonObject<{ score?: unknown; verdict?: unknown; issues?: unknown; resolvedIds?: unknown; unresolvedIds?: unknown }>(
+  const raw = parseJsonObject<{ score?: unknown; riskScore?: unknown; verdict?: unknown; issues?: unknown; resolvedIds?: unknown; unresolvedIds?: unknown }>(
     await complete(ctx, config, { system, user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 8000) }),
   )
   const issues = Array.isArray(raw.issues)
@@ -1076,10 +1191,19 @@ export async function reviewChapterText(
             : undefined,
           item: typeof entry.item === 'string' ? entry.item : '',
           suggestion: typeof entry.suggestion === 'string' ? entry.suggestion : '',
+          ruleName: typeof entry.ruleName === 'string' ? entry.ruleName : undefined,
+          ruleType: (['forbidden', 'risk', 'encourage'] as const).includes(entry.ruleType as never)
+            ? entry.ruleType as 'forbidden' | 'risk' | 'encourage'
+            : undefined,
+          category: typeof entry.category === 'string' ? entry.category : undefined,
+          excerpt: typeof entry.excerpt === 'string' ? entry.excerpt.slice(0, 80) : undefined,
+          reason: typeof entry.reason === 'string' ? entry.reason.slice(0, 200) : undefined,
+          canAutoRewrite: typeof entry.canAutoRewrite === 'boolean' ? entry.canAutoRewrite : undefined,
         }))
         .filter(issue => issue.item !== '')
     : []
   const score = typeof raw.score === 'number' ? Math.max(0, Math.min(100, Math.round(raw.score))) : 60
+  const riskScore = typeof raw.riskScore === 'number' ? Math.max(0, Math.min(100, Math.round(raw.riskScore))) : undefined
   // 非验证模式：有 high 必须 ≥ reviewPassScore；无 high 可降 5 分但最低 65
   const hasHighAny = issues.some(i => i.severity === 'high')
   let passed = hasHighAny ? score >= config.reviewPassScore : score >= Math.max(65, config.reviewPassScore - 5)
@@ -1102,6 +1226,9 @@ export async function reviewChapterText(
     passed,
     verdict: typeof raw.verdict === 'string' ? raw.verdict.slice(0, 200) : '',
     issues,
+    riskScore,
+    aiFlavor: aiScan.aiScore,
+    aiPhrases: aiScan.clicheHits.slice(0, 8),
     reviewedAt: new Date().toISOString(),
   }
 }
@@ -1140,8 +1267,12 @@ function authorReviewSystemPrompt(): string {
     '5. advancedLines：本章实际推进的剧情线名称数组——从「活跃剧情线」清单中选出推进了的线（名称必须与清单中的线名一字不差；没推进任何线则输出空数组）。',
     '6. continuity：与上一章结尾的衔接检查（人物位置/时间/伤势/资源/对话状态），发现问题要指出。',
     '7. trend：结合上一章复盘看近期节奏趋势（是否连续拖沓、爽点密度是否下降、是否需要调整）。',
+    '8. stateChanges：本章发生的关键状态变化数组（人物状态/世界局面/关系/资源，每条约 20 字，最多 6 条），供整本与事实库回灌。',
+    '9. newConflicts：本章新引入或明显升级的冲突数组（最多 4 条）。',
+    '10. clues：本章埋下或推进的新线索/伏笔数组（最多 4 条）。',
+    '11. absentRisks：本章缺席但按卷级职责应出场/该推进关系的重要角色，及其缺席带来的风险（最多 4 条）。',
     '输出必须是合法 JSON 对象，不要输出任何其他文字：',
-    '{"hookHonored": true或false, "hookNote": "一句话", "endingHook": 0-10整数, "plotlineProgress": "一句话", "advancedLines": ["线名"], "continuity": "一句话", "trend": "一句话"}',
+    '{"hookHonored": true或false, "hookNote": "一句话", "endingHook": 0-10整数, "plotlineProgress": "一句话", "advancedLines": ["线名"], "continuity": "一句话", "trend": "一句话", "stateChanges": ["状态变化"], "newConflicts": ["新冲突"], "clues": ["新线索"], "absentRisks": ["本章缺席但值得注意的角色及风险（卷级职责/缺席风险，最多4条）"]}',
     '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
     '重要：直接输出 JSON 结果本身，不要把思考过程写在输出里。',
   ].join('\n')
@@ -1188,6 +1319,10 @@ export async function authorReviewChapter(
     advancedLines?: unknown
     continuity?: unknown
     trend?: unknown
+    stateChanges?: unknown
+    newConflicts?: unknown
+    clues?: unknown
+    absentRisks?: unknown
   }>(
     await complete(ctx, config, { system: authorReviewSystemPrompt(), user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 4000) }),
   )
@@ -1196,6 +1331,7 @@ export async function authorReviewChapter(
   const advancedLines = Array.isArray(raw.advancedLines)
     ? raw.advancedLines.filter((n): n is string => typeof n === 'string' && n.trim() !== '' && knownLineNames.has(n.trim())).map(n => n.trim())
     : []
+  const strArr = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map(x => x.slice(0, 120)) : []
   return {
     hookHonored: raw.hookHonored === true,
     hookNote: typeof raw.hookNote === 'string' ? raw.hookNote.slice(0, 200) : '',
@@ -1204,6 +1340,10 @@ export async function authorReviewChapter(
     advancedLines,
     continuity: typeof raw.continuity === 'string' ? raw.continuity.slice(0, 200) : '',
     trend: typeof raw.trend === 'string' ? raw.trend.slice(0, 200) : '',
+    stateChanges: strArr(raw.stateChanges).slice(0, 6),
+    newConflicts: strArr(raw.newConflicts).slice(0, 4),
+    clues: strArr(raw.clues).slice(0, 4),
+    absentRisks: strArr(raw.absentRisks).slice(0, 4),
     reviewedAt: new Date().toISOString(),
   }
 }
@@ -3199,9 +3339,22 @@ export async function* generateChapterStream(
     .filter(f => f.status === 'planned' && f.targetChapter !== undefined && f.targetChapter > 0)
     .filter(f => Math.abs((f.targetChapter as number) - chapterNo) <= 12)
     .map(f => `- ${f.description.slice(0, 120)}${f.targetChapter !== undefined ? `（计划回收于第 ${f.targetChapter} 章）` : ''}`)
+  const contractBlock = (() => {
+    const parts: string[] = []
+    if ((chapter.mustAdvance?.length ?? 0) > 0) parts.push(`本章必达（必须推进）：${chapter.mustAdvance!.join('；')}`)
+    if ((chapter.mustPreserve?.length ?? 0) > 0) parts.push(`本章保持（不得破坏）：${chapter.mustPreserve!.join('；')}`)
+    if ((chapter.characterHardFacts?.length ?? 0) > 0) parts.push(`人物硬事实（不得违背）：${chapter.characterHardFacts!.join('；')}`)
+    if ((chapter.payoffDirectives?.length ?? 0) > 0) parts.push(`伏笔指令：${chapter.payoffDirectives!.map(p => `${p.operation ?? 'touch'}${p.no !== undefined ? `(第${p.no}章)` : ''}${p.text !== undefined && p.text !== '' ? '：' + p.text : ''}`).join('；')}`)
+    if (chapter.endingHook !== undefined && chapter.endingHook !== '') parts.push(`章末钩子要求：${chapter.endingHook}`)
+    if (chapter.obligation !== undefined && chapter.obligation !== '') parts.push(`本章义务合约：${chapter.obligation}`)
+    return parts.length > 0 ? '==================== 本章合同（硬约束，必须满足） ====================\n' + parts.join('\n') : ''
+  })()
+  const knowledgeBlock = retrieveKnowledge(project, `${chapter.title} ${chapter.beats}`)
   const user = [
     `现在写第 ${chapter.no} 章，标题《${chapter.title}》。`,
     `本章剧情要点：${chapter.beats}`,
+    contractBlock,
+    knowledgeBlock,
     '',
     foreshadowHints.length > 0
       ? `本章附近需顺势埋下以下暗线（自然带过，不喧宾夺主，1-2 句即可，但细节要可辨识、与描述吻合）：\n${foreshadowHints.join('\n')}`
@@ -3228,7 +3381,7 @@ export async function* generateChapterStream(
   })]
   const request: GenerateOptions = {
     provider: config.provider,
-    model: config.model,
+    model: config.generateModel || config.model,
     messages,
     system: writeSystemPrompt(project, chapter.targetChars || config.chapterChars),
     // Full-chapter output: budget generously (4000 chars ≈ 8-12k tokens,
@@ -3863,7 +4016,7 @@ export async function analyzeAdaptation(
   const user = [
     '你是一位资深网文编辑兼改编策划。下面给你一部已完结/连载小说的若干章正文节选。请通读并输出该书的「原文设定卡片」与「可改范围矩阵」。',
     '输出合法 JSON 对象：',
-    '{"bookName": "书名", "outline": "一句话主线梗概（100字内）", "dimensions": [{"key":"realm","title":"大世界","mutability":"big|small|free|locked|visual","current":"当前值","evidence":"证据（出现章节/频次）","candidates":["候选1","候选2"],"impact":"改了会影响什么","risk":"high|medium|low"}]}',
+    '{"bookName": "书名", "outline": "一句话主线梗概（100字内）", "dimensions": [{"key":"realm","title":"大世界","mutability":"big|small|free|locked|visual","current":"当前值","evidence":"证据（出现章节/频次）","candidates":[{"name":"候选体系名","desc":"该体系一句话说明"}],"impact":"改了会影响什么","risk":"high|medium|low"}]}',
     'dimensions 至少覆盖以下维度（key/title）：realm 大世界、cultivation 修为体系、protagonist 主角、goldenFinger 金手指、supporting 配角与势力人物名、faction 势力/组织、style 文风与叙事、ending 结局走向、timeline 时间线/编年、foreshadow 伏笔/暗线。',
     'mutability 取值：locked=建议保留、big=可改影响大、small=可改影响小、free=可自由改、visual=仅视觉包装。',
     '每个 dimension.current 必须忠于文本，能引用原文就用原文（尤其角色名/境界名/势力名/金手指名）。',
@@ -3911,13 +4064,24 @@ function normalizeAdaptationDimension(d: Record<string, unknown>): AdaptationDim
   const risk = (['high', 'medium', 'low'] as const).includes(d.risk as AdaptationDimension['risk'])
     ? d.risk as AdaptationDimension['risk']
     : 'medium'
+  const rawCands = Array.isArray(d.candidates) ? d.candidates : []
+  const candidates = rawCands.map((x): { name: string; desc?: string } | null => {
+    if (typeof x === 'string') return x.trim() !== '' ? { name: x.trim() } : null
+    if (typeof x === 'object' && x !== null) {
+      const o = x as { name?: unknown; desc?: unknown }
+      const name = typeof o.name === 'string' ? o.name.trim() : ''
+      const desc = typeof o.desc === 'string' ? o.desc.trim() : undefined
+      return name !== '' ? { name, desc } : null
+    }
+    return null
+  }).filter((x): x is { name: string; desc?: string } => x !== null)
   return {
     key,
     title,
     mutability,
     current: typeof d.current === 'string' ? d.current : '',
     evidence: typeof d.evidence === 'string' ? d.evidence : undefined,
-    candidates: Array.isArray(d.candidates) ? d.candidates.filter((x): x is string => typeof x === 'string') : [],
+    candidates,
     impact: typeof d.impact === 'string' ? d.impact : '',
     risk,
   }
@@ -4476,7 +4640,7 @@ async function auditBatch(
     `正文节选（每章前 700 字）：\n${chapterBlocks}`,
     '只输出 JSON 数组。',
   ].filter(s => s !== '').join('\n\n')
-  const text = await complete(ctx, config, { system, user, temperature: 0.2, maxTokens: Math.max(config.maxTokens, 12000) })
+  const text = await complete(ctx, config, { system, user, temperature: 0.2, maxTokens: Math.max(config.maxTokens, 12000), model: config.auditModel, liveLabel: '质检查询' })
   const parsed = parseJsonArray<Record<string, unknown>>(text)
   const issues: AuditIssue[] = []
   for (const entry of parsed) {
@@ -4910,7 +5074,7 @@ export async function suggestForeshadows(
     `大纲：\n${project.outline}`,
     `已规划章节数：${project.chapters.length}`,
   ].join('\n')
-  const text = await complete(ctx, config, { system: foreshadowSystemPrompt(), user, temperature: 0.5, maxTokens: Math.max(config.maxTokens, 12000), reasoning: config.analysisReasoning ?? 'low' })
+  const text = await complete(ctx, config, { system: foreshadowSystemPrompt(), user, temperature: 0.5, maxTokens: Math.max(config.maxTokens, 12000), reasoning: config.analysisReasoning ?? 'low', liveLabel: '伏笔建议' })
   const parsed = parseJsonArray<Record<string, unknown>>(text)
   const existing = new Set(project.foreshadows.map(f => f.description))
   const created: Foreshadow[] = []
@@ -4942,22 +5106,294 @@ export async function extractStyleAsset(
   ctx: Context,
   config: NovelConfig,
   sampleText: string,
-): Promise<{ proseRules: string[]; dialogueRules: string[]; descriptionRules: string[]; boundaries: string[] }> {
+): Promise<{
+  proseRules: string[]; dialogueRules: string[]; descriptionRules: string[]; boundaries: string[];
+  preset?: 'imitate' | 'balanced' | 'transfer'; fingerprintRisk?: 'low' | 'medium' | 'high';
+  writingGuidance?: string[]; forbiddenEntities?: string[];
+}> {
   const user = `请分析下面这段样本文本，提炼其叙事风格规则：\n\n${sampleText}`
-  const text = await complete(ctx, config, { system: styleEngineSystemPrompt(), user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 12000) })
-  const raw = parseJsonObject<{ proseRules?: unknown; dialogueRules?: unknown; descriptionRules?: unknown; boundaries?: unknown }>(text)
+  const text = await complete(ctx, config, { system: styleEngineSystemPrompt(), user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 12000), liveLabel: '写法提取' })
+  const raw = parseJsonObject<{
+    proseRules?: unknown; dialogueRules?: unknown; descriptionRules?: unknown; boundaries?: unknown;
+    preset?: unknown; fingerprintRisk?: unknown; writingGuidance?: unknown; forbiddenEntities?: unknown;
+  }>(text)
   const strArray = (value: unknown): string[] =>
     Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v.trim() !== '') : []
+  // 结构化输出校验（轻量 schema）：归一 enum、截断、去空；preset 缺失时按指纹风险自动推荐。
+  const fingerprintRisk = (['low', 'medium', 'high'] as const).includes(raw.fingerprintRisk as never)
+    ? raw.fingerprintRisk as 'low' | 'medium' | 'high'
+    : 'medium'
   const result = {
-    proseRules: strArray(raw.proseRules),
-    dialogueRules: strArray(raw.dialogueRules),
-    descriptionRules: strArray(raw.descriptionRules),
-    boundaries: strArray(raw.boundaries),
+    proseRules: strArray(raw.proseRules).slice(0, 40),
+    dialogueRules: strArray(raw.dialogueRules).slice(0, 40),
+    descriptionRules: strArray(raw.descriptionRules).slice(0, 40),
+    boundaries: strArray(raw.boundaries).slice(0, 30),
+    preset: (['imitate', 'balanced', 'transfer'] as const).includes(raw.preset as never)
+      ? raw.preset as 'imitate' | 'balanced' | 'transfer'
+      : recommendStylePreset(fingerprintRisk),
+    fingerprintRisk,
+    writingGuidance: strArray(raw.writingGuidance).slice(0, 20),
+    forbiddenEntities: strArray(raw.forbiddenEntities).slice(0, 30),
   }
   if (result.proseRules.length + result.dialogueRules.length + result.descriptionRules.length + result.boundaries.length === 0) {
     throw new Error('写法提取失败：模型没有返回有效规则')
   }
   return result
+}
+
+/** 分层提取写作公式（basic/standard/deep）。 */
+export async function extractStyleFormula(
+  ctx: Context,
+  config: NovelConfig,
+  sampleText: string,
+  depth: 'basic' | 'standard' | 'deep',
+): Promise<{ name: string; focusAreas: string[]; formula: string; applyGuidance: string }> {
+  const user = `请提炼下面这段样本文本的写作公式：\n\n${sampleText}`
+  const text = await complete(ctx, config, { system: styleFormulaSystemPrompt(depth), user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 8000), liveLabel: '公式提取' })
+  const raw = parseJsonObject<{ name?: unknown; focusAreas?: unknown; formula?: unknown; applyGuidance?: unknown }>(text)
+  const formula = typeof raw.formula === 'string' ? raw.formula.trim() : ''
+  if (formula === '') throw new Error('公式提取失败：模型没有返回有效 formula')
+  return {
+    name: typeof raw.name === 'string' ? raw.name.trim().slice(0, 40) : `公式 ${Date.now().toString(36)}`,
+    focusAreas: Array.isArray(raw.focusAreas) ? raw.focusAreas.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map(x => x.slice(0, 20)).slice(0, 6) : [],
+    formula,
+    applyGuidance: typeof raw.applyGuidance === 'string' ? raw.applyGuidance.trim().slice(0, 300) : '',
+  }
+}
+
+/** 市场雷达系统提示（对齐上游 marketRadar 分析师角色）。 */
+function marketRadarSystemPrompt(): string {
+  return [
+    '你是中文网络文学市场分析师。只分析输入中的公开榜单元数据或用户给出的市场线索，不补写作品正文，不假装知道未提供的信息。',
+    '只根据输入归纳热门题材和市场信号；对未提供的信息不要臆测。',
+    '重点分析：热门题材组合、主角身份、金手指机制、开篇危机、关系卖点、标题句式、拥挤套路和差异化机会。',
+    'kind 只能使用 genre、protagonist、advantage、opening、relationship、title_pattern、opportunity、crowding，不得创造近义枚举值。',
+    '榜单高频不等于适合照搬。机会建议必须说明读者满足点，同时避开直接复制具体作品。',
+    'productionFoundation 的题材/推进模式优先引用「资源库」中已有的 existingId（名称一字不差）；只有确无合适资产时才给出新资产（existingId 为 null）。',
+    'creativeBrief 严禁复用榜单作品的人名、专有设定、简介句子和完整书名；只能提炼读者需求、爽点机制和结构机会，不得输出任何具体人名/作品名，一律使用身份或通用场景称谓。',
+  ].join('\n')
+}
+
+/** 题材雷达：输入平台/题材/榜单文本 → 信号 + 生产底座 + 开书创意。 */
+export async function runMarketRadar(
+  ctx: Context,
+  config: NovelConfig,
+  req: MarketRadarRequest,
+): Promise<MarketRadarResult> {
+  const genreCatalog = BUILTIN_GENRE_LIBRARY.map((g, i) => `- [${i}] ${g.name}：${g.description}${g.template !== undefined ? `（写法：${g.template}）` : ''}`).join('\n')
+  const modeCatalog = BUILTIN_PROGRESSION_MODES.map((m, i) => `- [${i}] ${m.name}：${m.driver} / 期待：${m.readerExpectation}`).join('\n')
+  const user = [
+    req.platform !== undefined && req.platform !== '' ? `目标平台：${req.platform}` : '',
+    req.genre !== undefined && req.genre !== '' ? `目标题材：${req.genre}` : '',
+    req.keywords !== undefined && req.keywords !== '' ? `关键词：${req.keywords}` : '',
+    (req.candidates !== undefined && req.candidates.length > 0)
+      ? '【上榜记录（真实榜单）】\n' + req.candidates.map((c, i) => `- ${i + 1}.《${c.title}》${c.author !== undefined && c.author !== '' ? `（${c.author}）` : ''}${(c.tags?.length ?? 0) > 0 ? ` [${c.tags!.join('、')}]` : ''}${c.category !== undefined && c.category !== '' ? ` ${c.category}` : ''}${c.synopsis !== undefined && c.synopsis !== '' ? `：${c.synopsis.slice(0, 140)}` : ''}`).join('\n')
+      : (req.feedText !== undefined && req.feedText !== '')
+        ? '【榜单/市场线索】\n' + req.feedText.slice(0, 6000)
+        : '（无榜单数据，请基于平台/题材/关键词与你的市场知识归纳）',
+    '',
+    '现有题材基底库：\n' + (genreCatalog || '空'),
+    '',
+    '现有推进模式库：\n' + (modeCatalog || '空'),
+    '',
+    '输出必须是合法 JSON 对象，不要输出任何其他文字。',
+    'JSON 结构：{"signals":[{"id":"短横线稳定id","kind":"genre|protagonist|advantage|opening|relationship|title_pattern|opportunity|crowding","title":"一句话","detail":"说明（含读者满足点）","direction":"current|rising|stable|falling","recommended":true|false}], "productionFoundation":{"genre":{"existingId":null或资源名,"name":"题材名","description":"说明","template":"写法指引"},"primaryStoryMode":{"existingId":null或资源名,"name":"模式名","driver":"驱动力","readerExpectation":"读者期待"},"secondaryStoryMode":{同primary,可null或省略}}}',
+  ].filter(s => s !== '').join('\n\n')
+  const text = await complete(ctx, config, { system: marketRadarSystemPrompt(), user, temperature: 0.4, maxTokens: Math.max(config.maxTokens, 8000), liveLabel: '题材雷达' })
+  const raw = parseJsonObject<Record<string, unknown>>(text)
+  const signalAs = (v: unknown): MarketRadarSignal[] => Array.isArray(v)
+    ? v.filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null)
+        .map(x => ({
+          id: typeof x.id === 'string' ? x.id.slice(0, 40) : `sig-${Math.random().toString(36).slice(2, 7)}`,
+          kind: (['genre', 'protagonist', 'advantage', 'opening', 'relationship', 'title_pattern', 'opportunity', 'crowding'] as const).includes(x.kind as never)
+            ? x.kind as MarketRadarSignal['kind']
+            : 'genre',
+          title: typeof x.title === 'string' ? x.title.slice(0, 60) : '未命名信号',
+          detail: typeof x.detail === 'string' ? x.detail.slice(0, 300) : '',
+          direction: (['current', 'rising', 'stable', 'falling'] as const).includes(x.direction as never)
+            ? x.direction as MarketRadarSignal['direction']
+            : undefined,
+          recommended: typeof x.recommended === 'boolean' ? x.recommended : undefined,
+        }))
+    : []
+  const pf = (raw.productionFoundation ?? {}) as Record<string, unknown>
+  const genre = (pf.genre ?? {}) as Record<string, unknown>
+  const primary = (pf.primaryStoryMode ?? {}) as Record<string, unknown>
+  const secondary = (pf.secondaryStoryMode ?? {}) as Record<string, unknown>
+  const genreIds = new Set(BUILTIN_GENRE_LIBRARY.map(g => g.name))
+  const modeIds = new Set(BUILTIN_PROGRESSION_MODES.map(m => m.name))
+  const productionFoundation: ProductionFoundation = {
+    genre: {
+      existingId: typeof genre.existingId === 'string' && genre.existingId !== '' && genreIds.has(genre.existingId) ? genre.existingId : undefined,
+      name: typeof genre.name === 'string' ? genre.name.slice(0, 40) : '未定题材',
+      description: typeof genre.description === 'string' ? genre.description.slice(0, 300) : '',
+      template: typeof genre.template === 'string' ? genre.template.slice(0, 200) : undefined,
+    },
+    primaryStoryMode: {
+      existingId: typeof primary.existingId === 'string' && primary.existingId !== '' && modeIds.has(primary.existingId) ? primary.existingId : undefined,
+      name: typeof primary.name === 'string' ? primary.name.slice(0, 40) : '未定模式',
+      driver: typeof primary.driver === 'string' ? primary.driver.slice(0, 200) : '',
+      readerExpectation: typeof primary.readerExpectation === 'string' ? primary.readerExpectation.slice(0, 200) : '',
+    },
+    secondaryStoryMode: Object.keys(secondary).length > 0 && typeof secondary.name === 'string' && secondary.name !== ''
+      ? {
+          existingId: typeof secondary.existingId === 'string' && secondary.existingId !== '' && modeIds.has(secondary.existingId) ? secondary.existingId : undefined,
+          name: secondary.name.slice(0, 40),
+          driver: typeof secondary.driver === 'string' ? secondary.driver.slice(0, 200) : '',
+          readerExpectation: typeof secondary.readerExpectation === 'string' ? secondary.readerExpectation.slice(0, 200) : '',
+        }
+      : undefined,
+  }
+  return {
+    signals: signalAs(raw.signals),
+    productionFoundation,
+  }
+}
+
+const MARKET_MODE_HINT: Record<string, string> = {
+  follow_hot: '优先贴合当前热门满足点，但仍禁止复制具体作品。',
+  differentiate: '保留热门读者满足点，同时至少替换主角身份、舞台或金手指机制中的一项。',
+  light: '市场信号只作次要参考，用户自身想法和已选题材优先。',
+}
+
+/** 开书创意简报：用选中的市场信号 + 影响模式生成可执行 constraint / creative seed。 */
+export async function runMarketCreativeBrief(ctx: Context, config: NovelConfig, req: MarketRadarBriefRequest): Promise<MarketCreativeBrief> {
+  const user = [
+    `影响模式：${req.influenceMode}`,
+    MARKET_MODE_HINT[req.influenceMode] ?? '',
+    req.signals.length > 0
+      ? '选中的市场信号：\n' + req.signals.map(s => `- [${s.kind}] ${s.title}：${s.detail}`).join('\n')
+      : '（无选中信号，请结合题材与推进模式补齐）',
+    '',
+    '输出必须是合法 JSON 对象，不要输出任何其他文字。',
+    'JSON 结构：{"promptBlock":"可直接指导题材/金手指/首章爆点/整书方向的约束","openingIdea":"一段可直接开书的中文起始想法（主角身份、金手指或核心优势、开局事件、近期目标；不输出标题/大纲/Markdown）","coreAdvantage":"主角能做什么（含触发条件/使用边界/成长方向或代价至少一项）","bookSellingPoint":"读者持续追读的核心满足点","first30ChapterPromise":"前30章必须兑现的阶段结果/关系变化/能力成长"}',
+    '严禁复用榜单作品的人名、专有设定、简介句子和完整书名；一律使用身份或通用场景称谓，不得输出具体人名/作品名。',
+  ].filter(s => s !== '').join('\n\n')
+  const text = await complete(ctx, config, { system: marketRadarSystemPrompt(), user, temperature: 0.5, maxTokens: Math.max(config.maxTokens, 4000), liveLabel: '开书创意' })
+  const cb = parseJsonObject<Record<string, unknown>>(text)
+  return {
+    promptBlock: typeof cb.promptBlock === 'string' ? cb.promptBlock.slice(0, 800) : '',
+    openingIdea: typeof cb.openingIdea === 'string' ? cb.openingIdea.slice(0, 800) : '',
+    coreAdvantage: typeof cb.coreAdvantage === 'string' ? cb.coreAdvantage.slice(0, 600) : '',
+    bookSellingPoint: typeof cb.bookSellingPoint === 'string' ? cb.bookSellingPoint.slice(0, 400) : '',
+    first30ChapterPromise: typeof cb.first30ChapterPromise === 'string' ? cb.first30ChapterPromise.slice(0, 400) : '',
+  }
+}
+
+/** 书分析/拆书：输入一本书/章节文本 → 卖点/结构/可借鉴点/风险。 */
+export async function runBookAnalysis(ctx: Context, config: NovelConfig, req: BookAnalysisRequest): Promise<BookAnalysisResult> {
+  const system = [
+    '你是资深中文网文拆书编辑。分析输入的一本书或章节文本，提炼可复用的创作思路。',
+    '严禁照搬具体作品的人名/专有设定/简介句子；只能提炼读者需求、结构手法和风险。',
+  ].join('\n')
+  const user = [
+    '请分析下面文本：\n' + (req.text ?? '').slice(0, 8000),
+    '输出必须是合法 JSON 对象。',
+    'JSON 结构：{"sellingPoints":["读者为什么追(卖点)"],"structure":["可复用叙事结构/节奏/单元"],"lessons":["可借鉴手法/套路"],"risks":["易踩坑/风险"]}',
+  ].filter(s => s !== '').join('\n\n')
+  const text = await complete(ctx, config, { system, user, temperature: 0.4, maxTokens: Math.max(config.maxTokens, 4000), liveLabel: '书分析' })
+  const raw = parseJsonObject<Record<string, unknown>>(text)
+  const arr = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map(x => x.slice(0, 200)) : []
+  return {
+    sellingPoints: arr(raw.sellingPoints),
+    structure: arr(raw.structure),
+    lessons: arr(raw.lessons),
+    risks: arr(raw.risks),
+  }
+}
+
+/** 创意灵感：一句话/题材 → 多方向开书灵感。 */
+export async function runIdeaInspiration(ctx: Context, config: NovelConfig, req: IdeaInspirationRequest): Promise<IdeaInspirationResult> {
+  const count = Math.max(1, Math.min(10, req.count ?? 5))
+  const system = [
+    '你是中文网文开书灵感策划。根据用户一句话/题材方向，给出多个可开书的差异化创意。',
+    '严禁输出具体人名/作品名；用身份/通用称谓。每个创意都要有明确钩子、题材、视角、长期兑现。',
+  ].join('\n')
+  const user = [
+    `我的方向：${req.idea ?? ''}`,
+    `请给 ${count} 个开书创意。`,
+    '输出必须是合法 JSON 对象。',
+    'JSON 结构：{"ideas":[{"title":"书名/门面","hook":"一句话钩子/开局爆点","genre":"题材","pov":"主角视角/身份","payoff":"长期追读兑现"}]}',
+  ].filter(s => s !== '').join('\n\n')
+  const text = await complete(ctx, config, { system, user, temperature: 0.8, maxTokens: Math.max(config.maxTokens, 4000), liveLabel: '创意灵感' })
+  const raw = parseJsonObject<Record<string, unknown>>(text)
+  const str = (v: unknown): string => typeof v === 'string' ? v.trim().slice(0, 200) : ''
+  const arr = (v: unknown): Array<{ title: string; hook: string; genre: string; pov: string; payoff: string }> => Array.isArray(v)
+    ? v.filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null).map(x => ({ title: str(x.title), hook: str(x.hook), genre: str(x.genre), pov: str(x.pov), payoff: str(x.payoff) }))
+    : []
+  return { ideas: arr(raw.ideas).slice(0, count) }
+}
+
+/** 雷达→灵感：基于市场信号/生产底座/创意简报，生成贴合市场的开书灵感。 */
+export async function runMarketIdeaInspiration(
+  ctx: Context,
+  config: NovelConfig,
+  req: { signals?: MarketRadarSignal[]; foundation?: ProductionFoundation; brief?: MarketCreativeBrief; count?: number },
+): Promise<IdeaInspirationResult> {
+  const count = Math.max(1, Math.min(10, req.count ?? 5))
+  const system = [
+    '你是中文网文开书灵感策划，擅长从市场榜单分析中提炼可开书方向。',
+    '严禁输出具体人名/作品名；用身份/通用称谓。每个创意都要有明确钩子、题材、视角、长期兑现，且要与市场分析呼应但做差异化。',
+  ].join('\n')
+  const signalBlock = (req.signals ?? []).map(s => `- [${s.kind}] ${s.title}：${s.detail}`).join('\n') || '（无）'
+  const f = req.foundation
+  const foundationBlock = f !== undefined
+    ? `题材：${f.genre.name}（${f.genre.description}）\n主推进：${f.primaryStoryMode.name}（${f.primaryStoryMode.driver}）${f.secondaryStoryMode !== undefined ? `\n副推进：${f.secondaryStoryMode.name}` : ''}`
+    : '（无）'
+  const b = req.brief
+  const briefBlock = b !== undefined
+    ? `创作约束：${b.promptBlock}\n开篇想法：${b.openingIdea}\n核心优势：${b.coreAdvantage}\n追读卖点：${b.bookSellingPoint}\n前30章承诺：${b.first30ChapterPromise}`
+    : '（无）'
+  const user = [
+    '基于以下市场分析，给出多个【差异化、可开书】的灵感：',
+    `市场信号：\n${signalBlock}`,
+    `生产底座：\n${foundationBlock}`,
+    `创意简报：\n${briefBlock}`,
+    `请给 ${count} 个开书灵感。`,
+    '输出必须是合法 JSON 对象。',
+    'JSON 结构：{"ideas":[{"title":"书名/门面","hook":"一句话钩子/开局爆点","genre":"题材","pov":"主角视角/身份","payoff":"长期追读兑现"}]}',
+  ].filter(s => s !== '').join('\n\n')
+  const text = await complete(ctx, config, { system, user, temperature: 0.8, maxTokens: Math.max(config.maxTokens, 4000), liveLabel: '市场灵感' })
+  const raw = parseJsonObject<Record<string, unknown>>(text)
+  const str = (v: unknown): string => typeof v === 'string' ? v.trim().slice(0, 200) : ''
+  const arr = (v: unknown): Array<{ title: string; hook: string; genre: string; pov: string; payoff: string }> => Array.isArray(v)
+    ? v.filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null).map(x => ({ title: str(x.title), hook: str(x.hook), genre: str(x.genre), pov: str(x.pov), payoff: str(x.payoff) }))
+    : []
+  return { ideas: arr(raw.ideas).slice(0, count) }
+}
+
+/** 自动导演编排建议：基于全书上下文，给出下一卷/阶段编排 + 修复再平衡。 */
+export async function runDirectorAdvice(ctx: Context, config: NovelConfig, project: ProjectState, req: DirectorRequest): Promise<DirectorAdvice> {
+  const done = project.chapters.filter(c => c.status !== 'pending' && c.status !== 'generating')
+  const last = done[done.length - 1]
+  const volumesBlock = (project.volumes ?? []).map(v => `第${v.no}卷《${v.title}》：${v.summary}`).join('\n') || '无'
+  const plotlinesBlock = (project.plotlines ?? []).filter(l => l.status === 'active' || l.status === 'paused').map(l => `[${l.kind}] ${l.name}：${l.goal}${l.progress ? `（${l.progress}）` : ''}`).join('\n') || '无'
+  const foreBlock = (project.foreshadows ?? []).filter(f => f.status === 'planted' || f.status === 'progressing').map(f => `- ${f.description}${f.targetChapter ? `（约${f.targetChapter}章回收）` : ''}`).join('\n') || '无'
+  const recentFacts = (project.facts ?? []).slice(-8).map(f => `[第${f.chapterNo}章] ${f.text}`).join('\n')
+  const user = [
+    `书名：《${project.bookName}》`,
+    req.focus !== undefined && req.focus !== '' ? `聚焦：${req.focus}` : '',
+    `当前进度：已写 ${done.length} 章，最后一章《${last?.title ?? '无'}》摘要：${last?.summary ?? ''}`,
+    '',
+    `分卷：\n${volumesBlock}`,
+    `剧情线：\n${plotlinesBlock}`,
+    `活跃伏笔：\n${foreBlock}`,
+    `最近事实：\n${recentFacts}`,
+    '',
+    '请作为本书的自动导演，给出下一卷/下一阶段的编排建议：续写方向、阶段弧光、节奏板、风险提示、需要修复/再平衡的点。',
+    '输出必须是合法 JSON 对象。',
+    'JSON 结构：{"summary":"总体判断一句话","nextArc":["下一阶段关键剧情节点(每条约一句话)"],"pacing":"节奏板(起承转合/爽点密度/章节节奏)","risks":["风险/跑偏提示"],"fixes":["需要修复/再平衡的点"]}',
+  ].filter(s => s !== '').join('\n\n')
+  const text = await complete(ctx, config, { system: '你是一位长篇网文自动导演，负责整本编排、节奏、风险与再平衡。只给出可执行建议，不输出正文。', user, temperature: 0.4, maxTokens: Math.max(config.maxTokens, 4000), liveLabel: '自动导演' })
+  const raw = parseJsonObject<Record<string, unknown>>(text)
+  const arr = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map(x => x.slice(0, 200)) : []
+  return {
+    summary: typeof raw.summary === 'string' ? raw.summary.slice(0, 300) : '',
+    nextArc: arr(raw.nextArc),
+    pacing: typeof raw.pacing === 'string' ? raw.pacing.slice(0, 400) : '',
+    risks: arr(raw.risks),
+    fixes: arr(raw.fixes),
+  }
 }
 
 // ------------------------------------------------------------------ export

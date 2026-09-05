@@ -135,12 +135,27 @@ import {
   type AdaptMaterializeSaveResponse,
   type AdaptRewriteFrame,
   type PluginUpdateResponse,
+  type MarketRadarRequest,
+  type MarketRadarBriefRequest,
+  type ProductionFoundation,
+  type ProgressionMode,
+  type GenreNode,
+  type KnowledgeDoc,
+  type KnowledgeRequest,
+  type BookAnalysisRequest,
+  type IdeaInspirationRequest,
+  type DirectorRequest,
+  type DirectorTodo,
 } from './protocol.ts'
 import { readOutlineFromDocx } from './docx.ts'
 import { clearAssistantHistory, loadAssistantHistory, runAssistantTurn } from './assistant.ts'
 import { activateBook, bookshelfSnapshot, createBook, defaultOutputDirFor, importDir, loadBookshelf, removeBook, renameBook, seedBookshelfFromOutputDir } from './bookshelf.ts'
 import { loadAuthorAssets, upsertAuthorAsset, removeAuthorAsset, importDefaultAuthorAssets } from './author-assets.ts'
-import { BUILTIN_ANTI_AI_RULES, BUILTIN_GENRE_LIBRARY, BUILTIN_PLOT_BEATS, BUILTIN_PROGRESSION_MODES, BUILTIN_STYLE_TEMPLATES, emptyProjectAssets } from './assets.ts'
+import { BUILTIN_ANTI_AI_RULES, BUILTIN_GENRE_LIBRARY, BUILTIN_PLOT_BEATS, BUILTIN_PROGRESSION_MODES, BUILTIN_STARTER_STYLE_PROFILES, BUILTIN_STYLE_TEMPLATES, emptyProjectAssets, ensureBuiltinAssets } from './assets.ts'
+import { scanAiFlavor } from './ai-scan.ts'
+import { emitLive, nextSessionId, subscribeLiveFeed } from './llm-live.ts'
+import { scanMarketRanking } from './market-radar-scan.ts'
+import { addGlobalGenre, addGlobalMode, globalGenreLibrary, globalProgressionLibrary } from './global-assets.ts'
 import {
   chapterFileName,
   auditBook,
@@ -154,6 +169,13 @@ import {
   previewBookText,
   extractBible,
   extractStyleAsset,
+  extractStyleFormula,
+  runMarketRadar,
+  runMarketCreativeBrief,
+  runBookAnalysis,
+  runIdeaInspiration,
+  runMarketIdeaInspiration,
+  runDirectorAdvice,
   extractWorld,
   generateBlurb,
   generateChapterStream,
@@ -217,6 +239,15 @@ const MAX_JSON_BODY_BYTES = 64 * 1024 * 1024
 
 /** 包内置风格效果图目录（assets/styles，随 npm 包分发）。 */
 const builtinStyleDir = fileURLToPath(new URL('../assets/styles/', import.meta.url))
+
+/** 解析请求级目标书目录：优先按请求携带的 bookId 查书架，否则回退全局 active 书目录。 */
+function resolveOutputDir(config: NovelConfig, bookId?: string): string {
+  if (bookId !== undefined && bookId !== '') {
+    const book = loadBookshelf().books.find(b => b.id === bookId)
+    if (book !== undefined && book.outputDir !== '') return book.outputDir
+  }
+  return config.outputDir
+}
 
 /** Loopback-only fence (mirrors the family plugins' pairing routes). */
 function isLoopbackRequest(request: IncomingMessage): boolean {
@@ -321,9 +352,11 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: (req, res) => {
       if (!guard(req, res, 'GET')) return
       const config = getConfig()
+      const qurl = new URL(req.url ?? '/', 'http://localhost')
+      const outputDir = resolveOutputDir(config, qurl.searchParams.get('bookId') ?? undefined)
       // 书架为空时播种 settings 默认输出目录里的已有项目。
-      seedBookshelfFromOutputDir(config.outputDir)
-      const project = loadProject(config.outputDir)
+      seedBookshelfFromOutputDir(outputDir)
+      const project = loadProject(outputDir)
       if (project !== undefined) {
         // 自动兜底：generating 超过 10 分钟（正常一章 2-5 分钟）视为卡死/中断，
         // 复位为 pending，避免"生成中"状态卡死无法重新生成。
@@ -338,8 +371,8 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
             }
           }
         }
-        syncProjectWithDisk(project, config.outputDir)
-        saveProject(config.outputDir, project)
+        syncProjectWithDisk(project, outputDir)
+        saveProject(outputDir, project)
       }
       const slim = new URL(req.url ?? '/', 'http://localhost').searchParams.get('slim') === '1'
       let projectPayload: StatusResponse['project']
@@ -477,9 +510,11 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     path: NOVEL_API.volumes,
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
-      const body = await readJsonBody<VolumesRequest>(req)
-      const config = getConfig()
-      const project = loadProject(config.outputDir)
+      const body = await readJsonBody<VolumesRequest & { bookId?: string }>(req)
+      const config0 = getConfig()
+      const outputDir = resolveOutputDir(config0, body?.bookId)
+      const config = { ...config0, outputDir }
+      const project = loadProject(outputDir)
       const outline = body?.outline?.trim() !== '' && body?.outline !== undefined
         ? body.outline
         : project?.outline
@@ -493,7 +528,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         const next = project ?? createProject(outline)
         next.volumes = volumes
         next.updatedAt = now
-        saveProject(config.outputDir, next)
+        saveProject(outputDir, next)
         const response: VolumesResponse = { volumes }
         writeJson(res, 200, response)
       } catch (error) {
@@ -508,9 +543,11 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     path: NOVEL_API.plan,
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
-      const body = await readJsonBody<PlanRequest>(req)
-      const config = getConfig()
-      const project = loadProject(config.outputDir)
+      const body = await readJsonBody<PlanRequest & { bookId?: string }>(req)
+      const config0 = getConfig()
+      const outputDir = resolveOutputDir(config0, body?.bookId)
+      const config = { ...config0, outputDir }
+      const project = loadProject(outputDir)
       const outline = body?.outline?.trim() !== '' && body?.outline !== undefined
         ? body.outline
         : project?.outline
@@ -546,10 +583,15 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     path: NOVEL_API.generate,
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
-      const config = getConfig()
-      const project = requireProject(res)
-      if (project === undefined) return
-      const body = await readJsonBody<{ chapterNo?: number; skipReview?: boolean }>(req)
+      const config0 = getConfig()
+      const body = await readJsonBody<{ chapterNo?: number; skipReview?: boolean; bookId?: string }>(req)
+      const outputDir = resolveOutputDir(config0, body?.bookId)
+      const config = { ...config0, outputDir }
+      const project = loadProject(outputDir)
+      if (project === undefined) {
+        writeJson(res, 400, { error: '输出目录中没有项目' })
+        return
+      }
       const rawNo = body?.chapterNo
       if (!Number.isInteger(rawNo) || rawNo === undefined || rawNo < 1) {
         writeJson(res, 400, { error: 'chapterNo 须为正整数' })
@@ -584,15 +626,23 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         res.write(JSON.stringify(frame) + '\n')
       }
 
+      const liveSession = nextSessionId()
+      emitLive({ type: 'session_started', sessionId: liveSession, label: '正文生成', model: config.generateModel || config.model, at: new Date().toISOString(), context: { interactionId: liveSession, taskId: `ch-${no}` } })
+      emitLive({ type: 'phase_changed', sessionId: liveSession, phase: 'streaming', phaseMessage: '模型正在返回正文', at: new Date().toISOString() })
+
       try {
         send({ type: 'start', no, title: chapter.title })
+        let genChars = 0
         for await (const step of generateChapterStream(ctx, config, project, config.outputDir, no)) {
           if (step.frame === 'delta') {
             send({ type: 'delta', text: step.text })
+            genChars += step.text.length
+            emitLive({ type: 'output_delta', sessionId: liveSession, content: step.text, totalChars: genChars, at: new Date().toISOString() })
           } else if (step.frame === 'done') {
             send({ type: 'done', no, file: step.file, chars: step.chars, title: chapter.title, warn: step.warn })
           }
         }
+        emitLive({ type: 'session_completed', sessionId: liveSession, totalChars: genChars, preview: '', at: new Date().toISOString(), phase: 'completed' })
         // Auto pipeline: summary + facts（一次调用）-> review（unless skipped）。
         try {
           await summarizeAndExtractFacts(ctx, config, project, config.outputDir, no)
@@ -662,17 +712,22 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     path: NOVEL_API.review,
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
-      const config = getConfig()
-      const project = requireProject(res)
-      if (project === undefined) return
-      const body = await readJsonBody<ReviewRequest>(req)
+      const config0 = getConfig()
+      const body = await readJsonBody<ReviewRequest & { bookId?: string }>(req)
+      const outputDir = resolveOutputDir(config0, body?.bookId)
+      const config = { ...config0, outputDir }
+      const project = loadProject(outputDir)
+      if (project === undefined) {
+        writeJson(res, 400, { error: '输出目录中没有项目' })
+        return
+      }
       if (!Number.isInteger(body?.chapterNo)) {
         writeJson(res, 400, { error: 'chapterNo 须为正整数' })
         return
       }
       const no = body!.chapterNo!
       try {
-        const report = await reviewChapter(ctx, config, project, config.outputDir, no)
+        const report = await reviewChapter(ctx, config, project, outputDir, no)
         writeJson(res, 200, { report })
       } catch (error) {
         writeJson(res, 500, { error: (error as Error).message })
@@ -686,10 +741,15 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     path: NOVEL_API.rewrite,
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
-      const config = getConfig()
-      const project = requireProject(res)
-      if (project === undefined) return
-      const body = await readJsonBody<RewriteRequest>(req)
+      const config0 = getConfig()
+      const body = await readJsonBody<RewriteRequest & { bookId?: string }>(req)
+      const outputDir = resolveOutputDir(config0, body?.bookId)
+      const config = { ...config0, outputDir }
+      const project = loadProject(outputDir)
+      if (project === undefined) {
+        writeJson(res, 400, { error: '输出目录中没有项目' })
+        return
+      }
       if (!Number.isInteger(body?.chapterNo)) {
         writeJson(res, 400, { error: 'chapterNo 须为正整数' })
         return
@@ -725,10 +785,15 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     path: NOVEL_API.polish,
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
-      const config = getConfig()
-      const project = requireProject(res)
-      if (project === undefined) return
-      const body = await readJsonBody<PolishRequest>(req)
+      const config0 = getConfig()
+      const body = await readJsonBody<PolishRequest & { bookId?: string }>(req)
+      const outputDir = resolveOutputDir(config0, body?.bookId)
+      const config = { ...config0, outputDir }
+      const project = loadProject(outputDir)
+      if (project === undefined) {
+        writeJson(res, 400, { error: '输出目录中没有项目' })
+        return
+      }
       if (!Number.isInteger(body?.chapterNo)) {
         writeJson(res, 400, { error: 'chapterNo 须为正整数' })
         return
@@ -865,10 +930,15 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     path: NOVEL_API.foreshadow,
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
-      const config = getConfig()
-      const project = requireProject(res)
-      if (project === undefined) return
-      const body = await readJsonBody<ForeshadowRequest>(req)
+      const config0 = getConfig()
+      const body = await readJsonBody<ForeshadowRequest & { bookId?: string }>(req)
+      const outputDir = resolveOutputDir(config0, body?.bookId)
+      const config = { ...config0, outputDir }
+      const project = loadProject(outputDir)
+      if (project === undefined) {
+        writeJson(res, 400, { error: '输出目录中没有项目' })
+        return
+      }
       try {
         if (body?.suggest === true) {
           // AI suggestion pass: create several foreshadows from the outline.
@@ -922,10 +992,15 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     path: NOVEL_API.exportBook,
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
-      const config = getConfig()
-      const project = requireProject(res)
-      if (project === undefined) return
-      const body = await readJsonBody<ExportRequest>(req)
+      const config0 = getConfig()
+      const body = await readJsonBody<ExportRequest & { bookId?: string }>(req)
+      const outputDir = resolveOutputDir(config0, body?.bookId)
+      const config = { ...config0, outputDir }
+      const project = loadProject(outputDir)
+      if (project === undefined) {
+        writeJson(res, 400, { error: '输出目录中没有项目' })
+        return
+      }
       const format = body?.format === 'md' ? 'md' : 'txt'
       try {
         const result = exportBook(config.outputDir, project, format)
@@ -944,9 +1019,13 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'GET')) return
       const config = getConfig()
-      const project = requireProject(res)
-      if (project === undefined) return
       const url = new URL(req.url ?? '/', 'http://localhost')
+      const outputDir = resolveOutputDir(config, url.searchParams.get('bookId') ?? undefined)
+      const project = loadProject(outputDir)
+      if (project === undefined) {
+        writeJson(res, 400, { error: '输出目录中没有项目' })
+        return
+      }
       const rawNo = Number(url.searchParams.get('no') ?? '0')
       if (!Number.isInteger(rawNo) || rawNo < 1) {
         writeJson(res, 400, { error: 'no 须为正整数' })
@@ -957,7 +1036,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         writeJson(res, 404, { error: `章节 ${rawNo} 不在计划中` })
         return
       }
-      const markdown = readChapterFile(config.outputDir, chapter)
+      const markdown = readChapterFile(outputDir, chapter)
       if (markdown === undefined) {
         writeJson(res, 404, { error: `章节 ${rawNo} 尚未生成` })
         return
@@ -1052,9 +1131,13 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
-      if (project === undefined) return
-      const body = await readJsonBody<AssistantRequest>(req)
+      const body = await readJsonBody<AssistantRequest & { bookId?: string }>(req)
+      const outputDir = resolveOutputDir(config, body?.bookId)
+      const project = loadProject(outputDir)
+      if (project === undefined) {
+        writeJson(res, 400, { error: '输出目录中没有项目' })
+        return
+      }
       const message = body?.message?.trim()
       if (message === undefined || message === '') {
         writeJson(res, 400, { error: '消息不能为空' })
@@ -1068,10 +1151,11 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
       })
       const send = (frame: AssistantFrame): void => { res.write(JSON.stringify(frame) + '\n') }
       try {
-        for await (const step of runAssistantTurn(ctx, config, project, config.outputDir, message)) {
+        for await (const step of runAssistantTurn(ctx, config, project, outputDir, message)) {
           if (step.frame === 'delta') send({ type: 'delta', text: step.text })
           else if (step.frame === 'tool') send({ type: 'tool', name: step.name, status: step.status, detail: step.detail })
           else if (step.frame === 'toolDelta') send({ type: 'toolDelta', name: step.name, text: step.text })
+          else if (step.frame === 'toolResult') send({ type: 'toolResult', name: step.name, text: step.text })
         }
         send({ type: 'done' })
         res.end()
@@ -1091,7 +1175,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: (req, res) => {
       if (!guard(req, res, 'GET')) return
       const config = getConfig()
-      const response: AssistantHistoryResponse = { messages: loadAssistantHistory(config.outputDir) }
+      const qurl = new URL(req.url ?? '/', 'http://localhost')
+      const outputDir = resolveOutputDir(config, qurl.searchParams.get('bookId') ?? undefined)
+      const response: AssistantHistoryResponse = { messages: loadAssistantHistory(outputDir) }
       writeJson(res, 200, response)
     },
   }
@@ -1101,10 +1187,12 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
   const assistantClearRoute: WebRoute = {
     kind: 'exact',
     path: NOVEL_API.assistantClear,
-    handler: (req, res) => {
+    handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      clearAssistantHistory(config.outputDir)
+      const body = await readJsonBody<{ bookId?: string }>(req)
+      const outputDir = resolveOutputDir(config, body?.bookId)
+      clearAssistantHistory(outputDir)
       writeJson(res, 200, { ok: true })
     },
   }
@@ -1125,10 +1213,21 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         return
       }
       const config = getConfig()
-      const project = loadProject(config.outputDir)
-      const projectAssets = project?.assets ?? emptyProjectAssets()
+      let postBody: (AssetsPatch & { bookId?: string }) | undefined
       if (req.method === 'POST') {
-        const body = await readJsonBody<AssetsPatch>(req)
+        postBody = await readJsonBody<AssetsPatch & { bookId?: string }>(req)
+        if (postBody === undefined) {
+          writeJson(res, 400, { error: '无效的 JSON' })
+          return
+        }
+      }
+      const qurl = new URL(req.url ?? '/', 'http://localhost')
+      const queryBookId = qurl.searchParams.get('bookId') ?? undefined
+      const outputDir = resolveOutputDir(config, postBody?.bookId ?? queryBookId)
+      const project = loadProject(outputDir)
+      const projectAssets = ensureBuiltinAssets(project?.assets ?? emptyProjectAssets())
+      if (req.method === 'POST') {
+        const body = postBody
         if (body === undefined) {
           writeJson(res, 400, { error: '无效的 JSON' })
           return
@@ -1145,14 +1244,15 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         projectAssets.updatedAt = new Date().toISOString()
         project.assets = projectAssets
         project.updatedAt = new Date().toISOString()
-        saveProject(config.outputDir, project)
+        saveProject(outputDir, project)
       }
       const response: AssetsResponse = {
         projectAssets,
-        genreLibrary: BUILTIN_GENRE_LIBRARY,
+        genreLibrary: [...BUILTIN_GENRE_LIBRARY, ...globalGenreLibrary()],
         antiAiLibrary: BUILTIN_ANTI_AI_RULES,
         styleTemplates: BUILTIN_STYLE_TEMPLATES,
-        progressionLibrary: BUILTIN_PROGRESSION_MODES,
+        progressionLibrary: [...BUILTIN_PROGRESSION_MODES, ...globalProgressionLibrary()],
+        starterStyleProfiles: BUILTIN_STARTER_STYLE_PROFILES,
         plotBeatLibrary: BUILTIN_PLOT_BEATS,
       }
       writeJson(res, 200, response)
@@ -1194,6 +1294,404 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
       } catch (error) {
         writeJson(res, 500, { error: (error as Error).message })
       }
+    },
+  }
+
+  // ----------------------------------------------------------- style-formula
+  const styleFormulaRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.styleFormula,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const config = getConfig()
+      const project = loadProject(config.outputDir)
+      const body = await readJsonBody<StyleEngineRequest & { depth?: string }>(req)
+      const sample = body?.sampleText?.trim()
+      if (sample === undefined || sample.length < 50) {
+        writeJson(res, 400, { error: '样本文本过短（<50 字符），请粘贴一段能代表目标风格的文字' })
+        return
+      }
+      const depth = (['basic', 'standard', 'deep'] as const).includes(body?.depth as never)
+        ? body!.depth! as 'basic' | 'standard' | 'deep'
+        : 'standard'
+      try {
+        const formula = await extractStyleFormula(ctx, config, sample, depth)
+        const key = `sf-${Date.now().toString(36)}`
+        const styleFormula = { key, ...formula, depth, createdAt: new Date().toISOString() }
+        if (project !== undefined) {
+          project.assets ??= emptyProjectAssets()
+          project.assets.styleFormulas ??= []
+          project.assets.styleFormulas.push(styleFormula)
+          project.assets.updatedAt = new Date().toISOString()
+          project.updatedAt = new Date().toISOString()
+          saveProject(config.outputDir, project)
+        }
+        writeJson(res, 200, { styleFormula })
+      } catch (error) {
+        writeJson(res, 500, { error: (error as Error).message })
+      }
+    },
+  }
+
+  // ----------------------------------------------------------- style-detect
+  /** 正文实时 AI 味检测（本地确定性扫描，免 LLM）。 */
+  const styleDetectRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.styleDetect,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<{ text?: string }>(req)
+      const text = body?.text?.trim() ?? ''
+      if (text.length < 20) {
+        writeJson(res, 400, { error: '文本过短（<20 字符）' })
+        return
+      }
+      const scan = scanAiFlavor(text.slice(0, 20000))
+      writeJson(res, 200, { scan })
+    },
+  }
+
+  // --------------------------------------------------------- market-radar
+  /** 热门题材雷达：输入平台/题材/榜单文本 → 信号 + 生产底座 + 开书创意。 */
+  const marketRadarRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.marketRadar,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const config = getConfig()
+      const body = await readJsonBody<MarketRadarRequest>(req)
+      try {
+        const result = await runMarketRadar(ctx, config, body ?? {})
+        writeJson(res, 200, { result })
+      } catch (error) {
+        writeJson(res, 500, { error: (error as Error).message })
+      }
+    },
+  }
+
+  // ------------------------------------------------- market-radar scan
+  /** 真实榜单扫榜：抓取公开榜单（容错），返回分组候选。 */
+  const marketRadarScanRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.marketRadarScan,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<{ platforms?: string[] }>(req)
+      try {
+        const result = await scanMarketRanking(body?.platforms)
+        writeJson(res, 200, { result })
+      } catch (error) {
+        writeJson(res, 500, { error: (error as Error).message })
+      }
+    },
+  }
+
+  // ------------------------------------------------- market-radar apply
+  /** 把雷达生产底座一键应用到某本书（写入项目资产/开书定盘，供后续规划与生成遵守）。 */
+  const marketRadarApplyRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.marketRadarApply,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<{ bookId?: string; foundation?: ProductionFoundation }>(req)
+      const pf = body?.foundation
+      if (pf === undefined) {
+        writeJson(res, 400, { error: '缺少 foundation' })
+        return
+      }
+      const config = getConfig()
+      const outputDir = resolveOutputDir(config, body?.bookId)
+      const project = loadProject(outputDir)
+      if (project === undefined) {
+        writeJson(res, 400, { error: '输出目录中没有项目' })
+        return
+      }
+      const genreBuiltin = BUILTIN_GENRE_LIBRARY.find(g => g.name === (pf.genre.existingId || pf.genre.name))
+      const genreNode: GenreNode = genreBuiltin !== undefined
+        ? { ...genreBuiltin }
+        : { name: pf.genre.name.slice(0, 40), description: pf.genre.description, template: pf.genre.template, children: [] }
+      const findMode = (m: { existingId?: string; name: string }): ProgressionMode | undefined => BUILTIN_PROGRESSION_MODES.find(x => x.name === (m.existingId || m.name))
+      const primary = findMode(pf.primaryStoryMode) ?? {
+        name: pf.primaryStoryMode.name.slice(0, 40),
+        driver: pf.primaryStoryMode.driver,
+        readerExpectation: pf.primaryStoryMode.readerExpectation,
+        payoffs: [],
+        risks: [],
+        primary: true,
+      }
+      const aux: ProgressionMode[] = []
+      if (pf.secondaryStoryMode !== undefined) {
+        const sec = findMode(pf.secondaryStoryMode) ?? {
+          name: pf.secondaryStoryMode.name.slice(0, 40),
+          driver: pf.secondaryStoryMode.driver,
+          readerExpectation: pf.secondaryStoryMode.readerExpectation,
+          payoffs: [],
+          risks: [],
+          primary: false,
+        }
+        aux.push(sec)
+      }
+      project.assets ??= emptyProjectAssets()
+      project.assets.genre = genreNode
+      project.assets.primaryProgression = primary
+      project.assets.auxiliaryProgressions = aux
+      project.bookContract = {
+        promise: pf.genre.description.slice(0, 120),
+        primaryModeName: pf.primaryStoryMode.name,
+        secondaryModeNames: pf.secondaryStoryMode !== undefined ? [pf.secondaryStoryMode.name] : [],
+        tone: pf.genre.template,
+        targetPlatform: undefined,
+      }
+      project.updatedAt = new Date().toISOString()
+      saveProject(outputDir, project)
+      writeJson(res, 200, { ok: true, bookName: project.bookName })
+    },
+  }
+
+  // ------------------------------------------------- market-radar sync
+  /** 把雷达生产底座里的「新资产」同步进全局资源库（跨书复用；已有名字跳过）。 */
+  const marketRadarSyncRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.marketRadarSync,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<{ foundation?: ProductionFoundation }>(req)
+      const pf = body?.foundation
+      if (pf === undefined) {
+        writeJson(res, 400, { error: '缺少 foundation' })
+        return
+      }
+      const synced = { genre: false, primaryMode: false, secondaryMode: false }
+      if (pf.genre.existingId === undefined && pf.genre.name !== '') {
+        synced.genre = addGlobalGenre({ name: pf.genre.name.slice(0, 40), description: pf.genre.description, template: pf.genre.template, children: [] })
+      }
+      if (pf.primaryStoryMode.existingId === undefined && pf.primaryStoryMode.name !== '') {
+        synced.primaryMode = addGlobalMode({ name: pf.primaryStoryMode.name.slice(0, 40), driver: pf.primaryStoryMode.driver, readerExpectation: pf.primaryStoryMode.readerExpectation, payoffs: [], risks: [], primary: true })
+      }
+      if (pf.secondaryStoryMode !== undefined && pf.secondaryStoryMode !== null && pf.secondaryStoryMode.existingId === undefined && pf.secondaryStoryMode.name !== '') {
+        synced.secondaryMode = addGlobalMode({ name: pf.secondaryStoryMode.name.slice(0, 40), driver: pf.secondaryStoryMode.driver, readerExpectation: pf.secondaryStoryMode.readerExpectation, payoffs: [], risks: [], primary: false })
+      }
+      writeJson(res, 200, { ok: true, synced })
+    },
+  }
+
+  // ------------------------------------------------- market-radar brief
+  /** 开书创意简报：用选中的市场信号 + 影响模式生成。 */
+  const marketRadarBriefRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.marketRadarBrief,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const config = getConfig()
+      const body = await readJsonBody<MarketRadarBriefRequest>(req)
+      if (body === undefined || body.influenceMode === undefined) {
+        writeJson(res, 400, { error: '缺少 influenceMode' })
+        return
+      }
+      try {
+        const creativeBrief = await runMarketCreativeBrief(ctx, config, body)
+        writeJson(res, 200, { creativeBrief })
+      } catch (error) {
+        writeJson(res, 500, { error: (error as Error).message })
+      }
+    },
+  }
+
+  // ------------------------------------------------------------- knowledge
+  /** 书内知识库：GET 读取 / POST 增删改（按书路由）。 */
+  const knowledgeRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.knowledge,
+    handler: async (req, res) => {
+      if (req.method === 'POST') {
+        if (!guard(req, res, 'POST')) return
+      } else {
+        if (!guard(req, res, 'GET')) return
+      }
+      const config = getConfig()
+      const qurl = new URL(req.url ?? '/', 'http://localhost')
+      const body = req.method === 'POST' ? await readJsonBody<KnowledgeRequest & { bookId?: string }>(req) : undefined
+      const outputDir = resolveOutputDir(config, body?.bookId ?? qurl.searchParams.get('bookId') ?? undefined)
+      const project = loadProject(outputDir)
+      if (project === undefined) {
+        writeJson(res, 400, { error: '输出目录中没有项目' })
+        return
+      }
+      project.knowledgeDocs ??= []
+      if (req.method === 'POST' && body !== undefined) {
+        if (body.action === 'add' && body.doc !== undefined) {
+          project.knowledgeDocs.push({ id: body.doc.id ?? `kd-${Date.now().toString(36)}`, title: body.doc.title, content: body.doc.content, updatedAt: new Date().toISOString() })
+        } else if (body.action === 'remove' && body.id !== undefined) {
+          project.knowledgeDocs = project.knowledgeDocs.filter(d => d.id !== body.id)
+        } else if (body.action === 'replace' && body.doc !== undefined) {
+          project.knowledgeDocs = project.knowledgeDocs.map(d => d.id === body.doc!.id ? { ...d, title: body.doc!.title, content: body.doc!.content, updatedAt: new Date().toISOString() } : d)
+        }
+        project.updatedAt = new Date().toISOString()
+        saveProject(outputDir, project)
+      }
+      writeJson(res, 200, { docs: project.knowledgeDocs })
+    },
+  }
+
+  // ---------------------------------------------------------- book-analysis
+  /** 书分析/拆书：输入文本 → 卖点/结构/可借鉴点/风险。 */
+  const bookAnalysisRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.bookAnalysis,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const config = getConfig()
+      const body = await readJsonBody<BookAnalysisRequest>(req)
+      if (body === undefined || (body.text ?? '').trim().length < 50) {
+        writeJson(res, 400, { error: '文本过短（<50 字符）' })
+        return
+      }
+      try {
+        const result = await runBookAnalysis(ctx, config, body)
+        writeJson(res, 200, { result })
+      } catch (error) {
+        writeJson(res, 500, { error: (error as Error).message })
+      }
+    },
+  }
+
+  // ---------------------------------------------------------- idea-inspiration
+  /** 创意灵感：一句话/题材 → 多方向开书灵感。 */
+  const ideaInspirationRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.ideaInspiration,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const config = getConfig()
+      const body = await readJsonBody<IdeaInspirationRequest>(req)
+      if (body === undefined || (body.idea ?? '').trim().length < 2) {
+        writeJson(res, 400, { error: '请填写你的方向/一句话想法' })
+        return
+      }
+      try {
+        const result = await runIdeaInspiration(ctx, config, body)
+        writeJson(res, 200, { result })
+      } catch (error) {
+        writeJson(res, 500, { error: (error as Error).message })
+      }
+    },
+  }
+
+  // ------------------------------------------------------- idea-inspiration/market
+  /** 雷达→灵感：基于市场信号/生产底座/创意简报生成开书灵感。 */
+  const marketIdeaInspirationRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.ideaInspirationMarket,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const config = getConfig()
+      const body = await readJsonBody<{ signals?: import('./protocol.ts').MarketRadarSignal[]; foundation?: import('./protocol.ts').ProductionFoundation; brief?: import('./protocol.ts').MarketCreativeBrief; count?: number }>(req)
+      if (body === undefined) {
+        writeJson(res, 400, { error: '缺少市场分析参数' })
+        return
+      }
+      try {
+        const result = await runMarketIdeaInspiration(ctx, config, body)
+        writeJson(res, 200, { result })
+      } catch (error) {
+        writeJson(res, 500, { error: (error as Error).message })
+      }
+    },
+  }
+
+  // ------------------------------------------------------------- director
+  /** 自动导演编排建议：基于全书上下文。 */
+  const directorRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.director,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const config = getConfig()
+      const body = await readJsonBody<DirectorRequest & { bookId?: string }>(req)
+      const outputDir = resolveOutputDir(config, body?.bookId)
+      const project = loadProject(outputDir)
+      if (project === undefined) {
+        writeJson(res, 400, { error: '输出目录中没有项目' })
+        return
+      }
+      try {
+        const result = await runDirectorAdvice(ctx, config, project, body ?? {})
+        writeJson(res, 200, { result })
+      } catch (error) {
+        writeJson(res, 500, { error: (error as Error).message })
+      }
+    },
+  }
+
+  // ------------------------------------------------------------- director/todos
+  /** 自动导演「采纳」出的书内待办：GET 读取 / POST 增删勾选（按书路由）。 */
+  const directorTodosRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.directorTodos,
+    handler: async (req, res) => {
+      type DirectorTodosReq = { op?: 'add' | 'toggle' | 'remove'; text?: string; source?: DirectorTodo['source']; id?: string; bookId?: string }
+      let body: DirectorTodosReq | undefined
+      if (req.method === 'POST') {
+        if (!guard(req, res, 'POST')) return
+        body = await readJsonBody<DirectorTodosReq>(req)
+      } else {
+        if (!guard(req, res, 'GET')) return
+      }
+      const config = getConfig()
+      const outputDir = resolveOutputDir(config, body?.bookId)
+      const project = loadProject(outputDir)
+      if (project === undefined) {
+        writeJson(res, 400, { error: '输出目录中没有项目' })
+        return
+      }
+      project.todos ??= []
+      if (req.method === 'POST' && body !== undefined) {
+        if (body.op === 'add' && (body.text ?? '').trim() !== '') {
+          project.todos.unshift({ id: `td-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, text: body.text!.trim(), source: body.source ?? 'fix', done: false, createdAt: new Date().toISOString() })
+        } else if (body.op === 'toggle' && body.id !== undefined) {
+          project.todos = project.todos.map(t => t.id === body.id ? { ...t, done: !t.done } : t)
+        } else if (body.op === 'remove' && body.id !== undefined) {
+          project.todos = project.todos.filter(t => t.id !== body.id)
+        }
+        project.updatedAt = new Date().toISOString()
+        saveProject(outputDir, project)
+      }
+      writeJson(res, 200, { todos: project.todos })
+    },
+  }
+
+  // ------------------------------------------------------------- llm-live
+  /** AI 创作实况：订阅 LLM 实时事件流（NDJSON；订阅时先重放最近缓冲）。 */
+  const llmLiveRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.llmLive,
+    handler: async (req, res) => {
+      if (req.method !== 'GET') {
+        writeJson(res, 405, { error: 'GET only' })
+        return
+      }
+      if (!isLoopbackRequest(req)) {
+        writeJson(res, 403, { error: 'forbidden: loopback-only' })
+        return
+      }
+      res.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache',
+        'x-accel-buffering': 'no',
+        'referrer-policy': 'no-referrer',
+      })
+      const unsubscribe = subscribeLiveFeed((frame) => {
+        try { res.write('data: ' + JSON.stringify(frame) + '\n\n') } catch { /* client closed */ }
+      })
+      const hb = setInterval(() => { try { res.write(': ping\n\n') } catch { /* closed */ } }, 25000)
+      // 关键：让 handler 一直挂起，直到客户端关闭，避免 WebRoute 框架在 handler 返回后关闭响应。
+      await new Promise<void>((resolve) => {
+        res.on('close', () => {
+          clearInterval(hb)
+          unsubscribe()
+          resolve()
+        })
+      })
     },
   }
 
@@ -1408,9 +1906,15 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     path: NOVEL_API.audit,
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
-      const config = getConfig()
-      const project = requireProject(res)
-      if (project === undefined) return
+      const body = await readJsonBody<{ bookId?: string }>(req)
+      const config0 = getConfig()
+      const outputDir = resolveOutputDir(config0, body?.bookId)
+      const config = { ...config0, outputDir }
+      const project = loadProject(outputDir)
+      if (project === undefined) {
+        writeJson(res, 400, { error: '输出目录中没有项目' })
+        return
+      }
       const startedAt = new Date().toISOString()
       auditState = { status: 'running', startedAt, totalBatches: 0, completedBatches: 0 }
       try {
@@ -1433,6 +1937,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           issues,
           auditedChapters,
           auditedAt: auditState.finishedAt!,
+          model: config.auditModel || config.model,
         }
         writeJson(res, 200, response)
       } catch (error) {
@@ -2930,9 +3435,10 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     path: NOVEL_API.runStart,
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
-      const body = await readJsonBody<RunStartRequest>(req)
+      const body = await readJsonBody<RunStartRequest & { bookId?: string }>(req)
       const config = getConfig()
-      const project = loadProject(config.outputDir)
+      const outputDir = resolveOutputDir(config, body?.bookId)
+      const project = loadProject(outputDir)
       if (project === undefined) {
         writeJson(res, 400, { error: '输出目录中没有项目' })
         return
@@ -2949,7 +3455,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         return
       }
       try {
-        const state = await runner.start(startNo, endNo)
+        const state = await runner.start(startNo, endNo, outputDir)
         writeJson(res, 200, state satisfies RunState)
       } catch (error) {
         writeJson(res, 409, { error: (error as Error).message })
@@ -3340,6 +3846,20 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     chapterSaveRoute,
     assetsRoute,
     styleEngineRoute,
+    styleFormulaRoute,
+    styleDetectRoute,
+    marketRadarRoute,
+    marketRadarScanRoute,
+    marketRadarApplyRoute,
+    marketRadarSyncRoute,
+    marketRadarBriefRoute,
+    knowledgeRoute,
+    bookAnalysisRoute,
+    ideaInspirationRoute,
+    marketIdeaInspirationRoute,
+    directorRoute,
+    directorTodosRoute,
+    llmLiveRoute,
     assistantRoute,
     assistantHistoryRoute,
     assistantClearRoute,

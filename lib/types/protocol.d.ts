@@ -16,6 +16,20 @@ export declare const NOVEL_API: {
     readonly bible: "/api/dsh-novel-forge/bible";
     readonly assets: "/api/dsh-novel-forge/assets";
     readonly styleEngine: "/api/dsh-novel-forge/style-engine";
+    readonly styleFormula: "/api/dsh-novel-forge/style-formula";
+    readonly styleDetect: "/api/dsh-novel-forge/style-detect";
+    readonly knowledge: "/api/dsh-novel-forge/knowledge";
+    readonly bookAnalysis: "/api/dsh-novel-forge/book-analysis";
+    readonly ideaInspiration: "/api/dsh-novel-forge/idea-inspiration";
+    readonly ideaInspirationMarket: "/api/dsh-novel-forge/idea-inspiration/market";
+    readonly director: "/api/dsh-novel-forge/director";
+    readonly directorTodos: "/api/dsh-novel-forge/director/todos";
+    readonly llmLive: "/api/dsh-novel-forge/llm-live/stream";
+    readonly marketRadar: "/api/dsh-novel-forge/market-radar";
+    readonly marketRadarScan: "/api/dsh-novel-forge/market-radar/scan";
+    readonly marketRadarApply: "/api/dsh-novel-forge/market-radar/apply";
+    readonly marketRadarSync: "/api/dsh-novel-forge/market-radar/foundation-sync";
+    readonly marketRadarBrief: "/api/dsh-novel-forge/market-radar/brief";
     readonly generate: "/api/dsh-novel-forge/generate";
     readonly review: "/api/dsh-novel-forge/review";
     readonly rewrite: "/api/dsh-novel-forge/rewrite";
@@ -561,6 +575,22 @@ export interface ChapterPlan {
     beats: string;
     /** Target character count (defaults to the configured chapter size). */
     targetChars: number;
+    /** 本章必达项（必须推进的局面/关系/信息/风险/决策变化）。 */
+    mustAdvance?: string[];
+    /** 本章必须保持/不得破坏的项（如人物状态、已有伏笔不提前揭）。 */
+    mustPreserve?: string[];
+    /** 本章不可违背的人物硬事实（身份/阵营/境界/当前位置/知情度）。 */
+    characterHardFacts?: string[];
+    /** 伏笔操作指令（seed/touch/pressure/partial_reveal/payoff/forbid）。 */
+    payoffDirectives?: Array<{
+        no?: number;
+        operation?: 'seed' | 'touch' | 'pressure' | 'partial_reveal' | 'payoff' | 'forbid';
+        text?: string;
+    }>;
+    /** 章末钩子要求（悬念/反转/新线索/未闭合选择）。 */
+    endingHook?: string;
+    /** 本章义务合约（人类可读摘要，供生成与审稿共同锚定）。 */
+    obligation?: string;
     /** Generation/review state. */
     status: ChapterStatus;
     /** 进入 generating 的时间（用于超时自动复位；未在生成时无此字段）。 */
@@ -599,6 +629,14 @@ export interface AuthorReview {
     continuity: string;
     /** 近期节奏趋势提示（拖沓/爽点密度等）。 */
     trend: string;
+    /** 本章发生的关键状态变化（人物状态/世界局面/关系/资源），用于回灌整本与事实库。 */
+    stateChanges?: string[];
+    /** 本章新引入或升级的冲突（供整本控制层与后续卷节奏参考）。 */
+    newConflicts?: string[];
+    /** 本章埋下/推进的新线索（供知识与伏笔系统回灌）。 */
+    clues?: string[];
+    /** 本章缺席但值得注意的角色及风险（卷级职责/缺席风险）。 */
+    absentRisks?: string[];
     /** 复盘时间。 */
     reviewedAt: string;
 }
@@ -614,6 +652,18 @@ export interface ReviewIssue {
     item: string;
     /** Concrete suggestion for fixing it. */
     suggestion: string;
+    /** 命中的反 AI 规则名（结构化，便于统计）。 */
+    ruleName?: string;
+    /** 规则类别：forbidden / risk / encourage。 */
+    ruleType?: 'forbidden' | 'risk' | 'encourage';
+    /** 问题细分类（如 套话 句式 段落 心理 设定）。 */
+    category?: string;
+    /** 命中的原文摘录。 */
+    excerpt?: string;
+    /** 判定理由。 */
+    reason?: string;
+    /** 是否可自动改写。 */
+    canAutoRewrite?: boolean;
 }
 /** AI review report for one chapter. */
 export interface ReviewReport {
@@ -625,6 +675,15 @@ export interface ReviewReport {
     verdict: string;
     /** Individual findings. */
     issues: ReviewIssue[];
+    /** 风险分 0-100（越高越需人工处理；源自 LLM 复核与本地扫描）。 */
+    riskScore?: number;
+    /** 本地 AI 味指数 0-100（越高越像 AI；LLM 复核锚点，供 UI 展示）。 */
+    aiFlavor?: number;
+    /** 本地扫描命中的高频套话（按次数降序，取前若干）。 */
+    aiPhrases?: Array<{
+        word: string;
+        count: number;
+    }>;
     /** When the review ran. */
     reviewedAt: string;
 }
@@ -640,6 +699,155 @@ export interface Volume {
     chapterStart: number;
     /** Last chapter number (inclusive). */
     chapterEnd: number;
+    /** 卷级战略（这一卷的定位/承转，如「立威卷」「冲突升级卷」）。 */
+    strategy?: string;
+    /** 卷节奏板（这一卷的节奏安排：起-承-转-合/爽点密度/关键节点）。 */
+    pacing?: string;
+}
+/** 开书定盘：面向读者的承诺与流派定位（生成/规划均可引用）。 */
+export interface BookContract {
+    /** 一句话卖点/题材承诺。 */
+    promise?: string;
+    /** 主推进模式名（从推进模式库选）。 */
+    primaryModeName?: string;
+    /** 辅助推进模式名。 */
+    secondaryModeNames?: string[];
+    /** 整体文风基调（一句话）。 */
+    tone?: string;
+    /** 目标平台（如「番茄」）。 */
+    targetPlatform?: string;
+}
+/** 书内知识库文档（供生成/规划时检索注入的参考资料）。 */
+export interface KnowledgeDoc {
+    id: string;
+    title: string;
+    content: string;
+    updatedAt: string;
+}
+/** POST /knowledge request：增删改知识库文档。 */
+export interface KnowledgeRequest {
+    action: 'add' | 'remove' | 'replace';
+    doc?: {
+        id?: string;
+        title: string;
+        content: string;
+    };
+    id?: string;
+}
+/** POST /book-analysis request。 */
+export interface BookAnalysisRequest {
+    text: string;
+}
+/** 书分析/拆书结果。 */
+export interface BookAnalysisResult {
+    sellingPoints: string[];
+    structure: string[];
+    lessons: string[];
+    risks: string[];
+}
+/** POST /idea-inspiration request。 */
+export interface IdeaInspirationRequest {
+    idea: string;
+    count?: number;
+}
+/** 创意灵感结果：多方向开书灵感。 */
+export interface IdeaInspirationResult {
+    ideas: Array<{
+        title: string;
+        hook: string;
+        genre: string;
+        pov: string;
+        payoff: string;
+    }>;
+}
+/** POST /director request。 */
+export interface DirectorRequest {
+    focus?: string;
+}
+/** 自动导演编排建议（下一卷/阶段编排 + 修复再平衡）。 */
+export interface DirectorAdvice {
+    summary: string;
+    nextArc: string[];
+    pacing: string;
+    risks: string[];
+    fixes: string[];
+}
+/** 自动导演「采纳」后生成的书内待办项。 */
+export interface DirectorTodo {
+    id: string;
+    text: string;
+    /** 来源：风险 或 修复。 */
+    source: 'risk' | 'fix';
+    done: boolean;
+    createdAt: string;
+}
+/** 题材雷达：单条市场信号。 */
+export interface MarketRadarSignal {
+    id: string;
+    kind: 'genre' | 'protagonist' | 'advantage' | 'opening' | 'relationship' | 'title_pattern' | 'opportunity' | 'crowding';
+    title: string;
+    detail: string;
+    /** 趋势：current / rising / stable / falling。 */
+    direction?: 'current' | 'rising' | 'stable' | 'falling';
+    /** 是否建议优先考虑。 */
+    recommended?: boolean;
+}
+/** 题材雷达：生产底座（引用内置题材/推进模式库，或给出新资产）。 */
+export interface ProductionFoundation {
+    genre: {
+        existingId?: string;
+        name: string;
+        description: string;
+        template?: string;
+    };
+    primaryStoryMode: {
+        existingId?: string;
+        name: string;
+        driver: string;
+        readerExpectation: string;
+    };
+    secondaryStoryMode?: {
+        existingId?: string;
+        name: string;
+        driver: string;
+        readerExpectation: string;
+    };
+}
+/** 题材雷达：开书创意简报（可执行，严禁照搬具体作品/命名）。 */
+export interface MarketCreativeBrief {
+    promptBlock: string;
+    openingIdea: string;
+    coreAdvantage: string;
+    bookSellingPoint: string;
+    first30ChapterPromise: string;
+}
+/** 题材雷达结果。 */
+export interface MarketRadarResult {
+    signals: MarketRadarSignal[];
+    productionFoundation: ProductionFoundation;
+    /** 开书创意简报（可选；用「用信号创作」接口单独生成）。 */
+    creativeBrief?: MarketCreativeBrief;
+}
+/** POST /market-radar request。 */
+export interface MarketRadarRequest {
+    platform?: string;
+    genre?: string;
+    keywords?: string;
+    feedText?: string;
+    /** 已扫描的上榜记录（来自真实榜单抓取），用于让分析基于真实榜单证据。 */
+    candidates?: Array<{
+        title: string;
+        author?: string;
+        tags?: string[];
+        synopsis?: string;
+        category?: string;
+        heatLabel?: string;
+    }>;
+}
+/** POST /market-radar/brief request：用选中的信号 + 影响模式生成开书创意。 */
+export interface MarketRadarBriefRequest {
+    influenceMode: 'follow_hot' | 'differentiate' | 'light';
+    signals: MarketRadarSignal[];
 }
 /** A character card from the story bible. */
 export interface CharacterCard {
@@ -708,6 +916,8 @@ export interface AuditResponse {
     auditedChapters: number;
     /** 质检时间。 */
     auditedAt: string;
+    /** 本次质检使用的模型（auditModel 或全局 model）。 */
+    model?: string;
 }
 /** 全书质检的实时状态（通过 /status 暴露给面板/外部读取）。 */
 export interface AuditStatus {
@@ -1231,8 +1441,14 @@ export interface ProjectState {
     assets?: ProjectAssets;
     /** 事实库/时间线：每章生成后抽取，注入后续章节保持一致性。 */
     facts?: ChapterFact[];
+    /** 书内知识库文档（可检索资料/设定/参考）。 */
+    knowledgeDocs?: KnowledgeDoc[];
+    /** 自动导演待办：风险/修复「采纳」后生成的随手清单。 */
+    todos?: DirectorTodo[];
     /** 小说简介（面向读者的作品门面，AI 生成或手动保存）。 */
     blurb?: string;
+    /** 开书定盘：书籍级承诺与流派定位（前30章承诺/主副模式/文风/平台）。 */
+    bookContract?: BookContract;
     /** 封面文件名（相对输出目录，如 cover.png）。 */
     coverPath?: string;
     /** 大世界结构化数据（境界体系/区域/势力）。 */
@@ -1405,6 +1621,12 @@ export interface NovelConfig {
     provider: string;
     /** LLM model id (e.g. deepseek-v4-flash). */
     model: string;
+    /** 生成正文用模型（缺省用 model）。 */
+    generateModel?: string;
+    /** 审稿用模型（缺省用 model；建议用更强的 reasoner/pro）。 */
+    reviewModel?: string;
+    /** 全书质检(审计)用模型（缺省用 model）。 */
+    auditModel?: string;
     /** LLM reasoning effort: off = no thinking; low/high/max = thinking intensity. */
     reasoningEffort: 'off' | 'low' | 'high' | 'max';
     /** 分析类任务（提炼/拆书/反推大纲等）的推理档位；默认 low，不受上面写作档位影响。 */
@@ -1668,6 +1890,9 @@ export interface ConfigPatch {
     outputDir?: string;
     provider?: string;
     model?: string;
+    generateModel?: string;
+    reviewModel?: string;
+    auditModel?: string;
     reasoningEffort?: 'off' | 'low' | 'high' | 'max';
     analysisReasoning?: 'off' | 'low' | 'high' | 'max';
     chapterChars?: number;
@@ -1720,6 +1945,12 @@ export type AssistantFrame = {
     type: 'toolDelta';
     name: string;
     text: string;
+}
+/** 工具完整结果（供前端渲染成结构化卡片，如拆书/导演）。 */
+ | {
+    type: 'toolResult';
+    name: string;
+    text: string;
 } | {
     type: 'done';
 } | {
@@ -1732,15 +1963,21 @@ export interface AssistantHistoryResponse {
 }
 /** 题材基底库：一本书属于哪个阅读市场。树形（题材→子题材→下级）。 */
 export interface GenreNode {
+    /** 稳定标识（内置库交叉引用）。 */
+    id?: string;
     /** 题材名称（标签，如「仙侠修真」「都市异能」）。 */
     name: string;
     /** 题材特征、常见爽点、叙事重心或读者期待。 */
     description: string;
+    /** 该题材的写法指引（开书定盘/卷计划用，区别于「读者期待」）。 */
+    template?: string;
     /** 子题材。 */
     children: GenreNode[];
 }
 /** 推进模式库：读者为什么继续看下一章。 */
 export interface ProgressionMode {
+    /** 稳定标识（与内置库交叉引用）。 */
+    key?: string;
     /** 模式名称（如「升级变强」「经营扩张」「解谜揭露」）。 */
     name: string;
     /** 核心驱动力：靠什么制造追读动力。 */
@@ -1753,11 +1990,33 @@ export interface ProgressionMode {
     risks: string[];
     /** 主模式或辅助模式。 */
     primary: boolean;
+    /** 该模式的写法指引（开书定盘/卷计划用）。 */
+    template?: string;
+    /** 推进单位序列（每章如何推进，如「立威→打破质疑→扩大影响→碾压」）。 */
+    progressionUnits?: string[];
+    /** 允许出现的冲突形态。 */
+    allowedConflictForms?: string[];
+    /** 应避免的冲突形态（跑偏信号）。 */
+    forbiddenConflictForms?: string[];
+    /** 冲突烈度上限（low/medium/high），用于卷/章计划和审稿对齐。 */
+    conflictCeiling?: 'low' | 'medium' | 'high';
+    /** 单章推进单位说明。 */
+    chapterUnit?: string;
+    /** 卷末应兑现的回报。 */
+    volumeReward?: string;
+    /** 主驱动必须持续出现的信号（读者期待确认）。 */
+    mandatorySignals?: string[];
+    /** 反信号：出现即跑偏。 */
+    antiSignals?: string[];
+    /** 优先用的问题解决方式。 */
+    resolutionStyle?: string;
 }
 /** 反 AI 规则：一条「要避免的问题 + 修正方向」。 */
 export interface AntiAiRule {
     /** 规则名（如「禁止解释型心理描写」「AI 高频套话」）。 */
     name: string;
+    /** 稳定标识（与 defaultAntiAiRuleKeys 交叉引用；缺省用 name）。 */
+    key?: string;
     /** 要避免的表达问题，具体可检查。 */
     avoid: string;
     /** 推荐修正方向。 */
@@ -1766,14 +2025,55 @@ export interface AntiAiRule {
     detectPatterns?: string[];
     /** 是否内置全局规则（内置规则随插件发布，项目规则为用户自定义）。 */
     builtin?: boolean;
-    /** 规则类型：forbidden=禁止类（命中即问题）/ encourage=鼓励类（不命中不算错，只作建议）。缺省按名称「鼓励」前缀推断。 */
-    severity?: 'forbidden' | 'encourage';
+    /** 规则类别：forbidden=禁止类（命中即问题）/ risk=风险类（需注意但不硬伤）/ encourage=鼓励类（不命中不算错，只作建议）。 */
+    severity?: 'forbidden' | 'risk' | 'encourage';
+    /** 问题严重度（用于审稿优先级；缺省按类别推断）。 */
+    riskLevel?: 'low' | 'medium' | 'high';
+    /** 生成时直接注入的约束指令（缺失时回退到 avoid）。 */
+    promptInstruction?: string;
+    /** 是否允许自动改写（risk 类通常 false）。 */
+    autoRewrite?: boolean;
+    /** 是否为全局基线规则（新书默认启用，防止规则丢失后降级）。 */
+    globalBaselineEnabled?: boolean;
     /** 是否启用（缺省 true）。 */
     enabled?: boolean;
     /** 作用域（缺省 all）。 */
     scope?: Array<'writing' | 'review' | 'polish' | 'all'>;
 }
 /** 预置写法模板（来自 AI-Novel-Writing-Assistant 内置数据，一键绑定无需样本文本）。 */
+export interface StyleTemplateNarrativeRules {
+    progressionMode?: string;
+    sceneUnitPattern?: string[];
+    multiPov?: boolean;
+    looping?: boolean;
+    endingStyle?: string;
+    povSwitchStyle?: string;
+    summary?: string;
+}
+export interface StyleTemplateCharacterRules {
+    allowSelfReflection?: boolean;
+    emotionExpression?: string;
+    defenseMechanisms?: string[];
+    facePriority?: boolean;
+    dialogueStyle?: string;
+    summary?: string;
+}
+export interface StyleTemplateLanguageRules {
+    register?: string;
+    roughness?: number;
+    allowIncompleteSentences?: boolean;
+    allowSwearing?: boolean;
+    sentenceVariation?: string;
+    allowUselessDetails?: boolean;
+    summary?: string;
+}
+export interface StyleTemplateRhythmRules {
+    pace?: string;
+    paragraphDensity?: string;
+    allowFragmentedFlow?: boolean;
+    actionOverExplanation?: boolean;
+    summary?: string;
+}
 export interface StyleTemplate {
     /** 模板 key（如 power-up-escalation）。 */
     key: string;
@@ -1785,16 +2085,39 @@ export interface StyleTemplate {
     category: string;
     /** 适用题材。 */
     applicableGenres: string[];
-    /** 叙述规则。 */
+    /** 标签（便于筛选）。 */
+    tags?: string[];
+    /** 一句话分析（模板定位说明）。 */
+    analysisMarkdown?: string;
+    /** 叙述规则（结构化）。 */
+    narrative?: StyleTemplateNarrativeRules;
+    /** 角色规则（结构化）。 */
+    character?: StyleTemplateCharacterRules;
+    /** 语言规则（结构化）。 */
+    language?: StyleTemplateLanguageRules;
+    /** 节奏规则（结构化）。 */
+    rhythm?: StyleTemplateRhythmRules;
+    /** 叙述规则（扁平，兼容旧数据）。 */
     proseRules: string[];
-    /** 角色/台词规则。 */
+    /** 角色/台词规则（扁平，兼容旧数据）。 */
     dialogueRules: string[];
-    /** 语言规则。 */
+    /** 语言规则（扁平，兼容旧数据）。 */
     languageRules: string[];
-    /** 节奏规则。 */
+    /** 节奏规则（扁平，兼容旧数据）。 */
     rhythmRules: string[];
     /** 该模板默认绑定的反 AI 规则 key（内置规则名）。 */
     defaultAntiAiRuleKeys: string[];
+}
+/** 起始风格画像：无样本文本也能快速绑定一套写法（对齐上游 DEFAULT_STARTER_STYLE_PROFILES）。 */
+export interface StarterStyleProfile {
+    /** stable key（如 starter-power-up）。 */
+    key: string;
+    /** 绑定到的写法模板 key。 */
+    templateKey: string;
+    /** 画像名。 */
+    name: string;
+    /** 画像说明。 */
+    description: string;
 }
 /** 剧情桥段库：可复用的情节套路/桥段（作者阅读经验沉淀，与书内 Plotline 不同层）。 */
 export interface PlotBeatTemplate {
@@ -1833,6 +2156,31 @@ export interface StyleAsset {
     boundaries: string[];
     /** 来源样本文本（可空）。 */
     sourceText?: string;
+    /** 仿写预设：imitate=高保真仿写 / balanced=平衡 / transfer=迁移（去指纹）。 */
+    preset?: 'imitate' | 'balanced' | 'transfer';
+    /** 指纹风险：仿写时照搬原作独特表达的风险。 */
+    fingerprintRisk?: 'low' | 'medium' | 'high';
+    /** 净化后的写作指引（可安全用于生成，去掉了会暴露来源的具体细节）。 */
+    writingGuidance?: string[];
+    /** 禁止照搬的原作特有实体（人名/地名/核心设定句式），生成时需避开。 */
+    forbiddenEntities?: string[];
+    /** 创建时间。 */
+    createdAt: string;
+}
+/** 写作公式（从样本文本分层提取的"这套文怎么写"浓缩，供生成/改写复用）。 */
+export interface StyleFormula {
+    /** 稳定 key。 */
+    key: string;
+    /** 公式名。 */
+    name: string;
+    /** 提取深度：basic=骨架 / standard=完整 / deep=逐句细化。 */
+    depth: 'basic' | 'standard' | 'deep';
+    /** 重点聚焦域（如 开场/对话/节奏/爽点密度）。 */
+    focusAreas: string[];
+    /** 公式正文（Markdown）。 */
+    formula: string;
+    /** 应用指引（生成/改写时如何套用）。 */
+    applyGuidance: string;
     /** 创建时间。 */
     createdAt: string;
 }
@@ -1848,6 +2196,8 @@ export interface ProjectAssets {
     antiAiRules: AntiAiRule[];
     /** 绑定的写法资产。 */
     styleAssets: StyleAsset[];
+    /** 写作公式（分层提取：basic/standard/deep）。 */
+    styleFormulas?: StyleFormula[];
     /** 资产更新时间。 */
     updatedAt?: string;
 }
@@ -1862,6 +2212,8 @@ export interface AssetsResponse {
     styleTemplates: StyleTemplate[];
     /** 内置推进模式候选。 */
     progressionLibrary: ProgressionMode[];
+    /** 起始风格画像（无样本文本快速绑定写法）。 */
+    starterStyleProfiles: StarterStyleProfile[];
     /** 内置剧情桥段库（可复用套路）。 */
     plotBeatLibrary: PlotBeatTemplate[];
 }
@@ -1872,6 +2224,7 @@ export interface AssetsPatch {
     auxiliaryProgressions?: ProgressionMode[];
     antiAiRules?: AntiAiRule[];
     styleAssets?: StyleAsset[];
+    styleFormulas?: StyleFormula[];
 }
 /** POST /style-engine request：从样本文本提取写法资产。 */
 export interface StyleEngineRequest {
@@ -1935,8 +2288,11 @@ export interface AdaptationDimension {
     current: string;
     /** 该值在正文中的出现证据（章节/频次，可空）。 */
     evidence?: string;
-    /** AI 建议的候选新值（可空）。 */
-    candidates?: string[];
+    /** AI 建议的候选新值（可空，每套含名称与一句话说明）。 */
+    candidates?: Array<{
+        name: string;
+        desc?: string;
+    }>;
     /** 联动影响说明（改了会影响哪些章节/角色/伏笔/术语）。 */
     impact: string;
     /** 风险评级。 */

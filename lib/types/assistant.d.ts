@@ -41,5 +41,9 @@ export declare function runAssistantTurn(ctx: Context, config: NovelConfig, proj
     frame: 'toolDelta';
     name: string;
     text: string;
+} | {
+    frame: 'toolResult';
+    name: string;
+    text: string;
 }, void, unknown>;
 export { chapterFileName };

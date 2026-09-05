@@ -46,6 +46,12 @@ export interface Config {
   provider?: string
   /** LLM model id. */
   model?: string
+  /** 任务级模型路由：正文生成模型（留空则跟随 model）。 */
+  generateModel?: string
+  /** 任务级模型路由：审稿模型（留空则跟随 model）。 */
+  reviewModel?: string
+  /** 任务级模型路由：AI 复核/质检模型（留空则跟随 model）。 */
+  auditModel?: string
   /** LLM reasoning effort (off/low/high/max). */
   reasoningEffort?: 'off' | 'low' | 'high' | 'max'
   /** 分析类任务（提炼/拆书/反推大纲等）的推理档位；默认 low。 */
@@ -87,6 +93,9 @@ export const Config: z<Config> = z.object({
   outputDir: z.string().default(join(homedir(), '.dsh', 'novels')),
   provider: z.string().default('deepseek-official'),
   model: z.string().default('deepseek-v4-flash'),
+  generateModel: z.string().default(''),
+  reviewModel: z.string().default(''),
+  auditModel: z.string().default(''),
   reasoningEffort: z.union(['off', 'low', 'high', 'max']).default('off'),
   analysisReasoning: z.union(['off', 'low', 'high', 'max']).default('low'),
   chapterChars: z.number().default(3500),
@@ -140,6 +149,9 @@ export function resolveConfig(value: Partial<Config> | undefined): NovelConfig {
     outputDir: value?.outputDir ?? DEFAULT_OUTPUT_DIR,
     provider: value?.provider ?? DEFAULT_PROVIDER,
     model: value?.model ?? DEFAULT_MODEL,
+    generateModel: value?.generateModel,
+    reviewModel: value?.reviewModel,
+    auditModel: value?.auditModel,
     reasoningEffort: value?.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
     analysisReasoning: value?.analysisReasoning ?? DEFAULT_ANALYSIS_REASONING,
     chapterChars: value?.chapterChars ?? DEFAULT_CHAPTER_CHARS,
@@ -205,6 +217,9 @@ export function apply(ctx: Context, config?: Config): void {
     if (patch.outputDir !== undefined) next.outputDir = patch.outputDir
     if (patch.provider !== undefined) next.provider = patch.provider
     if (patch.model !== undefined) next.model = patch.model
+    if (patch.generateModel !== undefined) next.generateModel = patch.generateModel
+    if (patch.reviewModel !== undefined) next.reviewModel = patch.reviewModel
+    if (patch.auditModel !== undefined) next.auditModel = patch.auditModel
     if (patch.reasoningEffort !== undefined) next.reasoningEffort = patch.reasoningEffort
     if (patch.analysisReasoning !== undefined) next.analysisReasoning = patch.analysisReasoning
     if (patch.chapterChars !== undefined) next.chapterChars = patch.chapterChars
@@ -276,7 +291,8 @@ export function apply(ctx: Context, config?: Config): void {
   // 运行时 skill：章节批量生产与值守处理（只在本插件环境可用）。
   // 通过 ctx.get('skills') 获取注册表（服务存在时注册，缺失则跳过，不影响其他能力）。
   const skillsService = ctx.get('skills') as { register?: (skill: { name: string; provider: string; description: string; content: string }) => () => void } | undefined
-  if (skillsService?.register !== undefined) {
+  // [disabled 2026-09-05] 运行时 skill 注册按用户要求暂时关闭（排查 .length 报错）。
+  if (skillsService !== undefined && skillsService.register !== undefined && false) {
     const disposeSkill = skillsService.register({
       name: 'novel-forge-chapter-batch',
       provider: 'dsh-novel-forge',

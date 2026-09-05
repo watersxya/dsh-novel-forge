@@ -26,7 +26,7 @@ export function ProgressConsole({ progress, busy, busyLabel, liveBar, onClear }:
   }, [progress]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-10)', height: '100%', minHeight: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-10)', minHeight: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ fontWeight: 600 }}>📊 AI 进度</span>
         <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={onClear} title="清空活动记录">清空</button>
@@ -40,12 +40,11 @@ export function ProgressConsole({ progress, busy, busyLabel, liveBar, onClear }:
           {liveBar?.text !== undefined && <span className={css.liveText}>{liveBar.text}</span>}
         </div>
       )}
-      <div className={css.progress} style={{ flex: 1, minHeight: 0, overflowY: 'auto', border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-10)', background: 'var(--nf-bg-inset)', padding: 'var(--nf-space-8)', display: 'flex', flexDirection: 'column' }}>
+      <div className={css.progress} style={{ flex: '0 1 auto', maxHeight: '42%', minHeight: 0, overflowY: 'auto', border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-10)', background: 'var(--nf-bg-inset)', padding: 'var(--nf-space-8)', display: 'flex', flexDirection: 'column' }}>
         {progress.length === 0 ? (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 'var(--nf-space-4)', color: 'var(--nf-text-3)', fontSize: 'var(--nf-fs-12)', minHeight: 120 }}>
-            <span style={{ fontSize: 'var(--nf-fs-22)' }}>📭</span>
-            <span>暂无活动记录</span>
-            <span>生成、审稿等操作会显示在这里</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--nf-space-6)', color: 'var(--nf-text-3)', fontSize: 'var(--nf-fs-12)', padding: 'var(--nf-space-4) 2px' }}>
+            <span>📭</span>
+            <span>暂无活动记录，生成、审稿等操作会显示在这里</span>
           </div>
         ) : (
           progress.map(line => (

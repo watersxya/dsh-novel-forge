@@ -29,6 +29,11 @@ import {
   reviewChapter,
   saveProject,
   summarizeAndExtractFacts,
+  runBookAnalysis,
+  runDirectorAdvice,
+  breakdownBook,
+  auditBook,
+  generateBlurb,
 } from './engine.ts'
 import { rewriteChapterStream } from './engine.ts'
 
@@ -36,7 +41,7 @@ import { rewriteChapterStream } from './engine.ts'
 export const ASSISTANT_HISTORY_FILE = 'novel-assistant.jsonl'
 
 /** Max tool-call rounds per user turn (safety bound). */
-const MAX_TOOL_ROUNDS = 6
+const MAX_TOOL_ROUNDS = 4
 
 /** Max history messages kept in context (older ones summarized away). */
 const MAX_HISTORY_MESSAGES = 18
@@ -174,11 +179,12 @@ function assistantSystemPrompt(project: ProjectState): string {
     '工作规则（严格遵守）：',
     '1. 全量知情：回答和修改必须基于项目真实数据，禁止编造书中不存在的设定。需要完整信息时，先调用 book_overview 获取全书上下文（总纲全文/道藏/大世界/编年录/全部章节要点/暗线/卷首语）；需要某章正文用 chapter_text。',
     '2. 修改流程：改前用一句话说明意图 → 执行工具 → 改后简要汇报。',
-    '3. 连锁维护：改动可能波及其它位置（其它章节、设定、编年录、卷首语）时，执行后主动调用 impact_analysis 分析影响面，并把「必须同步」的项一并处理或明确提示作者逐项确认。',
+    '3. 连锁维护（只用于大改动，不要滥用）：改动**整段大纲/道藏规则/章节正文**这类可能冲突的大改动时，才主动调用 impact_analysis；**新增知识库文档、记待办、加剧情线、改暗线状态**这类轻量增改，做完直接一句话汇报即可，禁止再连锁调用其它工具。',
     '4. 删除红线：删除章节、清空设定等破坏性操作必须等作者明确同意。',
-    '5. 品质门槛：建议必须具体——指出问题在哪一章、哪一段、哪一句，并给出可落地的改法；禁止"建议增强冲突"这类空话。',
-    '6. 设定忠诚：忠于总纲、道藏、大世界、编年录；发现书中已有内容与设定冲突时，主动指出并给修正方案。',
-    '7. 中文回复，简洁有干货。',
+    '5. 收敛执行（最重要）：每轮只做用户明确要求的那一件事。执行完立即用一句话汇报并结束本轮；**禁止**重复调用已做过的工具、**禁止**为了"保险/确认/顺便"再调用无关工具。若用户说"记住这个设定/记一条待办/加一条剧情线"，就调对应工具一次 → 汇报 → 停。',
+    '6. 品质门槛：建议必须具体——指出问题在哪一章、哪一段、哪一句，并给出可落地的改法；禁止"建议增强冲突"这类空话。',
+    '7. 设定忠诚：忠于总纲、道藏、大世界、编年录；发现书中已有内容与设定冲突时，主动指出并给修正方案。',
+    '8. 中文回复，简洁有干货。',
     '',
     '可用工具：',
     '- book_overview：{"scope": "recent|full|volume:2"(可选，默认 recent)}。返回全书上下文包（总纲/道藏/大世界/章节要点/编年录/暗线/卷首语）。recent=最近30章；full=全部章节（书很长时慎用）；volume:N=只看第N卷。',
@@ -199,6 +205,18 @@ function assistantSystemPrompt(project: ProjectState): string {
     '- assets_set_genre：{"name": "题材名", "description": "题材说明(可选)"}。设置本书题材基底。',
     '- assets_set_progression：{"name": "模式名", "driver": "驱动力", "primary": true/false}。设置主/辅助推进模式。',
     '- assets_add_rule：{"name": "规则名(可选)", "avoid": "要避免的表达问题", "fix": "修正方向(可选)}。新增反 AI 规则。',
+    '- book_analysis：{"scope": "recent|full|volume:N"(可选)}。拆书：提炼本书卖点/结构/可借鉴/风险（分析当前书，不照搬外部作品）。',
+    '- director_advice：{"focus": "聚焦方向(可选)"}。自动导演：基于全书给出下一阶段剧情节点/节奏板/风险/修复建议。',
+    '- knowledge_add：{"title": "标题", "content": "内容"}。往本书知识库加一条自由参考文档（生成时会被检索注入）。',
+    '- knowledge_search：{"query": "关键词"}。在本书知识库检索相关内容。',
+    '- plotline_list：无参数。查看本书当前剧情线。',
+    '- plotline_add：{"name": "线名", "goal": "目标", "kind": "main|branch|character|mystery(可选)"}。新增一条剧情线。',
+    '- director_todo_add：{"text": "待办内容", "source": "risk|fix(可选)"}。把一条风险/修复记成导演待办。',
+    '- director_todo_list：无参数。查看本书导演待办。',
+    '- knowledge_list：无参数。**列出本书全部知识库文档**（标题+内容）。作者说"收集/汇总/列出所有知识库"时调用它。',
+    '- breakdown：{"scope": "recent|all|volume:N"(可选，默认 recent), "preset": "quick|standard"(可选)}。书内拆书分析：对本书已写章节做结构/人物/文风/卖点体检。',
+    '- audit：无参数。全书一致性质检（分批扫描章节+设定+事实库，聚合矛盾）。',
+    '- blurb：{"partial": "已写开头(可选)"}。AI 生成/补全小说简介并保存到本书。',
     '',
     '回答质量要求（非常重要）：',
     '- 具体：回答必须引用项目里的真实内容（人名、境界、章节、暗线、设定），禁止空泛套话。快照里没有的信息，先调用工具获取（chapter_text / outline_text）再回答。',
@@ -218,7 +236,7 @@ function assistantSystemPrompt(project: ProjectState): string {
     '- 铁律：只要你想执行任何操作，你的【整个回复】必须只包含一个动作标签，禁止先说话、禁止解释"我要做什么"、禁止铺垫——直接输出标签。',
     '- 如果你收到「格式提示」（宿主说你没有输出动作标签）：你的下一条回复必须只输出动作标签，禁止再解释、禁止再道歉、禁止再描述计划。',
     '- 工具调用是自动的：你输出标签后，宿主会执行并把结果反馈给你，你再基于结果继续。',
-    '- 每次回复最多调用 1 个动作；执行结果会反馈给你，你可以继续讨论或再调用。',
+    '- 每次回复最多调用 1 个动作；**完成用户本轮要求后立即用一句话汇报并停止，不要继续追加工具调用**（除非用户在下一轮明确要求）。',
     '- 需要先看总纲/章节再决定怎么改？那就先输出一个 outline_text / chapter_text 的标签，等结果回来。',
     '- chapter_rewrite 的 target 参数：从章节正文中复制一小段（一句话或几句话即可），不要带换行、不要带引号，取连续文本片段。',
     '- 如果工具执行失败（例如片段未找到），根据错误信息修正参数后自动重试一次，不要直接放弃或让作者手动操作。',
@@ -481,6 +499,123 @@ export async function* executeAction(
       saveProject(outputDir, project)
       return `已新增反 AI 规则「${name !== '' ? name : avoid.slice(0, 20)}」`
     }
+    case 'book_analysis': {
+      // 拆书：分析当前书（默认最近30章要点）的卖点/结构/可借鉴/风险。
+      const scopeArg = str(args.scope)
+      const scope = scopeArg === 'full' ? 'full' as const : scopeArg === 'all' ? 'full' as const : (/^volume:(\d+)$/.test(scopeArg) ? Number(scopeArg.slice(7)) : 'recent' as const)
+      const text = bookOverview(project, scope)
+      const result = await runBookAnalysis(ctx, config, { text })
+      return [
+        '拆书结果：',
+        '卖点：',
+        ...(result.sellingPoints ?? []).map(s => `- ${s}`),
+        '结构：',
+        ...(result.structure ?? []).map(s => `- ${s}`),
+        '可借鉴：',
+        ...(result.lessons ?? []).map(s => `- ${s}`),
+        '风险：',
+        ...(result.risks ?? []).map(s => `- ${s}`),
+      ].join('\n')
+    }
+    case 'director_advice': {
+      // 自动导演：基于全书上下文的下一阶段编排 + 修复再平衡。
+      const focus = str(args.focus)
+      const result = await runDirectorAdvice(ctx, config, project, { focus })
+      return [
+        '自动导演建议：',
+        `总体判断：${result.summary}`,
+        '下一阶段节点：',
+        ...(result.nextArc ?? []).map(s => `- ${s}`),
+        `节奏板：${result.pacing}`,
+        '风险提示：',
+        ...(result.risks ?? []).map(s => `- ${s}`),
+        '需要修复/再平衡：',
+        ...(result.fixes ?? []).map(s => `- ${s}`),
+      ].join('\n')
+    }
+    case 'knowledge_add': {
+      const title = str(args.title).trim()
+      const content = str(args.content).trim()
+      if (title === '' || content === '') throw new Error('knowledge_add 需要 title 和 content')
+      project.knowledgeDocs ??= []
+      project.knowledgeDocs.push({ id: `kd-${Date.now().toString(36)}`, title, content, updatedAt: new Date().toISOString() })
+      project.updatedAt = new Date().toISOString()
+      saveProject(outputDir, project)
+      return `已加入知识库「${title}」（当前 ${project.knowledgeDocs.length} 篇）`
+    }
+    case 'knowledge_search': {
+      const q = str(args.query).trim()
+      if (q === '') throw new Error('knowledge_search 需要 query')
+      const ql = q.toLowerCase()
+      const hits = (project.knowledgeDocs ?? []).filter(d => d.title.toLowerCase().includes(ql) || d.content.toLowerCase().includes(ql)).slice(-5)
+      if (hits.length === 0) return '知识库中未找到相关内容。'
+      return `知识库中与「${q}」相关（${hits.length} 篇）：\n` + hits.map(d => `- 【${d.title}】\n${d.content.slice(0, 400)}`).join('\n')
+    }
+    case 'plotline_list': {
+      const lines = project.plotlines ?? []
+      if (lines.length === 0) return '本书还没有剧情线。'
+      return `本书剧情线（${lines.length} 条）：\n` + lines.map(l => `- [${l.status}] ${l.name}（${l.kind}）：${l.goal}${l.progress !== '' ? `｜${l.progress}` : ''}`).join('\n')
+    }
+    case 'plotline_add': {
+      const name = str(args.name).trim()
+      const goal = str(args.goal).trim()
+      if (name === '' || goal === '') throw new Error('plotline_add 需要 name 和 goal')
+      const kindArg = str(args.kind)
+      const kind = (['main', 'branch', 'character', 'mystery'].includes(kindArg) ? kindArg : 'branch') as 'main' | 'branch' | 'character' | 'mystery'
+      const statusArg = str(args.status)
+      const status = (['active', 'paused', 'resolved', 'abandoned'].includes(statusArg) ? statusArg : 'active') as 'active' | 'paused' | 'resolved' | 'abandoned'
+      project.plotlines ??= []
+      project.plotlines.push({ id: `pl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, name, kind, goal, progress: str(args.progress), status, chapters: Array.isArray(args.chapters) ? (args.chapters as number[]) : [], createdAt: new Date().toISOString() })
+      project.updatedAt = new Date().toISOString()
+      saveProject(outputDir, project)
+      return `已加入剧情线「${name}」（当前 ${project.plotlines.length} 条）`
+    }
+    case 'director_todo_add': {
+      const text = str(args.text).trim()
+      if (text === '') throw new Error('director_todo_add 需要 text')
+      const source = args.source === 'fix' ? 'fix' as const : 'risk' as const
+      project.todos ??= []
+      project.todos.unshift({ id: `td-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, text, source, done: false, createdAt: new Date().toISOString() })
+      project.updatedAt = new Date().toISOString()
+      saveProject(outputDir, project)
+      return `已加入导演待办「${text.slice(0, 30)}」（当前 ${project.todos.length} 条）`
+    }
+    case 'director_todo_list': {
+      const todos = project.todos ?? []
+      if (todos.length === 0) return '还没有导演待办。'
+      return `导演待办（${todos.length} 条）：\n` + todos.map(t => `- ${t.done ? '[已处理]' : '[待处理]'} ${t.text}`).join('\n')
+    }
+    case 'knowledge_list': {
+      const docs = project.knowledgeDocs ?? []
+      if (docs.length === 0) return '本书知识库目前为空。'
+      return `本书知识库（${docs.length} 篇）：\n` + docs.map((d, i) => `[${i + 1}]《${d.title}》\n${d.content}`).join('\n\n')
+    }
+    case 'breakdown': {
+      // 书内拆书分析：对本书已写章节做结构/人物/文风/卖点体检。
+      const scope = str(args.scope) === 'all' ? 'all' : /^volume:\d+$/.test(str(args.scope)) ? str(args.scope) : 'recent'
+      const preset = str(args.preset) === 'standard' ? 'standard' as const : 'quick' as const
+      const result = await breakdownBook(ctx, config, project, outputDir, scope, preset)
+      const lines = [`拆书分析结果（扫描 ${result.chaptersScanned} 章）：`]
+      for (const s of result.sections ?? []) {
+        lines.push(`\n【${s.title}】\n${s.markdown}`)
+      }
+      return lines.join('\n')
+    }
+    case 'audit': {
+      // 全书一致性质检：LLM 分批扫描已生成章节 + 设定 + 事实库。
+      const issues = await auditBook(ctx, config, project, outputDir)
+      if (issues.length === 0) return '全书质检：未发现明显矛盾。'
+      return `全书质检发现 ${issues.length} 处问题：\n` + issues.map(it => `- [${it.severity}] 第${it.chapterNo}章：${it.item}${it.suggestion !== '' ? ` → ${it.suggestion}` : ''}`).join('\n')
+    }
+    case 'blurb': {
+      // 小说简介：AI 生成/补全并保存到项目。
+      const partial = str(args.partial)
+      const text = await generateBlurb(ctx, config, project, partial)
+      project.blurb = text
+      project.updatedAt = new Date().toISOString()
+      saveProject(outputDir, project)
+      return `简介已生成/更新：\n${text}`
+    }
     default:
       throw new Error(`未知工具 ${name}`)
   }
@@ -599,7 +734,8 @@ export async function* runAssistantTurn(
 ): AsyncGenerator<
   | { frame: 'delta'; text: string }
   | { frame: 'tool'; name: string; status: 'start' | 'done' | 'error'; detail?: string }
-  | { frame: 'toolDelta'; name: string; text: string },
+  | { frame: 'toolDelta'; name: string; text: string }
+  | { frame: 'toolResult'; name: string; text: string },
   void,
   unknown
 > {
@@ -612,6 +748,8 @@ export async function* runAssistantTurn(
   appendHistory(outputDir, userEntry)
 
   let round = 0
+  /** 最大迭代次数（防空转的总保险，与「已执行动作数 round」分开，避免计数混淆）。 */
+  let iterations = 0
   /** 已提示模型输出动作标签的次数（0 = 尚未提示；超过上限则按纯文字回复结束，防死循环）。 */
   let nudged = 0
   const MAX_NUDGES = 6
@@ -635,6 +773,10 @@ export async function* runAssistantTurn(
     assets_set_genre: /(题材)/,
     assets_set_progression: /(推进)/,
     assets_add_rule: /(规则|文戒|反AI)/,
+    knowledge_add: /(知识库|记住|补充|收进|参考|资料)/,
+    plotline_add: /(剧情线|长线|加入剧情线|线名)/,
+    director_todo_add: /(待办|风险|修复|记一下|记一条)/,
+    blurb: /(简介|封面|小说简介)/,
   }
   /** 本轮已放行过写操作：后续写操作（生成→审稿→修订闭环）不再逐个拦截。 */
   let writeUnlocked = false
@@ -655,7 +797,7 @@ export async function* runAssistantTurn(
     return false
   }
   for (;;) {
-    if (round++ > 20) break
+    if (iterations++ > 20) break
     const reply = await chatOnce(ctx, config, system, history)
 
     // 异常输出防护：全 hex/二进制乱码（模型偶发把回复编码成十六进制）——丢弃重试一次。
@@ -683,7 +825,9 @@ export async function* runAssistantTurn(
       // 避免"先查一遍编年录"这类措辞漏网被静默当作纯聊天。
       const mentionsTarget = /(编年录|道藏|暗线|总纲|卷首语|章节|正文|规则|红线|伏笔|简介|大纲|事实|设定|世界|角色|人物|第\s*\d+\s*章)/.test(reply)
       const strayTag = /<[a-z_-]*action[^>]*>/.test(reply)
-      if ((intendsAction || mentionsTarget || strayTag) && nudged < MAX_NUDGES) {
+      // 只在「本轮还没执行过任何工具」时才逼它出标签；一旦已经执行过（round>0），
+      // 后续的纯文字回复一律当作收尾，绝不 nudge，避免「已加入…设定」被误判成还想操作而反复执行。
+      if ((intendsAction || mentionsTarget || strayTag) && round === 0 && nudged < MAX_NUDGES) {
         // 用户消息本身没有写意图时，引导模型直接文字回答（不要被逼出写操作标签）。
         const userWriteIntent = Object.values(WRITE_TOOL_KEYS).some(re => re.test(userMessage))
         const nudge = nudged === 0
@@ -743,6 +887,7 @@ export async function* runAssistantTurn(
         }
       }
       yield { frame: 'tool', name, status: 'done', detail: result.slice(0, 200) }
+      yield { frame: 'toolResult', name, text: result.slice(0, 4000) }
     } catch (error) {
       result = `执行失败：${(error as Error).message}`
       yield { frame: 'tool', name, status: 'error', detail: (error as Error).message }

@@ -1,8 +1,19 @@
 {
   "name": "@waterwx/dsh-novel-forge",
   "description": "AI 编译小说工作台 for the dsh web GUI: import a novel outline (docx/text), plan chapters with LLM, generate chapter by chapter (3000-4000 chars each), and save every chapter as Markdown into your chosen output folder.",
-  "version": "2.0.1-alpha",
+  "version": "2.1.0-alpha",
   "type": "module",
+  "author": "waterwx",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "小说工坊",
+    "novel-forge",
+    "ai-novel-writing",
+    "novel-writing",
+    "写作助手"
+  ],
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
@@ -78,7 +89,6 @@
     "lib/**/*.d.ts",
     "src",
     "assets/styles",
-    "skills",
     "scripts/patch-schemastery.mjs",
     "cordis.patch.yml",
     "README.md"

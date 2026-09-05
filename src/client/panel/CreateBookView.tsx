@@ -5,6 +5,7 @@
  */
 import { useRef, useState } from 'react'
 import type { NovelApi } from '../api.ts'
+import { setCurrentBook } from '../api.ts'
 import type { OutlineCandidate } from '../../protocol.ts'
 import { extractDocxTextFromBuffer } from '../docx.ts'
 import css from './panel.module.css'
@@ -38,14 +39,20 @@ export function CreateBookView({
   api,
   onBack,
   onCreated,
+  initialIdea,
+  initialName,
 }: {
   api: NovelApi
   /** 返回书架。 */
   onBack: () => void
   /** 开书成功：进入新书工作台。 */
   onCreated: (id: string) => void
+  /** 从「创意灵感」带过来的起步想法（预填到「一句话想法」输入框）。 */
+  initialIdea?: string
+  /** 从「创意灵感」带过来的初始书名。 */
+  initialName?: string
 }) {
-  const [name, setName] = useState('')
+  const [name, setName] = useState(initialName ?? '')
   const [outlineText, setOutlineText] = useState('')
   const [outlineName, setOutlineName] = useState('')
   const [dragActive, setDragActive] = useState(false)
@@ -54,13 +61,16 @@ export function CreateBookView({
   const outlineFileRef = useRef<HTMLInputElement | null>(null)
 
   // ---- 想法 → AI 大纲状态 ----
-  const [ideaOpen, setIdeaOpen] = useState(false)
-  const [idea, setIdea] = useState('')
+  const hasPrefill = initialIdea !== undefined && initialIdea.trim() !== ''
+  const [ideaOpen, setIdeaOpen] = useState(hasPrefill)
+  const [idea, setIdea] = useState(initialIdea ?? '')
   const [suggesting, setSuggesting] = useState(false)
   const [candidates, setCandidates] = useState<OutlineCandidate[]>([])
   const [pinned, setPinned] = useState<string[]>([])
   /** 回填后提示（如「已填入方案A，可继续修改」）。 */
   const [fillNotice, setFillNotice] = useState('')
+  /** 选定方案自带的题材（创建后自动预填到本书创作资产）。 */
+  const [selectedGenre, setSelectedGenre] = useState('')
 
   const autoName = inferBookNamePreview(outlineText)
   const effectiveName = name.trim() !== '' ? name.trim() : autoName
@@ -120,6 +130,7 @@ export function CreateBookView({
   const handlePick = (candidate: OutlineCandidate): void => {
     setOutlineText(candidate.outline)
     setName(candidate.bookName)
+    setSelectedGenre(candidate.genre ?? '')
     setFillNotice(`已填入方案《${candidate.bookName}》（${candidate.genre}），可继续修改后开书`)
     setIdeaOpen(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -136,6 +147,14 @@ export function CreateBookView({
       const snapshot = await api.bookCreate(effectiveName, undefined, outlineText.trim() !== '' ? outlineText.trim() : undefined)
       const created = snapshot.books.find(b => b.id === snapshot.activeBookId)
       if (created !== undefined) {
+        // 选定方案自带题材，或从大纲关键词识别到题材 → 创建后自动预填到本书创作资产（失败不阻断开书）。
+        const detectedGenre = selectedGenre.trim() !== '' ? selectedGenre.trim() : (guessGenre(outlineText) ?? '')
+        if (detectedGenre !== '') {
+          try {
+            setCurrentBook(created.id)
+            await api.patchAssets({ genre: { name: detectedGenre, description: '' } })
+          } catch { /* ignore */ }
+        }
         onCreated(created.id)
       } else {
         setError('开书失败：未找到新书')

@@ -8,6 +8,7 @@ import { type AssetsPatch, type AssetsResponse, type AddModelRequest, type AddMo
 export declare class NovelApiError extends Error {
     constructor(message: string);
 }
+export declare function setCurrentBook(id: string | null): void;
 /** The browser half's only data entry point. */
 export declare class NovelApi {
     status(): Promise<StatusResponse>;
@@ -65,6 +66,94 @@ export declare class NovelApi {
     }>;
     /** 全书一致性质检。 */
     audit(): Promise<import('../protocol.ts').AuditResponse>;
+    /** 热门题材雷达：信号 + 生产底座。 */
+    marketRadar(req: import('../protocol.ts').MarketRadarRequest): Promise<{
+        result: import('../protocol.ts').MarketRadarResult;
+    }>;
+    /** 真实榜单扫榜：抓取公开榜单，返回分组候选。 */
+    marketRadarScan(req: {
+        platforms?: string[];
+    }): Promise<{
+        result: {
+            scannedAt: string;
+            groups: any[];
+        };
+    }>;
+    /** 把雷达生产底座里的新资产同步进全局资源库（跨书复用；已有名字跳过）。 */
+    marketRadarSync(req: {
+        foundation: import('../protocol.ts').ProductionFoundation;
+    }): Promise<{
+        ok: boolean;
+        synced: {
+            genre: boolean;
+            primaryMode: boolean;
+            secondaryMode: boolean;
+        };
+    }>;
+    /** 书内知识库：读取。 */
+    knowledgeList(): Promise<{
+        docs: import('../protocol.ts').KnowledgeDoc[];
+    }>;
+    /** 书内知识库：新增。 */
+    knowledgeAdd(doc: {
+        title: string;
+        content: string;
+    }): Promise<{
+        docs: import('../protocol.ts').KnowledgeDoc[];
+    }>;
+    /** 书内知识库：删除。 */
+    knowledgeRemove(id: string): Promise<{
+        docs: import('../protocol.ts').KnowledgeDoc[];
+    }>;
+    /** 书分析/拆书。 */
+    bookAnalysis(text: string): Promise<{
+        result: import('../protocol.ts').BookAnalysisResult;
+    }>;
+    /** 创意灵感。 */
+    ideaInspiration(idea: string, count?: number): Promise<{
+        result: import('../protocol.ts').IdeaInspirationResult;
+    }>;
+    /** 雷达→灵感：基于市场信号/生产底座/创意简报生成开书灵感。 */
+    marketIdeaInspiration(req: {
+        signals?: import('../protocol.ts').MarketRadarSignal[];
+        foundation?: import('../protocol.ts').ProductionFoundation;
+        brief?: import('../protocol.ts').MarketCreativeBrief;
+        count?: number;
+    }): Promise<{
+        result: import('../protocol.ts').IdeaInspirationResult;
+    }>;
+    /** 自动导演编排建议：基于全书上下文。 */
+    director(focus?: string): Promise<{
+        result: import('../protocol.ts').DirectorAdvice;
+    }>;
+    /** 自动导演「采纳」出的书内待办：读取。 */
+    directorTodosList(): Promise<{
+        todos: import('../protocol.ts').DirectorTodo[];
+    }>;
+    /** 待办：新增（来源 risk/fix）。 */
+    directorTodosAdd(text: string, source: 'risk' | 'fix'): Promise<{
+        todos: import('../protocol.ts').DirectorTodo[];
+    }>;
+    /** 待办：勾选/取消。 */
+    directorTodosToggle(id: string): Promise<{
+        todos: import('../protocol.ts').DirectorTodo[];
+    }>;
+    /** 待办：删除。 */
+    directorTodosRemove(id: string): Promise<{
+        todos: import('../protocol.ts').DirectorTodo[];
+    }>;
+    /** 用选中的市场信号 + 影响模式生成开书创意简报。 */
+    marketRadarBrief(req: import('../protocol.ts').MarketRadarBriefRequest): Promise<{
+        creativeBrief: import('../protocol.ts').MarketCreativeBrief;
+    }>;
+    /** 把雷达生产底座一键应用到某本书（写入项目资产/开书定盘）。 */
+    marketRadarApply(req: {
+        bookId?: string;
+        foundation: import('../protocol.ts').ProductionFoundation;
+    }): Promise<{
+        ok: boolean;
+        bookName: string;
+    }>;
     /** 角色卡刷新（基于事实库聚合）。 */
     charactersRefresh(): Promise<{
         cards: import('../protocol.ts').RoleStatusCard[];

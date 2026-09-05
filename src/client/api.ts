@@ -64,12 +64,29 @@ async function readJson<T>(response: Response): Promise<T> {
   return body as T
 }
 
-/** POST JSON, return parsed JSON. */
+/** 面板所绑定的当前书（打开时锁定；每次书级请求带上，避免被全局 active 串书）。 */
+let currentBookId: string | null = null
+export function setCurrentBook(id: string | null): void {
+  currentBookId = id
+}
+
+/** 给 GET 路径追加当前书 bookId（读接口也按书路由）。 */
+function withBookId(path: string): string {
+  if (currentBookId === null) return path
+  const sep = path.includes('?') ? '&' : '?'
+  return `${path}${sep}bookId=${encodeURIComponent(currentBookId)}`
+}
+
+/** POST JSON, return parsed JSON. 若已绑定当前书，自动把 bookId 注入请求体。 */
 async function postJson<T>(path: string, payload: unknown): Promise<T> {
+  let body = payload
+  if (currentBookId !== null && payload !== null && typeof payload === 'object' && !Array.isArray(payload)) {
+    body = { ...(payload as Record<string, unknown>), bookId: currentBookId }
+  }
   const response = await fetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   })
   return readJson<T>(response)
 }
@@ -77,7 +94,7 @@ async function postJson<T>(path: string, payload: unknown): Promise<T> {
 /** The browser half's only data entry point. */
 export class NovelApi {
   async status(): Promise<StatusResponse> {
-    const response = await fetch(NOVEL_API.status)
+    const response = await fetch(withBookId(NOVEL_API.status))
     return readJson<StatusResponse>(response)
   }
 
@@ -153,7 +170,7 @@ export class NovelApi {
   }
 
   async chapter(no: number): Promise<ChapterResponse> {
-    const response = await fetch(`${NOVEL_API.chapter}?no=${no}`)
+    const response = await fetch(withBookId(`${NOVEL_API.chapter}?no=${no}`))
     return readJson<ChapterResponse>(response)
   }
 
@@ -199,6 +216,88 @@ export class NovelApi {
   /** 全书一致性质检。 */
   async audit(): Promise<import('../protocol.ts').AuditResponse> {
     return postJson<import('../protocol.ts').AuditResponse>(NOVEL_API.audit, {})
+  }
+
+  /** 热门题材雷达：信号 + 生产底座。 */
+  async marketRadar(req: import('../protocol.ts').MarketRadarRequest): Promise<{ result: import('../protocol.ts').MarketRadarResult }> {
+    return postJson<{ result: import('../protocol.ts').MarketRadarResult }>(NOVEL_API.marketRadar, req)
+  }
+
+  /** 真实榜单扫榜：抓取公开榜单，返回分组候选。 */
+  async marketRadarScan(req: { platforms?: string[] }): Promise<{ result: { scannedAt: string; groups: any[] } }> {
+    return postJson<{ result: { scannedAt: string; groups: any[] } }>(NOVEL_API.marketRadarScan, req)
+  }
+
+  /** 把雷达生产底座里的新资产同步进全局资源库（跨书复用；已有名字跳过）。 */
+  async marketRadarSync(req: { foundation: import('../protocol.ts').ProductionFoundation }): Promise<{ ok: boolean; synced: { genre: boolean; primaryMode: boolean; secondaryMode: boolean } }> {
+    return postJson<{ ok: boolean; synced: { genre: boolean; primaryMode: boolean; secondaryMode: boolean } }>(NOVEL_API.marketRadarSync, req)
+  }
+
+  /** 书内知识库：读取。 */
+  async knowledgeList(): Promise<{ docs: import('../protocol.ts').KnowledgeDoc[] }> {
+    const response = await fetch(withBookId(NOVEL_API.knowledge))
+    return readJson<{ docs: import('../protocol.ts').KnowledgeDoc[] }>(response)
+  }
+
+  /** 书内知识库：新增。 */
+  async knowledgeAdd(doc: { title: string; content: string }): Promise<{ docs: import('../protocol.ts').KnowledgeDoc[] }> {
+    return postJson<{ docs: import('../protocol.ts').KnowledgeDoc[] }>(NOVEL_API.knowledge, { action: 'add', doc })
+  }
+
+  /** 书内知识库：删除。 */
+  async knowledgeRemove(id: string): Promise<{ docs: import('../protocol.ts').KnowledgeDoc[] }> {
+    return postJson<{ docs: import('../protocol.ts').KnowledgeDoc[] }>(NOVEL_API.knowledge, { action: 'remove', id })
+  }
+
+  /** 书分析/拆书。 */
+  async bookAnalysis(text: string): Promise<{ result: import('../protocol.ts').BookAnalysisResult }> {
+    return postJson<{ result: import('../protocol.ts').BookAnalysisResult }>(NOVEL_API.bookAnalysis, { text })
+  }
+
+  /** 创意灵感。 */
+  async ideaInspiration(idea: string, count = 5): Promise<{ result: import('../protocol.ts').IdeaInspirationResult }> {
+    return postJson<{ result: import('../protocol.ts').IdeaInspirationResult }>(NOVEL_API.ideaInspiration, { idea, count })
+  }
+
+  /** 雷达→灵感：基于市场信号/生产底座/创意简报生成开书灵感。 */
+  async marketIdeaInspiration(req: { signals?: import('../protocol.ts').MarketRadarSignal[]; foundation?: import('../protocol.ts').ProductionFoundation; brief?: import('../protocol.ts').MarketCreativeBrief; count?: number }): Promise<{ result: import('../protocol.ts').IdeaInspirationResult }> {
+    return postJson<{ result: import('../protocol.ts').IdeaInspirationResult }>(NOVEL_API.ideaInspirationMarket, req)
+  }
+
+  /** 自动导演编排建议：基于全书上下文。 */
+  async director(focus?: string): Promise<{ result: import('../protocol.ts').DirectorAdvice }> {
+    return postJson<{ result: import('../protocol.ts').DirectorAdvice }>(NOVEL_API.director, { focus })
+  }
+
+  /** 自动导演「采纳」出的书内待办：读取。 */
+  async directorTodosList(): Promise<{ todos: import('../protocol.ts').DirectorTodo[] }> {
+    const response = await fetch(withBookId(NOVEL_API.directorTodos))
+    return readJson<{ todos: import('../protocol.ts').DirectorTodo[] }>(response)
+  }
+
+  /** 待办：新增（来源 risk/fix）。 */
+  async directorTodosAdd(text: string, source: 'risk' | 'fix'): Promise<{ todos: import('../protocol.ts').DirectorTodo[] }> {
+    return postJson<{ todos: import('../protocol.ts').DirectorTodo[] }>(NOVEL_API.directorTodos, { op: 'add', text, source })
+  }
+
+  /** 待办：勾选/取消。 */
+  async directorTodosToggle(id: string): Promise<{ todos: import('../protocol.ts').DirectorTodo[] }> {
+    return postJson<{ todos: import('../protocol.ts').DirectorTodo[] }>(NOVEL_API.directorTodos, { op: 'toggle', id })
+  }
+
+  /** 待办：删除。 */
+  async directorTodosRemove(id: string): Promise<{ todos: import('../protocol.ts').DirectorTodo[] }> {
+    return postJson<{ todos: import('../protocol.ts').DirectorTodo[] }>(NOVEL_API.directorTodos, { op: 'remove', id })
+  }
+
+  /** 用选中的市场信号 + 影响模式生成开书创意简报。 */
+  async marketRadarBrief(req: import('../protocol.ts').MarketRadarBriefRequest): Promise<{ creativeBrief: import('../protocol.ts').MarketCreativeBrief }> {
+    return postJson<{ creativeBrief: import('../protocol.ts').MarketCreativeBrief }>(NOVEL_API.marketRadarBrief, req)
+  }
+
+  /** 把雷达生产底座一键应用到某本书（写入项目资产/开书定盘）。 */
+  async marketRadarApply(req: { bookId?: string; foundation: import('../protocol.ts').ProductionFoundation }): Promise<{ ok: boolean; bookName: string }> {
+    return postJson<{ ok: boolean; bookName: string }>(NOVEL_API.marketRadarApply, req)
   }
 
   /** 角色卡刷新（基于事实库聚合）。 */
@@ -395,7 +494,7 @@ export class NovelApi {
 
   /** Get project writing assets + built-in libraries. */
   async assets(): Promise<AssetsResponse> {
-    const response = await fetch(NOVEL_API.assets)
+    const response = await fetch(withBookId(NOVEL_API.assets))
     return readJson<AssetsResponse>(response)
   }
 
@@ -514,7 +613,7 @@ export class NovelApi {
 
   /** Load the persisted assistant conversation. */
   async assistantHistory(): Promise<import('../protocol.ts').AssistantMessage[]> {
-    const response = await fetch(NOVEL_API.assistantHistory)
+    const response = await fetch(withBookId(NOVEL_API.assistantHistory))
     const body = await readJson<{ messages: import('../protocol.ts').AssistantMessage[] }>(response)
     return body.messages
   }

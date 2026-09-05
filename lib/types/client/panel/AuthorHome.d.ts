@@ -1,13 +1,15 @@
 import type { NovelApi } from '../api.ts';
 import type { BookshelfSnapshot } from '../../protocol.ts';
 import { type ProgressLine } from './ProgressConsole.tsx';
-export declare function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onImportBook, onOpenSettings, onTheme, onBackground, onOpacity, onEndfieldAccent, adaptEnabled, progress, busy, busyLabel, liveBar, onClearProgress }: {
+export declare function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onImportBook, onOpenSettings, onTheme, onBackground, onOpacity, onEndfieldAccent, adaptEnabled, progress, busy, busyLabel, liveBar, onClearProgress, onUseIdea }: {
     api: NovelApi;
     shelf: BookshelfSnapshot;
     onOpenBook: (id: string) => void;
     onReadBook: (id: string) => void;
     onAddBook: () => void;
     onImportBook: () => void;
+    /** 创意灵感 → 采纳某个灵感带入开书向导。 */
+    onUseIdea?: (idea: import('../../protocol.ts').IdeaInspirationResult['ideas'][number]) => void;
     /** 兼容旧入口：首页设置现为独立设置页，此回调保留但不再使用。 */
     onOpenSettings?: () => void;
     /** 主题/模式/密度变化回调（供面板根容器实时生效）。 */
@@ -29,4 +31,4 @@ export declare function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBo
         ratio?: number;
     } | null;
     onClearProgress?: () => void;
-}): import("react").JSX.Element;
+}): any;

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [ v2.0-alpha ]
+  pull_request:
+    branches: [ v2.0-alpha ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Check theme sizes
+        run: node scripts/check-theme-sizes.mjs
+
+      - name: Check fallback tiers
+        run: node scripts/check-fallback-tiers.mjs
+
+      - name: Test
+        run: pnpm test

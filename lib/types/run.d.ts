@@ -17,7 +17,7 @@ export declare class ProductionRunner {
     private persist;
     private log;
     /** 启动/续跑生产单：startNo..endNo 区间，endNo 超出计划时先自动补计划。 */
-    start(startNo: number, endNo: number): Promise<RunState>;
+    start(startNo: number, endNo: number, runDir?: string): Promise<RunState>;
     pause(): void;
     resume(): void;
     stop(): void;

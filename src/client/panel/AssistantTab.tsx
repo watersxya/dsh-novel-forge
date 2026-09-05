@@ -28,8 +28,23 @@ const TOOL_LABELS: Record<string, { icon: string; label: string }> = {
   assets_set_genre: { icon: '🏷️', label: '设置题材' },
   assets_set_progression: { icon: '📈', label: '设置推进模式' },
   assets_add_rule: { icon: '🚫', label: '新增反AI规则' },
+  book_analysis: { icon: '📊', label: '拆书分析' },
+  director_advice: { icon: '🎬', label: '自动导演' },
+  knowledge_add: { icon: '📚', label: '加入知识库' },
+  knowledge_search: { icon: '🔍', label: '检索知识库' },
+  plotline_list: { icon: '🧵', label: '查看剧情线' },
+  plotline_add: { icon: '🧵', label: '新增剧情线' },
+  director_todo_add: { icon: '✅', label: '记入导演待办' },
+  director_todo_list: { icon: '✅', label: '查看导演待办' },
+  knowledge_list: { icon: '📚', label: '列出全部知识库' },
+  breakdown: { icon: '🔍', label: '拆书分析' },
+  audit: { icon: '🛡️', label: '全书质检' },
+  blurb: { icon: '📄', label: '生成简介' },
   error: { icon: '⚠️', label: '出错了' },
 }
+
+/** 需要渲染成结构化结果卡片的工具（其余工具结果仍走文字回复，避免大段章节/总纲刷屏）。 */
+const CARD_TOOLS = new Set(['director_advice', 'book_analysis', 'breakdown', 'audit', 'knowledge_list', 'plotline_list', 'director_todo_list'])
 
 /** One chat bubble (either side). */
 interface ChatLine {
@@ -40,6 +55,8 @@ interface ChatLine {
   tools: Array<{ name: string; status: 'start' | 'done' | 'error'; detail?: string; startedAt?: number; elapsedMs?: number }>
   /** Live output while a tool runs (generated text streamed into the bubble). */
   live?: string
+  /** 结构化工具完整结果（用于渲染成卡片，如拆书/导演/质检/知识库列表）。 */
+  resultCard?: { name: string; text: string }
 }
 
 /** Props. */
@@ -127,6 +144,17 @@ export function AssistantTab({ api }: AssistantTabProps) {
     })
   }, [])
 
+  /** 把结构化工具的结果挂到当前助手气泡（用于渲染结果卡片）。 */
+  const pushResultCard = useCallback((card: { name: string; text: string }) => {
+    setLines(prev => {
+      const last = prev[prev.length - 1]
+      if (last === undefined || last.role !== 'assistant') {
+        return [...prev, { id: idRef.current++, role: 'assistant', text: '', tools: [], resultCard: card }]
+      }
+      return [...prev.slice(0, -1), { ...last, resultCard: card }]
+    })
+  }, [])
+
   /** 当前进行中的工具（状态条显示）。 */
   const activeTool = (() => {
     if (!busy) return null
@@ -207,6 +235,8 @@ export function AssistantTab({ api }: AssistantTabProps) {
           })
         } else if (frame.type === 'toolDelta') {
           pushToolDelta(frame.text)
+        } else if (frame.type === 'toolResult') {
+          pushResultCard({ name: frame.name, text: frame.text })
         } else if (frame.type === 'error') {
           pushTool({ name: 'error', status: 'error', detail: frame.message })
         }
@@ -220,13 +250,12 @@ export function AssistantTab({ api }: AssistantTabProps) {
 
   return (
     <div className={css.card} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <div className={css.row} style={{ justifyContent: 'space-between' }}>
-        <span className={css.cardTitle}>{tt('tab.assistant')}</span>
+      <div className={css.row} style={{ justifyContent: 'space-between', alignItems: 'center', gap: 'var(--nf-space-8)' }}>
+        <span className={css.meta}>{tt('assistant.hint')}</span>
         <button type="button" className={css.iconButton} title="清空聊天记录" aria-label="清空聊天记录" onClick={() => { void handleClear() }}>
           🗑️
         </button>
       </div>
-      <span className={css.meta}>{tt('assistant.hint')}</span>
       {notice !== '' && <span style={{ color: 'var(--nf-success)', fontSize: 'var(--nf-fs-12)' }}>{notice}</span>}
       {error !== '' && <span style={{ color: 'var(--nf-error)', fontSize: 'var(--nf-fs-12)' }}>{tt('common.error')}: {error}</span>}
       {/* 状态条：编辑老师正在做什么 */}
@@ -272,6 +301,15 @@ export function AssistantTab({ api }: AssistantTabProps) {
                     </div>
                   )
                 })}
+              </div>
+            )}
+            {/* 结构化结果卡片（拆书/导演/质检/知识库列表等） */}
+            {line.resultCard !== undefined && CARD_TOOLS.has(line.resultCard.name) && (
+              <div style={{ marginTop: 6, border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-10, 10px)', background: 'var(--nf-bg-inset)', padding: 'var(--nf-space-8, 8px)' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--nf-accent)', marginBottom: 4 }}>
+                  {TOOL_LABELS[line.resultCard.name]?.icon ?? ''} {TOOL_LABELS[line.resultCard.name]?.label ?? line.resultCard.name}
+                </div>
+                <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, fontSize: 12, lineHeight: 1.5, color: 'var(--nf-text)', maxHeight: 240, overflowY: 'auto' }}>{line.resultCard.text}</pre>
               </div>
             )}
           </div>

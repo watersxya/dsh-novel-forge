@@ -33,6 +33,12 @@ export interface Config {
     provider?: string;
     /** LLM model id. */
     model?: string;
+    /** 任务级模型路由：正文生成模型（留空则跟随 model）。 */
+    generateModel?: string;
+    /** 任务级模型路由：审稿模型（留空则跟随 model）。 */
+    reviewModel?: string;
+    /** 任务级模型路由：AI 复核/质检模型（留空则跟随 model）。 */
+    auditModel?: string;
     /** LLM reasoning effort (off/low/high/max). */
     reasoningEffort?: 'off' | 'low' | 'high' | 'max';
     /** 分析类任务（提炼/拆书/反推大纲等）的推理档位；默认 low。 */

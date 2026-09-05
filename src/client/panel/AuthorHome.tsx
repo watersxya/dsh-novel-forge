@@ -3,7 +3,7 @@
  * 导航复用工作区 .panelNav 玻璃卡片样式（同款），导航项为作者级：书架/改编/资产库/全局资产库/AI 进度/设置。
  */
 import { useState, useRef, useEffect } from 'react'
-import { Library, Wand2, Boxes, Brush, BarChart3, Settings } from 'lucide-react'
+import { Library, Wand2, Boxes, Brush, Radar, FileSearch, Lightbulb, Settings } from 'lucide-react'
 import type { NovelApi } from '../api.ts'
 import type { BookshelfSnapshot } from '../../protocol.ts'
 import { ShelfView } from './ShelfView.tsx'
@@ -12,6 +12,10 @@ import { AuthorAssetsView } from './AuthorAssetsView.tsx'
 import { GlobalAssetLibraryView } from './GlobalAssetLibraryView.tsx'
 import { ProgressConsole, type ProgressLine } from './ProgressConsole.tsx'
 import { SettingsView } from './SettingsView.tsx'
+import LiveFeedLog from './LiveFeedLog.tsx'
+import MarketRadarView from './MarketRadarView.tsx'
+import BookAnalysisView from './BookAnalysisView.tsx'
+import IdeaInspirationView from './IdeaInspirationView.tsx'
 import css from './panel.module.css'
 
 /** 构建时注入的插件版本（tsdown define 替换为字符串字面量）。 */
@@ -20,20 +24,41 @@ const PLUGIN_VERSION: string = typeof __NOVEL_FORGE_VERSION__ !== 'undefined' ? 
 /** GitHub 仓库地址（关于区块点击跳转）。 */
 const REPO_URL = 'https://github.com/watersxya/dsh-novel-forge'
 
-type AuthorNav = 'shelf' | 'adapt' | 'assets' | 'library' | 'progress' | 'settings';
+type AuthorNav = 'shelf' | 'adapt' | 'assets' | 'library' | 'marketRadar' | 'bookAnalysis' | 'ideaInspiration' | 'settings';
 
-const NAV_ITEMS: Array<{ id: Exclude<AuthorNav, 'settings'>; label: string; icon: JSX.Element; hint: string }> = [
-  { id: 'shelf', label: '书架', icon: <Library size={18} />, hint: '我的书' },
-  { id: 'adapt', label: '改编模式', icon: <Wand2 size={18} />, hint: '上传全文→可改范围' },
-  { id: 'assets', label: '作者资产库', icon: <Boxes size={18} />, hint: '跨书总数据' },
-  { id: 'library', label: '全局写作资产库', icon: <Brush size={18} />, hint: '内置题材/规则/模板' },
-  { id: 'progress', label: 'AI 进度', icon: <BarChart3 size={18} />, hint: '书架级聚合进度' },
+type AuthorNavGroup = { label: string; items: Array<{ id: Exclude<AuthorNav, 'settings'>; label: string; icon: JSX.Element; hint: string }> };
+
+const NAV_GROUPS: AuthorNavGroup[] = [
+  {
+    label: '创作',
+    items: [
+      { id: 'shelf', label: '书架', icon: <Library size={18} />, hint: '我的书' },
+      { id: 'adapt', label: '改编模式', icon: <Wand2 size={18} />, hint: '上传全文→可改范围' },
+    ],
+  },
+  {
+    label: '灵感 · 策划',
+    items: [
+      { id: 'marketRadar', label: '题材雷达', icon: <Radar size={18} />, hint: '热门题材雷达' },
+      { id: 'ideaInspiration', label: '创意灵感', icon: <Lightbulb size={18} />, hint: '多方向开书灵感' },
+      { id: 'bookAnalysis', label: '书分析', icon: <FileSearch size={18} />, hint: '拆书/卖点/可借鉴' },
+    ],
+  },
+  {
+    label: '资产',
+    items: [
+      { id: 'assets', label: '作者资产库', icon: <Boxes size={18} />, hint: '跨书总数据' },
+      { id: 'library', label: '全局写作资产库', icon: <Brush size={18} />, hint: '内置题材/规则/模板' },
+    ],
+  },
 ];
 
 
-export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onImportBook, onOpenSettings, onTheme, onBackground, onOpacity, onEndfieldAccent, adaptEnabled, progress, busy, busyLabel, liveBar, onClearProgress }: {
+export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onImportBook, onOpenSettings, onTheme, onBackground, onOpacity, onEndfieldAccent, adaptEnabled, progress, busy, busyLabel, liveBar, onClearProgress, onUseIdea }: {
   api: NovelApi; shelf: BookshelfSnapshot;
   onOpenBook: (id: string) => void; onReadBook: (id: string) => void; onAddBook: () => void; onImportBook: () => void;
+  /** 创意灵感 → 采纳某个灵感带入开书向导。 */
+  onUseIdea?: (idea: import('../../protocol.ts').IdeaInspirationResult['ideas'][number]) => void;
   /** 兼容旧入口：首页设置现为独立设置页，此回调保留但不再使用。 */
   onOpenSettings?: () => void;
   /** 主题/模式/密度变化回调（供面板根容器实时生效）。 */
@@ -132,16 +157,18 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
             <div className={css.navTitleBook}>作者级 · 跨书</div>
           </div>
         </div>
-        <div className={css.navGroup}>
-          <div className={css.navGroupLabel}>作者</div>
-          {NAV_ITEMS.filter(item => item.id !== 'adapt' || adaptEnabled).map(item => (
-            <button key={item.id} type="button" role="tab" aria-selected={nav === item.id} data-active={nav === item.id ? '' : undefined} className={css.navTab} title={item.hint} onClick={() => { if (item.id === 'progress') { setProgressOpen(o => !o); return } setNav(item.id) }}>
-              <span className={css.navTabIcon}>{item.icon}</span>
-              <span className={css.navTabLabel}>{item.label}</span>
-              {item.id === 'progress' && busy === true && <span className={css.navTabDot} />}
-            </button>
-          ))}
-        </div>
+        {NAV_GROUPS.map(group => (
+          <div className={css.navGroup} key={group.label}>
+            <div className={css.navGroupLabel}>{group.label}</div>
+            {group.items.filter(item => item.id !== 'adapt' || adaptEnabled).map(item => (
+              <button key={item.id} type="button" role="tab" aria-selected={nav === item.id} data-active={nav === item.id ? '' : undefined} className={css.navTab} title={item.hint} onClick={() => { if (item.id === 'progress') { setProgressOpen(o => !o); return } setNav(item.id) }}>
+                <span className={css.navTabIcon}>{item.icon}</span>
+                <span className={css.navTabLabel}>{item.label}</span>
+                {item.id === 'progress' && busy === true && <span className={css.navTabDot} />}
+              </button>
+            ))}
+          </div>
+        ))}
         <div className={css.navSpacer} />
         <button type="button" role="tab" aria-selected={nav === 'settings'} data-active={nav === 'settings' ? '' : undefined} className={css.navTab} title="设置" onClick={() => setNav('settings')}>
           <span className={css.navTabIcon}><Settings size={18} /></span>
@@ -164,6 +191,9 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
         {nav === 'adapt' && <AdaptModeView api={api} onOpenBook={onOpenBook} />}
         {nav === 'assets' && <AuthorAssetsView api={api} />}
         {nav === 'library' && <GlobalAssetLibraryView api={api} />}
+        {nav === 'marketRadar' && <MarketRadarView api={api} bookId={shelf?.activeBookId ?? undefined} />}
+        {nav === 'bookAnalysis' && <BookAnalysisView api={api} />}
+        {nav === 'ideaInspiration' && <IdeaInspirationView api={api} onUseIdea={onUseIdea} />}
         {nav === 'settings' && <SettingsView api={api} onTheme={onTheme} onBackground={onBackground} onOpacity={onOpacity} onEndfieldAccent={onEndfieldAccent} />}
       </div>
       {progressOpen && (
@@ -186,9 +216,10 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
             </span>
           </div>
           <div className={css.assistantFloatBody} style={{ padding: 'var(--nf-space-10)', display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-8)', overflow: 'hidden', flex: 1, minHeight: 0 }}>
-            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: '0 2 auto', minHeight: 0, maxHeight: '42%', display: 'flex', flexDirection: 'column' }}>
               <ProgressConsole progress={progress ?? []} busy={busy ?? false} busyLabel={busyLabel ?? ''} liveBar={liveBar ?? null} onClear={() => onClearProgress?.()} />
             </div>
+            <LiveFeedLog />
           </div>
           <div
             style={{ width: 14, height: 14, position: 'absolute', right: 0, bottom: 0, cursor: 'nwse-resize' }}
