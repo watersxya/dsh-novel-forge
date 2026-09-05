@@ -21,7 +21,7 @@ Your personal AI novel-writing plugin for DSH: turn an outline into a complete n
 <p align="center">
   <img src="https://img.shields.io/badge/%E5%88%9B%E4%BD%9C%E5%B7%A5%E4%BD%9C%E6%B5%81-%E2%9C%93-blue" alt="创作工作流" />
   <img src="https://img.shields.io/badge/AI%20%E7%BC%96%E8%BE%91%20Agent-%E2%9C%93-blue" alt="AI 编辑 Agent" />
-  <img src="https://img.shields.io/badge/%E8%87%AA%E5%8A%A8%E5%AF%BC%E6%BC%94-%E2%9C%93-blue" alt="自动导演" />
+  <img src="https://img.shields.io/badge/%E8%87%AA%E5%8A%A8%E7%BC%96%E8%BE%91-%E2%9C%93-blue" alt="自动编辑" />
   <img src="https://img.shields.io/badge/%E7%9F%A5%E8%AF%86%E5%BA%93%20RAG-%E2%9C%93-blue" alt="知识库 RAG" />
   <img src="https://img.shields.io/badge/%E9%A2%98%E6%9D%90%E9%9B%B7%E8%BE%BE%E2%86%92%E7%81%B5%E6%84%9F-%E2%9C%93-blue" alt="题材雷达→灵感" />
   <img src="https://img.shields.io/badge/%E6%BC%AB%E5%89%A7%E5%B7%A5%E4%BD%9C%E5%8F%B0-%E2%9C%93-blue" alt="漫剧工作台" />
@@ -80,9 +80,9 @@ Your personal AI novel-writing plugin for DSH: turn an outline into a complete n
 
 本次迭代把「专业工作流」交给 **AI 编辑 Agent** 代办，并新增一批策划/灵感/编排能力：
 
-- 💬 **AI 编辑 Agent**：书内助手改名并升级，一句话即可代办——拆书、自动导演、知识库（增/查/列）、剧情线、导演待办、全书质检、简介、章节生成/审稿/修订、大纲/道藏/暗线/资产、导出；写操作有安全放行 + 收敛规则，不会循环或乱改。
+- 💬 **AI 编辑 Agent**：书内助手改名并升级，一句话即可代办——拆书、自动编辑、知识库（增/查/列）、剧情线、编辑待办、全书质检、简介、章节生成/审稿/修订、大纲/道藏/暗线/资产、导出；写操作有安全放行 + 收敛规则，不会循环或乱改。
 - 📡 **题材雷达 → 灵感**：扫榜（番茄/起点/晋江）→ 题材信号 / 生产底座 / 开书简报 → 一键「用这些信号生成灵感」，得到贴合市场的多个开书方向。
-- 🎬 **自动导演**：基于本书分卷/剧情线/伏笔/事实，给出下一阶段节点、节奏板、风险与修复；可一键采纳为剧情线或待办。
+- 🎬 **自动编辑**：基于本书分卷/剧情线/伏笔/事实，给出下一阶段节点、节奏板、风险与修复；可一键采纳为剧情线或待办。
 - 📚 **知识库 / RAG**：书内自由参考文档，生成时按章节检索注入，提升一致性。
 - 📊 **书分析 / 拆书**：输入任意文本 → 卖点 / 结构 / 可借鉴 / 风险。
 - 💡 **创意灵感**：一句话/题材 → 多个差异化开书灵感，可「以此方向开书」。
@@ -298,7 +298,7 @@ This iteration hands the professional workflows over to the **AI Editor Agent**
 and adds a batch of planning / inspiration / orchestration capabilities:
 
 - 💬 **AI Editor Agent**: the in-book assistant renamed & upgraded — say one line
-  and it handles 拆书 (book teardown), 自动导演 (auto-director), knowledge base
+  and it handles 拆书 (book teardown), 自动编辑 (auto-director), knowledge base
   (add/search/list), plotlines, director todos, book audit, blurb, chapter
   generate/review/revise, outline/bible/foreshadow/assets, export; write actions
   are gated and convergence-guarded so it never loops or edits on its own.

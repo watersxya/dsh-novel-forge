@@ -264,12 +264,12 @@ export class NovelApi {
     return postJson<{ result: import('../protocol.ts').IdeaInspirationResult }>(NOVEL_API.ideaInspirationMarket, req)
   }
 
-  /** 自动导演编排建议：基于全书上下文。 */
+  /** 自动编辑编排建议：基于全书上下文。 */
   async director(focus?: string): Promise<{ result: import('../protocol.ts').DirectorAdvice }> {
     return postJson<{ result: import('../protocol.ts').DirectorAdvice }>(NOVEL_API.director, { focus })
   }
 
-  /** 自动导演「采纳」出的书内待办：读取。 */
+  /** 自动编辑「采纳」出的书内待办：读取。 */
   async directorTodosList(): Promise<{ todos: import('../protocol.ts').DirectorTodo[] }> {
     const response = await fetch(withBookId(NOVEL_API.directorTodos))
     return readJson<{ todos: import('../protocol.ts').DirectorTodo[] }>(response)

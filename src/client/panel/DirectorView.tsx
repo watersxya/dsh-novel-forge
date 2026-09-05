@@ -1,5 +1,5 @@
 /**
- * 自动导演：基于全书上下文，给出下一卷/阶段编排建议 + 修复再平衡。
+ * 自动编辑：基于全书上下文，给出下一卷/阶段编排建议 + 修复再平衡。
  * 生成后提供「傻瓜式」后续：一条条采纳 → 加入剧情线 / 加入待办，一键复制。
  */
 import { useEffect, useState } from 'react'
@@ -71,7 +71,7 @@ export default function DirectorView({ api, todos, onTodosChange }: { api: Novel
   const copyAll = async (): Promise<void> => {
     if (result === null) return
     const text = [
-      '【自动导演】',
+      '【自动编辑】',
       `总体判断：${result.summary}`,
       '',
       '下一阶段节点：',
@@ -91,7 +91,7 @@ export default function DirectorView({ api, todos, onTodosChange }: { api: Novel
   return (
     <div className={css.authorPageBody}>
       <div className={`${css.card} ${css.settingsCard}`} style={{ gap: 'var(--nf-space-10)' }}>
-        <span className={css.cardTitle}>🎬 自动导演</span>
+        <span className={css.cardTitle}>🎬 自动编辑</span>
         <span className={css.meta}>结合本书分卷/剧情线/伏笔/最近事实，给出下一阶段编排 + 修复再平衡。可什么都不填直接生成。</span>
         <textarea className={css.input} style={{ minHeight: 90, resize: 'vertical' }} value={focus} onChange={e => setFocus(e.target.value)} placeholder="可选：聚焦某个方向，如「主角成长节奏」「反派压迫感」「感情线处理」「下一卷转折」…" />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -176,7 +176,7 @@ export default function DirectorView({ api, todos, onTodosChange }: { api: Novel
 
           {/* 已采纳待办清单（傻瓜式：勾选处理，做完删掉） */}
           <div className={`${css.card} ${css.settingsCard}`} style={{ gap: 'var(--nf-space-6)' }}>
-            <div style={{ fontSize: 15, fontWeight: 600 }}>🎬 导演待办（已采纳）</div>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>🎬 编辑待办（已采纳）</div>
             {todos.length === 0 ? (
               <span className={css.meta}>还没有。点上面「加入待办」，把风险/修复记到这里，做完勾掉。这些也会出现在工作流主页的「待办队列」。</span>
             ) : (

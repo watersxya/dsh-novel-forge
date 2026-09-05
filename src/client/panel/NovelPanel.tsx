@@ -102,7 +102,7 @@ const NAV_GROUPS: ReadonlyArray<{ id: string; label: string; collapsible?: boole
     collapsible: true,
     items: [
       { id: 'breakdown', label: '拆书分析', icon: <Search size={18} /> },
-      { id: 'director', label: '自动导演', icon: <Brain size={18} /> },
+      { id: 'director', label: '自动编辑', icon: <Brain size={18} /> },
       { id: 'knowledge', label: '知识库', icon: <BookOpen size={18} /> },
       { id: 'manhua', label: '漫剧工作台', icon: <Clapperboard size={18} /> },
       { id: 'run', label: '生产单', icon: <Factory size={18} /> },
@@ -2365,8 +2365,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       const n = (project?.todos ?? []).filter(t => !t.done).length
       return {
         eyebrow: '需要你确认',
-        title: `还有 ${n} 条导演待办未处理`,
-        reason: '自动导演给出的风险/修复建议已加入待办，点进去逐条处理或勾掉。',
+        title: `还有 ${n} 条编辑待办未处理`,
+        reason: '自动编辑给出的风险/修复建议已加入待办，点进去逐条处理或勾掉。',
         actionLabel: '去处理',
         onClick: () => { setActiveTab('director') },
       }
@@ -2416,14 +2416,14 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         })
       }
     }
-    // 导演采纳的待办：风险/修复清单（来自「工具 → 自动导演」）
+    // 导演采纳的待办：风险/修复清单（来自「工具 → 自动编辑」）
     if (project !== null) {
       for (const td of (project.todos ?? []).filter(t => !t.done)) {
         if (items.length >= 6) break
         items.push({
           tone: 'warning',
-          title: `导演待办：${td.text.length > 26 ? td.text.slice(0, 26) + '…' : td.text}`,
-          description: '自动导演给出的风险/修复，点进去逐条处理或勾掉',
+          title: `编辑待办：${td.text.length > 26 ? td.text.slice(0, 26) + '…' : td.text}`,
+          description: '自动编辑给出的风险/修复，点进去逐条处理或勾掉',
           actionLabel: '去处理',
           onClick: () => { setActiveTab('director') },
         })
@@ -2917,7 +2917,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
               {/* 问编辑老师：把拆书/导演/知识库/待办交给 AI 编辑 Agent */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--nf-space-8)', marginTop: 'var(--nf-space-8)', flexWrap: 'wrap' }}>
                 <button type="button" className={css.button} onClick={() => { setAssistantOpen(true) }}>💬 问 AI 编辑 Agent</button>
-                <span className={css.meta}>拆书 / 自动导演 / 知识库 / 待办，一句话交给它帮你跑。</span>
+                <span className={css.meta}>拆书 / 自动编辑 / 知识库 / 待办，一句话交给它帮你跑。</span>
               </div>
               {/* 创作旅程进度 */}
               <div className={css.dashJourney}>
