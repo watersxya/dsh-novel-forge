@@ -292,8 +292,8 @@ export function apply(ctx: Context, config?: Config): void {
   // 通过 ctx.get('skills') 获取注册表（服务存在时注册，缺失则跳过，不影响其他能力）。
   const skillsService = ctx.get('skills') as { register?: (skill: { name: string; provider: string; description: string; content: string }) => () => void } | undefined
   // [disabled 2026-09-05] 运行时 skill 注册按用户要求暂时关闭（排查 .length 报错）。
-  if (false) {
-    if (skillsService !== undefined && skillsService.register !== undefined) {
+  const enableRuntimeSkill: boolean = false
+  if (enableRuntimeSkill && skillsService !== undefined && skillsService.register !== undefined) {
     const disposeSkill = skillsService.register({
       name: 'novel-forge-chapter-batch',
       provider: 'dsh-novel-forge',
@@ -339,7 +339,6 @@ export function apply(ctx: Context, config?: Config): void {
       ].join('\n'),
     })
     ctx.effect(() => disposeSkill, 'dsh-novel-forge: skill')
-    }
   }
 
   // Initial registration from the composition entry.
