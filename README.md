@@ -141,20 +141,6 @@ dsh plugin --profile web add @waterwx/dsh-novel-forge
 npm 分发的是预构建产物，无需任何构建授权。
 npm distribution ships prebuilt artifacts — no build authorization needed.
 
-### 在 DSH 插件社区发现 / Find it in the DSH plugin community
-
-在 DSH 插件社区（[dshfind](https://github.com/hikariming/dshfind)、[WhaleHub](https://github.com/vvlife/whalehub-dsh) 等市场/registry）里，可用关键词 `dsh`、`dsh-plugin`、`小说工坊`、`novel-forge` 检索到本插件；GitHub 仓库带有 `dsh`、`dsh-plugin`、`dsh-novel-forge` 等 topics 以便自动化收录。一键安装：
-
-```sh
-dsh plugin --profile web add @waterwx/dsh-novel-forge
-```
-
-Discover it in the DSH plugin community (e.g. [dshfind](https://github.com/hikariming/dshfind), [WhaleHub](https://github.com/vvlife/whalehub-dsh)) via keywords `dsh`, `dsh-plugin`, `novel-forge`; the repo carries `dsh` / `dsh-plugin` / `dsh-novel-forge` GitHub topics for automated indexing. One-line install:
-
-```sh
-dsh plugin --profile web add @waterwx/dsh-novel-forge
-```
-
 ### 本地开发 / Local development
 
 ```sh
