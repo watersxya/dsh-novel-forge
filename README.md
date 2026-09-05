@@ -7,7 +7,7 @@ Your personal AI novel-writing plugin for DSH: turn an outline into a complete n
 
 > **⚠️ 版本状态 / Version status（read this first）**
 >
-> - 本插件当前**唯一发布 / 更新线为 V2.0 ALPHA（`2.1.1-alpha`）**，适用于 **DSH ≥ 0.1.3-alpha.1**（依赖 DSH 提供的 `cosmokit`，不能在纯 Node 环境单独运行）。
+> - 本插件当前**唯一发布 / 更新线为 V2.0 ALPHA（`2.1.2-alpha`）**，适用于 **DSH ≥ 0.1.3-alpha.1**（依赖 DSH 提供的 `cosmokit`，不能在纯 Node 环境单独运行）。
 > - **V1.0 RC（`1.10.1`）为最终稳定版，已停止更新**；需要稳定版请显式安装 `@waterwx/dsh-novel-forge@1.10.1`。
 > - **安装前请确认你的 DSH 版本**：在 `0.1.3-alpha.1` 以前的 DSH 上安装 V2.0 ALPHA 会加载失败。
 > - npm `latest` 现指向 V2.0 ALPHA：`npm i @waterwx/dsh-novel-forge` 会安装预发布版；想要最终稳定 RC 请用 `@1.10.1`。
@@ -87,7 +87,7 @@ Your personal AI novel-writing plugin for DSH: turn an outline into a complete n
 - 📊 **书分析 / 拆书**：输入任意文本 → 卖点 / 结构 / 可借鉴 / 风险。
 - 💡 **创意灵感**：一句话/题材 → 多个差异化开书灵感，可「以此方向开书」。
 - 🧭 **进阶工具折叠**：默认只露创作流水线 + 核心（助手 / AI 进度）+ 资产，进阶工具收进折叠组；创作页新增「问 AI 编辑 Agent」入口。
-- 🃏 **结构化结果卡片**：拆书 / 导演 / 质检 / 知识库列表等工具结果，在对话里直接渲染成卡片。
+- 🃏 **结构化结果卡片**：拆书 / 自动编辑 / 质检 / 知识库列表等工具结果，在对话里直接渲染成卡片。
 
 
 
@@ -163,7 +163,7 @@ flowchart TD
     E -->|是| G[⑥ 全书定稿<br/>全书质检 · 敏感词 · 维护]
     G --> H[⑦ 导出<br/>全本 TXT / MD]
 
-    R1[💬 AI 编辑 Agent<br/>拆书 / 导演 / 知识库 / 质检 / 简介 / 待办] -.-> B
+    R1[💬 AI 编辑 Agent<br/>拆书 / 自动编辑 / 知识库 / 质检 / 简介 / 待办] -.-> B
     R1 -.-> C
     R1 -.-> D
     R1 -.-> G
