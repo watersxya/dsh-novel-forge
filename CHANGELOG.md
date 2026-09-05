@@ -1,3 +1,14 @@
+## [2.1.1-alpha] - 2026-09-05
+
+### 🧹 类型修复 + CI + 元数据
+
+- 修复若干 `tsc` 类型错误：`AuthorHome` 导航残留 `progress` 判断、`CreateBookView` 题材 `children`、`MarketRadarView` `brief` null 传入、`NovelPanel` `aiPhrases` 可能 undefined、`index.ts` `skillsService` 收窄。
+- 新增 **GitHub Actions CI**（`.github/workflows/ci.yml`：typecheck + build + 样式校验 + 单测，pnpm 11），并在 README 加 CI 徽章。
+- 新增 `tests/assets.test.ts`（写作资产/内置规则纯逻辑单测）。
+- `package.json` 补充 `author` / `keywords`（dsh、dsh-plugin、小说工坊等社区检索词）。
+
+---
+
 ## [2.1.0-alpha] - 2026-09-05
 
 ### ✨ 新增能力
