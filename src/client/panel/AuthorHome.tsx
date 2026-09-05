@@ -161,10 +161,9 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
           <div className={css.navGroup} key={group.label}>
             <div className={css.navGroupLabel}>{group.label}</div>
             {group.items.filter(item => item.id !== 'adapt' || adaptEnabled).map(item => (
-              <button key={item.id} type="button" role="tab" aria-selected={nav === item.id} data-active={nav === item.id ? '' : undefined} className={css.navTab} title={item.hint} onClick={() => { if (item.id === 'progress') { setProgressOpen(o => !o); return } setNav(item.id) }}>
+              <button key={item.id} type="button" role="tab" aria-selected={nav === item.id} data-active={nav === item.id ? '' : undefined} className={css.navTab} title={item.hint} onClick={() => { setNav(item.id) }}>
                 <span className={css.navTabIcon}>{item.icon}</span>
                 <span className={css.navTabLabel}>{item.label}</span>
-                {item.id === 'progress' && busy === true && <span className={css.navTabDot} />}
               </button>
             ))}
           </div>

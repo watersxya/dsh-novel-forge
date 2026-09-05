@@ -3529,7 +3529,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                                     <div className={css.meta}><b>风险分:</b> {review.riskScore}/100</div>
                                   )}
                                   {review.aiFlavor !== undefined && (
-                                    <div className={css.meta}><b>AI 味指数:</b> {review.aiFlavor}/100{(review.aiPhrases?.length ?? 0) > 0 && ` · 套话：` + review.aiPhrases.map(p => `${p.word}×${p.count}`).join('、')}</div>
+                                    <div className={css.meta}><b>AI 味指数:</b> {review.aiFlavor}/100{(review.aiPhrases ?? []).length > 0 && ` · 套话：` + (review.aiPhrases ?? []).map(p => `${p.word}×${p.count}`).join('、')}</div>
                                   )}
                                   {review.issues.length > 0 && (
                                     <ul style={{ margin: 0, paddingLeft: 'var(--nf-space-18)', fontSize: 'var(--nf-fs-12)' }}>

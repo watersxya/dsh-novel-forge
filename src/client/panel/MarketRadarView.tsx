@@ -146,7 +146,7 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
     setIdeaBusy(true)
     setError('')
     try {
-      const r = await api.marketIdeaInspiration({ signals, foundation: result.productionFoundation, brief, count: 5 })
+      const r = await api.marketIdeaInspiration({ signals, foundation: result.productionFoundation, brief: brief ?? undefined, count: 5 })
       setIdeas(r.result.ideas)
     } catch (err) {
       setError((err as Error).message)

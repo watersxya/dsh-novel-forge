@@ -152,7 +152,7 @@ export function CreateBookView({
         if (detectedGenre !== '') {
           try {
             setCurrentBook(created.id)
-            await api.patchAssets({ genre: { name: detectedGenre, description: '' } })
+            await api.patchAssets({ genre: { name: detectedGenre, description: '', children: [] } })
           } catch { /* ignore */ }
         }
         onCreated(created.id)
