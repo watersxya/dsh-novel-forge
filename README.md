@@ -3,8 +3,19 @@
 <p align="center">
   <img alt="version" src="https://img.shields.io/badge/version-1.0.0--alpha-blue" />
   <img alt="DSH" src="https://img.shields.io/badge/DSH-%E2%89%A50.1.3--alpha.1-blue" />
-  <img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue" />
-  <img alt="AI 小说写作" src="https://img.shields.io/badge/AI-%E5%B0%8F%E8%AF%B4%E5%86%99%E4%BD%9C-green" />
+  <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue" />
+  <a href="https://github.com/watersxya/dsh-novel-forge/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/watersxya/dsh-novel-forge/actions/workflows/ci.yml/badge.svg?branch=main" /></a>
+</p>
+
+<p align="center">
+  <img alt="纯文本小说" src="https://img.shields.io/badge/%E5%88%9B%E4%BD%9C%E5%B7%A5%E4%BD%9C%E6%B5%81-%E2%9C%93-blue" />
+  <img alt="AI 编辑 Agent" src="https://img.shields.io/badge/AI%20%E7%BC%96%E8%BE%91%20Agent-%E2%9C%93-blue" />
+  <img alt="自动编辑" src="https://img.shields.io/badge/%E8%87%AA%E5%8A%A8%E7%BC%96%E8%BE%91-%E2%9C%93-blue" />
+  <img alt="知识库 RAG" src="https://img.shields.io/badge/%E7%9F%A5%E8%AF%86%E5%BA%93%20RAG-%E2%9C%93-blue" />
+  <img alt="题材雷达→灵感" src="https://img.shields.io/badge/%E9%A2%98%E6%9D%90%E9%9B%B7%E8%BE%BE%E2%86%92%E7%81%B5%E6%84%9F-%E2%9C%93-blue" />
+  <img alt="生产单" src="https://img.shields.io/badge/%E7%94%9F%E4%BA%A7%E5%8D%95-%E2%9C%93-blue" />
+  <img alt="三套主题" src="https://img.shields.io/badge/%E4%B8%89%E5%A5%97%E4%B8%BB%E9%A2%98-%E2%9C%93-blue" />
+  <img alt="全本导出" src="https://img.shields.io/badge/%E5%85%A8%E6%9C%AC%E5%AF%BC%E5%87%BA-%E2%9C%93-blue" />
 </p>
 
 你的专属 AI 小说写作插件：把一份大纲"编译"成一本完整的小说。
