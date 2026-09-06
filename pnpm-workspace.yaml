@@ -1,4 +1,6 @@
 # pnpm 11 settings (package.json "pnpm" field is no longer read).
+packages:
+  - '.'
 allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
