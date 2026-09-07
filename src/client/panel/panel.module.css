@@ -1222,7 +1222,7 @@ select.input {
   border-radius: var(--nf-radius-12);
   background: var(--nf-bg-inset);
   padding: var(--nf-space-14) var(--nf-space-16);
-  font-size: var(--nf-fs-13);
+  font-size: var(--nf-fs-14);
   line-height: 1.7;
   display: flex;
   flex-direction: column;
@@ -1418,7 +1418,7 @@ select.input {
   display: flex;
   flex-direction: column;
   gap: var(--nf-space-10);
-  font-size: var(--nf-fs-13);
+  font-size: var(--nf-fs-14);
   line-height: 1.7;
 }
 
@@ -2541,7 +2541,7 @@ select.input {
 }
 .authorTopNav .navTitleBook { font-size: var(--nf-fs-caption, 11px); color: var(--nf-text-3); }
 .authorTopNav .navGroup { display: flex; align-items: center; gap: var(--nf-space-4, 4px); }
-.authorTopNav .navGroupLabel { padding: 0 var(--nf-space-6, 6px); font-size: var(--nf-fs-11, 11px); letter-spacing: 0.12em; }
+.authorTopNav .navGroupLabel { padding: 0 var(--nf-space-6, 6px); font-size: var(--nf-fs-12, 12px); letter-spacing: 0.12em; }
 .authorTopNav .navTab { width: auto; padding: var(--nf-space-8, 8px) var(--nf-space-10, 10px); }
 .authorTopNav .navSpacer { flex: 1; }
 .authorTopNav .navAbout { margin: 0 0 0 auto; border-left: 1px solid var(--nf-border); padding-left: var(--nf-space-12, 12px); }
@@ -4778,13 +4778,13 @@ body[data-ds-dark-theme] {
   transition: transform var(--nf-dur-fast, 0.12s) ease, filter var(--nf-dur-fast, 0.12s) ease;
 }
 .pipelineSeg b {
-  font-size: var(--nf-fs-15, 15px);
+  font-size: var(--nf-fs-14, 14px);
   font-weight: 750;
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }
 .pipelineSeg span {
-  font-size: var(--nf-fs-11, 11px);
+  font-size: var(--nf-fs-12, 12px);
   color: var(--nf-text-2);
   line-height: 1.4;
   white-space: nowrap;
@@ -4824,7 +4824,7 @@ body[data-ds-dark-theme] {
 .reviewTitle {
   flex: 1;
   min-width: 0;
-  font-size: var(--nf-fs-13, 13px);
+  font-size: var(--nf-fs-14, 14px);
   color: var(--nf-text);
   white-space: nowrap;
   overflow: hidden;
