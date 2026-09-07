@@ -9,6 +9,7 @@ import { setCurrentBook } from '../api.ts'
 import type { OutlineCandidate } from '../../protocol.ts'
 import { extractDocxTextFromBuffer } from '../docx.ts'
 import css from './panel.module.css'
+import { SubPage } from './SubPage.tsx'
 
 /** 从大纲首行推断书名（与服务端 inferBookName 一致，供实时预览）。 */
 function inferBookNamePreview(outline: string): string {
@@ -167,18 +168,12 @@ export function CreateBookView({
   }
 
   return (
-    <div className={css.createBookView}>
-      <div className={css.createBookTop}>
-        <button type="button" className={css.iconButton} title="返回书架" aria-label="返回书架" onClick={onBack}>
-          ← 书架
-        </button>
-      </div>
-
-      <div className={css.createBookCard}>
-        <span className={css.createBookIcon}>✒️</span>
-        <h2 className={css.createBookTitle}>开书向导</h2>
-        <span className={css.meta}>把一份大纲「编译」成一本完整的小说</span>
-
+    <SubPage
+      title="开书向导"
+      meta="把一份大纲「编译」成一本完整的小说"
+      back={{ label: '书架', onClick: onBack }}
+    >
+        <div className={css.createBookInner}>
         {error !== '' && (
           <div className={css.card} style={{ borderColor: 'var(--nf-error)', padding: 'var(--nf-space-8) var(--nf-space-12)' }}>
             <span style={{ color: 'var(--nf-error)', fontSize: 'var(--nf-fs-12)' }}>{error}</span>
@@ -187,7 +182,7 @@ export function CreateBookView({
 
         {fillNotice !== '' && (
           <div className={css.card} style={{ borderColor: 'var(--nf-success)', padding: 'var(--nf-space-8) var(--nf-space-12)' }}>
-            <span style={{ color: 'var(--nf-success)', fontSize: 'var(--nf-fs-12)' }}>✅ {fillNotice}</span>
+            <span style={{ color: 'var(--nf-success)', fontSize: 'var(--nf-fs-12)' }}> {fillNotice}</span>
           </div>
         )}
 
@@ -220,7 +215,7 @@ export function CreateBookView({
               void handlePickOutlineFile(e.dataTransfer.files?.[0])
             }}
           >
-            <span className={css.dropzoneIcon}>📄</span>
+            <span className={css.dropzoneIcon}></span>
             <span>{outlineName !== '' ? `已选择：${outlineName}` : '点击选择 docx 大纲，或将文件拖到这里'}</span>
             <span className={css.meta}>推荐提供大纲：开书即建立项目，书名自动识别</span>
             <input
@@ -260,7 +255,7 @@ export function CreateBookView({
             onClick={() => { setIdeaOpen(v => !v) }}
             aria-expanded={ideaOpen}
           >
-            ✨ {ideaOpen ? '▾' : '▸'} 没有大纲？用一句话想法让 AI 生成
+             {ideaOpen ? '▾' : '▸'} 没有大纲？用一句话想法让 生成
           </button>
           {ideaOpen && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-8)' }}>
@@ -280,7 +275,7 @@ export function CreateBookView({
                   onClick={() => { void handleSuggest() }}
                   title="生成 3 个方向不同的大纲方案供选择（约消耗 6-8k token）"
                 >
-                  {suggesting ? '⏳ 生成中…' : candidates.length === 0 ? '✨ 生成大纲方案' : `↻ 换一批（${Math.max(1, 3 - pinned.length)} 个）`}
+                  {suggesting ? '⏳ 生成中…' : candidates.length === 0 ? ' 生成大纲方案' : `↻ 换一批（${Math.max(1, 3 - pinned.length)} 个）`}
                 </button>
                 {candidates.length > 0 && (
                   <span className={css.meta}>
@@ -360,12 +355,12 @@ export function CreateBookView({
           disabled={busy || effectiveName === ''}
           onClick={() => { void handleCreate() }}
         >
-          ✨ 开书并进入工作台
+           开书并进入工作台
         </button>
         <span className={css.meta} style={{ textAlign: 'center' }}>
           未提供大纲也能开书，稍后可在大纲页导入
         </span>
-      </div>
-    </div>
+        </div>
+    </SubPage>
   )
 }

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import type { RunState } from '../../protocol.ts'
 import css from './panel.module.css'
+import { PageHeader } from './PageHeader.tsx'
 
 export function RunPanel({ api, totalChapters }: { api: NovelApi; totalChapters: number }) {
   const [run, setRun] = useState<RunState | null>(null)
@@ -76,11 +77,11 @@ export function RunPanel({ api, totalChapters }: { api: NovelApi; totalChapters:
   const statusLabel = useMemo(() => {
     if (run === null) return '未启动'
     return {
-      running: '🏭 生产中',
+      running: ' 生产中',
       paused: '⏸ 已暂停',
-      done: '✅ 已完成',
+      done: ' 已完成',
       stopped: '⏹ 已停止',
-      error: '❌ 异常',
+      error: ' 异常',
     }[run.status] ?? run.status
   }, [run])
 
@@ -90,15 +91,32 @@ export function RunPanel({ api, totalChapters }: { api: NovelApi; totalChapters:
 
   return (
     <div className={css.card} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-10)' }}>
-      <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <span className={css.cardTitle}>🏭 生产单（标准流水线：计划 → 生成 → 审稿 → 分级处理）</span>
-        <span className={`${css.badge} ${run?.status === 'running' ? css.badgeWritten : run?.status === 'done' ? css.badgeDone : css.badgePending}`}>{statusLabel}</span>
-      </div>
+      <PageHeader
+        eyebrow="Production"
+        title="生产单"
+        actions={(
+          <span className={`${css.badge} ${run?.status === 'running' ? css.badgeWritten : run?.status === 'done' ? css.badgeDone : css.badgePending}`}>{statusLabel}</span>
+        )}
+      />
+      {run === null || run.status !== 'running' ? (
+        <span className={css.meta}>标准流水线：计划 → 生成 → 审稿 → 分级处理。一键下单，自动补计划，逐章过质量门（生成→摘要+事实→审稿→作者复盘），被拒章分级处理，中断可断点续跑。</span>
+      ) : null}
 
-      <div className={css.meta}>
-        一键下生产单：自动补计划 → 逐章生成（完整质量门：生成→摘要+事实→审稿→作者复盘）→ 被拒章分级处理（无 high 豁免 / 有 high 按意见修订+验证 / 两轮不过转待人工）。中断后可从断点继续。
-      </div>
-
+      {/* v4 B4 控制台折叠：生产中下单区收起为一行状态摘要，进度与日志成为主体。 */}
+      {run !== null && run.status === 'running' ? (
+        <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--nf-space-8)' }}>
+          <span className={css.meta}> 生产中 · 第 {run.startNo}-{run.endNo} 章 · 当前第 {run.currentNo} 章 · {Math.round(ratio * 100)}%</span>
+          <div className={css.row} style={{ gap: 'var(--nf-space-6)' }}>
+            <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={busy} onClick={() => { void handleControl('pause') }}>
+              ⏸ 暂停
+            </button>
+            <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={busy} onClick={() => { void handleControl('stop') }}>
+              ⏹ 停止
+            </button>
+          </div>
+        </div>
+      ) : (
+      <>
       {/* 下单区 */}
       <div className={css.row} style={{ flexWrap: 'wrap', gap: 'var(--nf-space-8)', alignItems: 'flex-end' }}>
         <div style={{ display: 'flex', gap: 'var(--nf-space-4)', alignItems: 'center' }}>
@@ -161,6 +179,8 @@ export function RunPanel({ api, totalChapters }: { api: NovelApi; totalChapters:
           </button>
         )}
       </div>
+      </>
+      )}
 
       {err !== '' && <div style={{ color: 'var(--nf-error)', fontSize: 'var(--nf-fs-12)' }}>{err}</div>}
 
@@ -176,25 +196,25 @@ export function RunPanel({ api, totalChapters }: { api: NovelApi; totalChapters:
           </div>
           {run.pendingManual.length > 0 && (
             <div className={css.meta} style={{ color: 'var(--nf-warn)' }}>
-              ⚠️ 待人工：第 {run.pendingManual.join('、')} 章（两轮修订仍不过，保留草稿，可在章节列表处理）
+               待人工：第 {run.pendingManual.join('、')} 章（两轮修订仍不过，保留草稿，可在章节列表处理）
             </div>
           )}
-          {run.status === 'done' && <div className={css.meta} style={{ color: 'var(--nf-success)' }}>✅ 生产单完成：{run.startNo}-{run.endNo} 章处理完毕，待人工 {run.pendingManual.length} 章。</div>}
+          {run.status === 'done' && <div className={css.meta} style={{ color: 'var(--nf-success)' }}> 生产单完成：{run.startNo}-{run.endNo} 章处理完毕，待人工 {run.pendingManual.length} 章。</div>}
           {run.error !== undefined && <div className={css.meta} style={{ color: 'var(--nf-error)' }}>异常：{run.error}</div>}
         </div>
       )}
 
-      {/* 日志区 */}
-      <div className={css.meta} style={{ fontWeight: 600 }}>运行日志（{run?.log.length ?? 0}）</div>
-      <div
-        ref={logRef}
-        style={{ flex: 1, minHeight: 120, overflowY: 'auto', border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-10)', background: 'var(--nf-bg-inset)', padding: 'var(--nf-space-8)', display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-2)', fontSize: 'var(--nf-fs-12)' }}
-      >
+      {/* 日志区（终端风） */}
+      <div className={`${css.meta} ${css.titleBlock}`} style={{ gap: 0 }}>
+        <span className={css.eyebrow}>Run Log</span>
+        <span className={css.cardTitle}>运行日志（{run?.log.length ?? 0}）</span>
+      </div>
+      <div ref={logRef} className={css.runLog}>
         {run === null || run.log.length === 0 ? (
           <span className={css.meta}>尚无日志——下单后这里会实时显示每章进度。</span>
         ) : run.log.map((l, i) => (
-          <div key={i} style={{ display: 'flex', gap: 'var(--nf-space-6)', opacity: 0.85 }}>
-            <span style={{ color: 'var(--nf-text-3)', flex: 'none' }}>{new Date(l.at).toLocaleTimeString('zh-CN', { hour12: false })}</span>
+          <div key={i} className={css.runLogLine}>
+            <span className={css.runLogTime}>{new Date(l.at).toLocaleTimeString('zh-CN', { hour12: false })}</span>
             <span>{l.text}</span>
           </div>
         ))}

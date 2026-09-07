@@ -10,6 +10,7 @@ import type { NovelConfig } from '../../protocol.ts'
 import { tt } from './helpers.ts'
 import { ModelManager } from './ModelManager.tsx'
 import { ReasoningSection } from './ReasoningSection.tsx'
+import { SubPage } from './SubPage.tsx'
 import css from './panel.module.css'
 
 
@@ -22,8 +23,6 @@ const SETTINGS_SECTIONS: Array<{ id: 'model' | 'writing' | 'files' | 'appearance
 
 type SettingsTab = 'model' | 'writing' | 'files' | 'appearance'
 type ThemeMode = 'system' | 'light' | 'dark'
-type ThemeName = 'liquid' | 'neumorph' | 'macos' | 'clay' | 'endfield'
-type EndfieldAccent = 'valley' | 'wuling'
 type ThemeDensity = 'comfort' | 'compact' | 'spacious'
 
 function readLS<T extends string>(key: string, fallback: T, allowed: readonly T[]): T {
@@ -33,14 +32,19 @@ function readLS<T extends string>(key: string, fallback: T, allowed: readonly T[
   } catch { return fallback }
 }
 
-export function SettingsView({ api, onTheme, onSettingsTab, onEditorFontSize, onBackground, onOpacity, onEndfieldAccent }: {
+export function SettingsView({ api, onSettingsTab, onEditorFontSize, onBackground, themeMode, themeDensity, onChangeThemeMode, onChangeThemeDensity }: {
   api: NovelApi;
-  onTheme?: (theme: ThemeName, mode: ThemeMode, density: ThemeDensity) => void;
   onSettingsTab?: (tab: SettingsTab) => void;
   onEditorFontSize?: (n: number) => void;
   onBackground?: (bg: string | undefined, blur: number) => void;
-  onOpacity?: (n: number) => void;
-  onEndfieldAccent?: (accent: EndfieldAccent) => void;
+  /** 全局显示模式（联动整个面板，NovelPanel 落 localStorage）。 */
+  themeMode: 'system' | 'light' | 'dark';
+  /** 全局界面密度。 */
+  themeDensity: 'comfort' | 'compact' | 'spacious';
+  /** 改变全局显示模式。 */
+  onChangeThemeMode: (m: 'system' | 'light' | 'dark') => void;
+  /** 改变全局界面密度。 */
+  onChangeThemeDensity: (d: 'comfort' | 'compact' | 'spacious') => void;
 }) {
   const [config, setConfig] = useState<NovelConfig | null>(null);
   const [configDraft, setConfigDraft] = useState<NovelConfig | null>(null);
@@ -49,11 +53,6 @@ export function SettingsView({ api, onTheme, onSettingsTab, onEditorFontSize, on
   const [notice, setNotice] = useState('');
   const [settingsTab, setSettingsTabState] = useState<SettingsTab>(() => readLS<SettingsTab>('dsh-novel-forge.settings.tab', 'model', ['model','writing','files','appearance'] as const));
   const [editorFontSize, setEditorFontSize] = useState<number>(() => { try { const v = Number(window.localStorage.getItem('dsh-novel-forge.editor.fontSize')); return v >= 12 && v <= 24 ? v : 14 } catch { return 14 } });
-  const [panelTheme, setPanelTheme] = useState<ThemeName>(() => readLS<ThemeName>('dsh-novel-forge.theme', 'liquid', ['liquid','neumorph','macos','clay','endfield'] as const));
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => readLS<ThemeMode>('dsh-novel-forge.theme.mode', 'system', ['system','light','dark'] as const));
-  const [themeDensity, setThemeDensity] = useState<ThemeDensity>(() => readLS<ThemeDensity>('dsh-novel-forge.theme.density', 'comfort', ['comfort','compact','spacious'] as const));
-  const [endfieldAccent, setEndfieldAccent] = useState<EndfieldAccent>(() => readLS<EndfieldAccent>('dsh-novel-forge.theme.endfield.accent', 'valley', ['valley','wuling'] as const));
-
   const loadConfig = async (): Promise<void> => {
     try {
       const res = await api.status();
@@ -88,7 +87,6 @@ export function SettingsView({ api, onTheme, onSettingsTab, onEditorFontSize, on
         autoReviewAfterRevise: configDraft.autoReviewAfterRevise,
         themeBackground: configDraft.themeBackground ?? '',
         themeBackgroundBlur: configDraft.themeBackgroundBlur ?? 0,
-        themeOpacity: configDraft.themeOpacity ?? 100,
         savedModels: configDraft.savedModels ?? [],
       });
       setConfig(result.config);
@@ -97,21 +95,7 @@ export function SettingsView({ api, onTheme, onSettingsTab, onEditorFontSize, on
     } catch (err) { setError((err as Error).message) } finally { setBusy(false) }
   };
 
-  // 主题/密度/字号（写 localStorage，可选通知父级）
-  const changeTheme = (theme: ThemeName, mode: ThemeMode, density: ThemeDensity): void => {
-    setPanelTheme(theme); setThemeMode(mode); setThemeDensity(density);
-    try {
-      window.localStorage.setItem('dsh-novel-forge.theme', theme);
-      window.localStorage.setItem('dsh-novel-forge.theme.mode', mode);
-      window.localStorage.setItem('dsh-novel-forge.theme.density', density);
-    } catch { /* ignore */ }
-    onTheme?.(theme, mode, density);
-  };
-  const changeEndfieldAccent = (accent: EndfieldAccent): void => {
-    setEndfieldAccent(accent);
-    try { window.localStorage.setItem('dsh-novel-forge.theme.endfield.accent', accent) } catch { /* ignore */ }
-    onEndfieldAccent?.(accent);
-  };
+  // 显示模式/密度由全局（NovelPanel）统一管理，设置页只调用 onChange 回调。
   const changeEditorFont = (n: number): void => {
     const v = Math.min(24, Math.max(12, n)); setEditorFontSize(v);
     try { window.localStorage.setItem('dsh-novel-forge.editor.fontSize', String(v)) } catch { /* ignore */ }
@@ -125,10 +109,6 @@ export function SettingsView({ api, onTheme, onSettingsTab, onEditorFontSize, on
   const applyBlur = (blur: number): void => {
     setConfigDraft(prev => prev === null ? prev : { ...prev, themeBackgroundBlur: blur });
     onBackground?.(configDraft?.themeBackground ?? undefined, blur);
-  };
-  const applyOpacity = (n: number): void => {
-    setConfigDraft(prev => prev === null ? prev : { ...prev, themeOpacity: n });
-    onOpacity?.(n);
   };
   const onBgFile = async (file: File | undefined): Promise<void> => {
     if (file === undefined) return;
@@ -147,32 +127,28 @@ export function SettingsView({ api, onTheme, onSettingsTab, onEditorFontSize, on
     }
   };
   const resetTheme = (): void => {
-    try {
-      window.localStorage.removeItem('dsh-novel-forge.theme');
-      window.localStorage.removeItem('dsh-novel-forge.theme.mode');
-      window.localStorage.removeItem('dsh-novel-forge.theme.density');
-      window.localStorage.removeItem('dsh-novel-forge.theme.endfield.accent');
-    } catch { /* ignore */ }
-    setEndfieldAccent('valley');
-    onEndfieldAccent?.('valley');
-    changeTheme('liquid', 'system', 'comfort');
+    onChangeThemeMode('system');
+    onChangeThemeDensity('comfort');
   };
 
   if (configDraft === null) {
     return (
-      <div className={css.authorPageBody}><div className={css.meta}>正在加载设置…</div>{error !== '' && <div className={css.noticeError}>{error}</div>}</div>
+      <SubPage title="设置" meta="正在加载…">
+        <div className={css.meta}>正在加载设置…</div>
+        {error !== '' && <div className={css.noticeError}>{error}</div>}
+      </SubPage>
     );
   }
 
   return (
-    <div className={css.authorPageBody} data-nf-theme={panelTheme} data-nf-mode={themeMode === 'system' ? undefined : themeMode} data-nf-density={themeDensity} data-nf-endfield-accent={endfieldAccent}>
-      <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-6)' }}>
-        <h2 className={css.panelTitle} style={{ margin: 0 }}>⚙️ 设置</h2>
-        <span className={css.meta}>当前模型：{config?.provider} / {config?.model}</span>
-        <span className={css.meta}>输出目录：{config?.outputDir}</span>
-      </div>
-
-      <div className={css.row} style={{ gap: 'var(--nf-space-8)', flexWrap: 'wrap' }}>
+    <SubPage
+      title="设置"
+      meta={`当前模型：${config?.provider} / ${config?.model} · 输出目录：${config?.outputDir}`}
+      actions={(
+        <button type="button" className={css.button + ' ' + css.buttonPrimary} disabled={busy} onClick={() => { void save() }}>{busy ? '保存中…' : tt('settings.save')}</button>
+      )}
+    >
+      <div className={css.shelfToolbar} style={{ gap: 'var(--nf-space-8)', flexWrap: 'wrap' }}>
         {SETTINGS_SECTIONS.map(s => (
           <button key={s.id} type="button" className={css.button + (settingsTab === s.id ? ' ' + css.buttonPrimary : '')} style={{ flex: 1, minWidth: 104, justifyContent: 'center' }} onClick={() => changeSettingsTab(s.id)}>{s.icon} {s.label}</button>
         ))}
@@ -229,13 +205,9 @@ export function SettingsView({ api, onTheme, onSettingsTab, onEditorFontSize, on
         <>
           <div className={css.card + ' ' + css.settingsCard}>
             <span className={css.cardTitle}><Sparkles size={18} style={{ verticalAlign: -3 }} /> 外观与主题</span>
-            <div className={css.field}><label className={css.fieldLabel}>显示模式</label><select className={css.input} value={themeMode} onChange={e => changeTheme(panelTheme, e.target.value as ThemeMode, themeDensity)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div>
-            <div className={css.field}><label className={css.fieldLabel}>主题风格</label><select className={css.input} value={panelTheme} onChange={e => changeTheme(e.target.value as ThemeName, themeMode, themeDensity)}><option value="liquid">液态玻璃 · 清新绿（默认）</option><option value="neumorph">新拟物 · 柔和浅色</option><option value="macos">macOS · 玻璃（蓝，随外观浅/深）</option><option value="clay">粘土拟态 · 柔和黏土</option><option value="endfield">终末地 · 纸墨工业风</option></select></div>
-            {panelTheme === 'endfield' && (
-              <div className={css.field}><label className={css.fieldLabel}>终末地强调色</label><select className={css.input} value={endfieldAccent} onChange={e => changeEndfieldAccent(e.target.value as EndfieldAccent)}><option value="valley">谷地黄（默认）</option><option value="wuling">武陵青</option></select><span className={css.meta}>参考明日方舟：终末地官网，亮色自动使用深色档保证可读性。</span></div>
-            )}
-            <div className={css.field}><label className={css.fieldLabel}>界面密度</label><select className={css.input} value={themeDensity} onChange={e => changeTheme(panelTheme, themeMode, e.target.value as ThemeDensity)}><option value="comfort">舒适（默认）</option><option value="compact">紧凑</option><option value="spacious">宽松</option></select></div>
-            <div className={css.field}><label className={css.fieldLabel}>玻璃透明度（0-100）</label><input className={css.input} type="range" min={0} max={100} value={configDraft.themeOpacity ?? 100} onChange={e => applyOpacity(Number(e.target.value))} /><span className={css.meta}>100=当前主题原样；调低会让玻璃/卡片变透，新拟态、黏土等实色主题能透出背景图。</span></div>
+            <div className={css.field}><label className={css.fieldLabel}>显示模式</label><select className={css.input} value={themeMode} onChange={e => onChangeThemeMode(e.target.value as ThemeMode)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div>
+            <div className={css.field}><label className={css.fieldLabel}>主题风格</label><span className={css.input} style={{ display: 'inline-flex', alignItems: 'center' }}>墨纸 · 暖编辑案头</span><span className={css.meta}>统一墨纸风格，无需再选皮肤；切换明暗即达纸白/墨色。</span></div>
+            <div className={css.field}><label className={css.fieldLabel}>界面密度</label><select className={css.input} value={themeDensity} onChange={e => onChangeThemeDensity(e.target.value as ThemeDensity)}><option value="comfort">舒适（默认）</option><option value="compact">紧凑</option><option value="spacious">宽松</option></select></div>
             <div className={css.row} style={{ justifyContent: 'flex-end' }}><button type="button" className={css.button} onClick={resetTheme}><RotateCcw size={14} style={{ verticalAlign: -2 }} /> 恢复默认主题</button></div>
           </div>
 
@@ -258,8 +230,6 @@ export function SettingsView({ api, onTheme, onSettingsTab, onEditorFontSize, on
           </div>
         </>
       )}
-
-      <div className={css.row}><button type="button" className={css.button + ' ' + css.buttonPrimary} disabled={busy} onClick={() => { void save() }}>{busy ? '保存中…' : tt('settings.save')}</button></div>
-    </div>
+      </SubPage>
   );
 }

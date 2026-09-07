@@ -5,6 +5,7 @@ import { useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import type { BookAnalysisResult } from '../../protocol.ts'
 import css from './panel.module.css'
+import { SubPage } from './SubPage.tsx'
 
 const SECTIONS: Array<{ key: keyof BookAnalysisResult; label: string; color: string }> = [
   { key: 'sellingPoints', label: '卖点', color: 'var(--nf-success)' },
@@ -29,19 +30,21 @@ export default function BookAnalysisView({ api }: { api: NovelApi }): JSX.Elemen
   }
 
   return (
-    <div className={css.authorPageBody}>
+    <SubPage
+      title="书分析 / 拆书"
+      meta="粘贴一本书/章节文本 → 提炼卖点、结构、可借鉴点与风险（不照搬具体作品）。"
+      actions={(
+        <button type="button" className={`${css.button} ${css.buttonPrimary}`} disabled={busy} onClick={() => { void run() }}>
+          {busy ? '分析中…' : '开始分析'}
+        </button>
+      )}
+    >
       <div className={`${css.card} ${css.settingsCard}`} style={{ gap: 'var(--nf-space-10)' }}>
-        <span className={css.cardTitle}>🔍 书分析 / 拆书</span>
-        <span className={css.meta}>粘贴一本书/章节文本 → 提炼卖点、结构、可借鉴点与风险（不照搬具体作品）。</span>
+        <span className={css.meta}>粘贴文本后点开始分析，结果按卖点/结构/可借鉴/风险分四区呈现。</span>
         <textarea className={css.input} style={{ minHeight: 180, resize: 'vertical' }} value={text} onChange={e => setText(e.target.value)} placeholder="粘贴要分析的书/章节正文…" />
-        <div>
-          <button type="button" className={`${css.button} ${css.buttonPrimary}`} disabled={busy} onClick={() => { void run() }}>
-            {busy ? '分析中…' : '开始分析'}
-          </button>
-        </div>
       </div>
 
-      {error !== '' && <div style={{ color: 'var(--nf-error)', fontSize: 13 }}>⚠ {error}</div>}
+      {error !== '' && <div style={{ color: 'var(--nf-error)', fontSize: 13 }}> {error}</div>}
 
       {result !== null && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--nf-space-10)' }}>
@@ -55,6 +58,6 @@ export default function BookAnalysisView({ api }: { api: NovelApi }): JSX.Elemen
           ))}
         </div>
       )}
-    </div>
+    </SubPage>
   )
 }

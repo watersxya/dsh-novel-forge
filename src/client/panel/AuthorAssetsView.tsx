@@ -7,6 +7,7 @@ import { Plus, Trash2, Pencil } from 'lucide-react'
 import type { NovelApi } from '../api.ts'
 import type { AuthorStyleAsset } from '../../protocol.ts'
 import css from './panel.module.css'
+import { SubPage } from './SubPage.tsx'
 
 const KIND_LABELS: Record<AuthorStyleAsset['kind'], string> = {
   style: '笔法',
@@ -128,23 +129,20 @@ export function AuthorAssetsView({ api }: { api: NovelApi }) {
   }, [visible]);
 
   return (
-    <div className={css.authorPageBody}>
-      <div className={css.authorPageHero}>
-        <div className={css.authorPageHeader}>
-          <div>
-            <h2 className={css.panelTitle} style={{ margin: 0 }}>🧬 作者资产库 · 总数据</h2>
-            <span className={css.meta}>跨书可复用的笔法/红线/套路/角色模板/世界观模板。任意新书与改编都能调用。</span>
-          </div>
-          <div className={css.rowEnd}>
-            <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { void importDefaults() }} disabled={busy} title="把书架里所有书的写作资产/角色批量沉淀到作者资产库（内置库请到全局写作资产库浏览/套用）">导入默认资产</button>
-            <button type="button" className={css.button + ' ' + css.buttonPrimary} onClick={startNew}><Plus size={14} style={{ verticalAlign: -2 }} /> 新增资产</button>
-          </div>
-        </div>
-        <div className={css.assetFilterBar}>
-          {KIND_OPTIONS.map(k => (
-            <button key={k} type="button" className={css.assetFilterChip + (kindFilter === k ? ' ' + css.assetFilterChipActive : '')} onClick={() => setKindFilter(kindFilter === k ? 'all' : k)}>{KIND_LABELS[k]} {assets.filter(a => a.kind === k).length}</button>
-          ))}
-        </div>
+    <SubPage
+      title="作者资产库"
+      meta="跨书可复用的笔法/红线/套路/角色模板/世界观模板。任意新书与改编都能调用。"
+      actions={(
+        <>
+          <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { void importDefaults() }} disabled={busy} title="把书架里所有书的写作资产/角色批量沉淀到作者资产库（内置库请到全局写作资产库浏览/套用）">导入默认资产</button>
+          <button type="button" className={css.button + ' ' + css.buttonPrimary} onClick={startNew}><Plus size={14} style={{ verticalAlign: -2 }} /> 新增资产</button>
+        </>
+      )}
+    >
+      <div className={css.shelfToolbar}>
+        {KIND_OPTIONS.map(k => (
+          <button key={k} type="button" className={css.assetFilterChip + (kindFilter === k ? ' ' + css.assetFilterChipActive : '')} onClick={() => setKindFilter(kindFilter === k ? 'all' : k)}>{KIND_LABELS[k]} {assets.filter(a => a.kind === k).length}</button>
+        ))}
       </div>
 
       {error !== '' && <div className={css.noticeError}>{error}</div>}
@@ -203,6 +201,6 @@ export function AuthorAssetsView({ api }: { api: NovelApi }) {
           ))}
         </div>
       )}
-    </div>
+    </SubPage>
   );
 }

@@ -15,9 +15,9 @@ const FONT_SIZES = [
 ] as const
 
 const THEMES = [
-  { id: 'paper', label: '📄 纸白', bg: '#f7f1e3', fg: '#3b3226', accent: '#8b6f47', dim: '#8a7d66' },
-  { id: 'eye', label: '🌿 护眼', bg: '#e8f0e3', fg: '#2f3d2e', accent: '#5f7d5a', dim: '#6f836b' },
-  { id: 'night', label: '🌙 夜间', bg: '#1d2226', fg: '#c9d1d9', accent: '#8aa5c0', dim: '#6d7882' },
+  { id: 'paper', label: ' 纸白', bg: '#f7f1e3', fg: '#3b3226', accent: '#8b6f47', dim: '#8a7d66' },
+  { id: 'eye', label: ' 护眼', bg: '#e8f0e3', fg: '#2f3d2e', accent: '#5f7d5a', dim: '#6f836b' },
+  { id: 'night', label: ' 夜间', bg: '#1d2226', fg: '#c9d1d9', accent: '#8aa5c0', dim: '#6d7882' },
 ] as const
 
 type FontId = typeof FONT_SIZES[number]['id']
@@ -38,9 +38,9 @@ function writePref(key: string, value: unknown): void {
 /** 章节状态小标（阅读视角）。 */
 function statusBadge(ch: ChapterPlan): { label: string; cls: string } {
   switch (ch.status) {
-    case 'approved': return { label: '✅', cls: css.badgeDone }
-    case 'written': return { label: '📝', cls: css.badgeWritten }
-    case 'rejected': return { label: '⚠️', cls: css.badgePending }
+    case 'approved': return { label: '', cls: css.badgeDone }
+    case 'written': return { label: '', cls: css.badgeWritten }
+    case 'rejected': return { label: '', cls: css.badgePending }
     default: return { label: '', cls: css.badgePending }
   }
 }
@@ -171,7 +171,7 @@ export function ReaderView({
       {/* 顶部栏 */}
       <div className={css.readerHeader} style={{ borderColor: themeMeta.dim }}>
         <button type="button" className={css.iconButton} title="返回书架" aria-label="返回书架" onClick={onBack}>←</button>
-        <span className={css.readerTitle}>📖 《{project.bookName}》</span>
+        <span className={css.readerTitle}> 《{project.bookName}》</span>
         <span className={css.meta} style={{ color: themeMeta.dim }}>
           {readable.length > 0 && currentNo > 0 ? `第 ${currentNo} 章 · ${idx + 1}/${readable.length}` : ''}
         </span>
@@ -215,7 +215,7 @@ export function ReaderView({
           ))}
         </div>
         <button type="button" className={`${css.button} ${css.buttonSmall}`} style={{ marginLeft: 'var(--nf-space-10)' }} onClick={onOpenWorkspace} title="回到创作工作台">
-          ✏️ 去工作台
+           去工作台
         </button>
       </div>
 

@@ -5,6 +5,7 @@ import { useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import type { IdeaInspirationResult } from '../../protocol.ts'
 import css from './panel.module.css'
+import { SubPage } from './SubPage.tsx'
 
 export default function IdeaInspirationView({ api, onUseIdea }: { api: NovelApi; onUseIdea?: (idea: IdeaInspirationResult['ideas'][number]) => void }): JSX.Element {
   const [idea, setIdea] = useState('')
@@ -30,23 +31,27 @@ export default function IdeaInspirationView({ api, onUseIdea }: { api: NovelApi;
   }
 
   return (
-    <div className={css.authorPageBody}>
+    <SubPage
+      title="创意灵感"
+      meta="输入一句话/题材方向 → 给出多个可开书的差异化创意（不照搬具体作品）。"
+      actions={(
+        <button type="button" className={`${css.button} ${css.buttonPrimary}`} disabled={busy} onClick={() => { void run() }}>
+          {busy ? '生成中…' : '生成灵感'}
+        </button>
+      )}
+    >
       <div className={`${css.card} ${css.settingsCard}`} style={{ gap: 'var(--nf-space-10)' }}>
-        <span className={css.cardTitle}>💡 创意灵感</span>
-        <span className={css.meta}>输入一句话/题材方向 → 给出多个可开书的差异化创意（不照搬具体作品）。</span>
+        <span className={css.meta}>填一句话方向，指定数量，点生成灵感即可。</span>
         <textarea className={css.input} style={{ minHeight: 120, resize: 'vertical' }} value={idea} onChange={e => setIdea(e.target.value)} placeholder="例：重生后我在城隍庙摆摊；反派每天都被打脸却越来越强…" />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <label style={{ fontSize: 12 }}>数量</label>
           <select className={css.input} style={{ width: 'auto', padding: '4px 8px' }} value={count} onChange={e => setCount(Number(e.target.value))}>
             {[3, 5, 8].map(n => <option key={n} value={n}>{n}</option>)}
           </select>
-          <button type="button" className={`${css.button} ${css.buttonPrimary}`} disabled={busy} onClick={() => { void run() }}>
-            {busy ? '生成中…' : '生成灵感'}
-          </button>
         </div>
       </div>
 
-      {error !== '' && <div style={{ color: 'var(--nf-error)', fontSize: 13 }}>⚠ {error}</div>}
+      {error !== '' && <div style={{ color: 'var(--nf-error)', fontSize: 13 }}> {error}</div>}
 
       {result !== null && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 'var(--nf-space-10)' }}>
@@ -66,6 +71,6 @@ export default function IdeaInspirationView({ api, onUseIdea }: { api: NovelApi;
           ))}
         </div>
       )}
-    </div>
+    </SubPage>
   )
 }

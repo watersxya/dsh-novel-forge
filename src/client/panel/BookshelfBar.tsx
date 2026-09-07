@@ -132,7 +132,7 @@ export function BookshelfBar({ api, shelf, onSwitch }: BookshelfBarProps) {
                 className={`${css.button} ${css.buttonSmall}`}
                 onClick={() => { outlineFileRef.current?.click() }}
               >
-                {outlineName !== '' ? `✓ ${outlineName}` : '📄 选择大纲 docx'}
+                {outlineName !== '' ? `✓ ${outlineName}` : ' 选择大纲 docx'}
               </button>
               <input
                 ref={outlineFileRef}

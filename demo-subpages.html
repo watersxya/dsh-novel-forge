@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小说工坊 · 子页面排版 Demo</title>
+<style>
+  html{color-scheme:dark}
+  body[data-mode="paper"]{color-scheme:light}
+  :root,
+  body[data-mode="ink"]{
+    --bg:#17140f; --bg2:#201c16; --bg3:#2a241c; --bg4:#332c22; --bg-deep:var(--bg-deep);
+    --line:rgba(242,233,220,.12); --line2:rgba(242,233,220,.05);
+    --text:#eee7da; --dim:#b3a78f; --faint:#8a7f6c;
+    --ai:#d98a2b; --ai-strong:var(--ai-strong); --ai-soft:rgba(217,138,43,.12);
+    --human:#4aa3d9; --human-strong:#a9d6f2;
+    --ok:#79b372; --warn:#e3a52e; --bad:#d95753; --idle:#5c5344;
+    --seal:#c14a2e; --seal-soft:rgba(193,74,46,.14);
+    --head-bg:rgba(16,14,10,.92);
+    --paper-grid:rgba(242,233,220,.05);
+    --shadow:0 8px 24px rgba(0,0,0,.35);
+    --serif:Georgia,"Songti SC","SimSun",serif;
+    --ui:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    --mono:"Cascadia Mono",Consolas,"SF Mono",ui-monospace,monospace;
+  }
+  body[data-mode="paper"]{
+    --bg:#f6f3ec; --bg2:#fcfaf6; --bg3:#efe9dc; --bg4:#e9e2d4; --bg-deep:#e9e2d4;
+    --line:rgba(38,34,27,.14); --line2:rgba(38,34,27,.06);
+    --text:#26221b; --dim:#6f665a; --faint:#9c9284;
+    --ai:#c07c22; --ai-strong:#9c6418; --ai-soft:rgba(192,124,34,.13);
+    --human:#2f6fa3; --human-strong:#2f6fa3;
+    --ok:#5f9656; --warn:#c98a1f; --bad:#b94a41; --idle:#cfc6b5;
+    --seal:#a63e2a; --seal-soft:rgba(166,62,42,.12);
+    --head-bg:rgba(246,243,236,.92);
+    --paper-grid:rgba(38,34,27,.05);
+    --shadow:0 8px 24px rgba(0,0,0,.12);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--ui);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased;padding:22px 26px 70px}
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+  .serif{font-family:var(--serif)} .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 10px;border-radius:99px;border:1px solid var(--line);color:var(--dim);background:var(--bg2)}
+  .dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
+  .dot.ok{background:var(--ok)} .dot.ai{background:var(--ai)} .dot.human{background:var(--human)} .dot.bad{background:var(--bad)} .dot.idle{background:var(--idle)}
+
+  .demo-head{position:sticky;top:0;z-index:20;background:var(--head-bg);backdrop-filter:blur(12px);border:1px solid var(--line);border-radius:16px;padding:14px 18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+  .demo-brand{display:flex;align-items:center;gap:10px;min-width:0}
+  .demo-logo{width:32px;height:32px;border-radius:9px;background:var(--bg3);border:1px solid var(--line);display:grid;place-items:center;font-family:var(--serif);color:var(--ai)}
+  .demo-name{font-family:var(--serif);font-size:18px}
+  .demo-sub{font-size:11px;color:var(--faint)}
+  .demo-nav{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+  .demo-nav button{font-size:11.5px;color:var(--dim);border:1px solid var(--line);border-radius:8px;padding:5px 10px;background:var(--bg2);white-space:nowrap;transition:.15s}
+  .demo-nav button:hover{border-color:rgba(217,138,43,.45);color:var(--text)}
+  .demo-nav button.active{background:rgba(217,138,43,.14);border-color:rgba(217,138,43,.5);color:var(--ai-strong)}
+
+  .stage{margin-top:16px;background:var(--bg2);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+  .topbar{display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--line2);background:var(--bg-deep);flex-wrap:wrap}
+  .tb-back{font-size:12px;color:var(--faint)}
+  .tb-title{font-family:var(--serif);font-size:22px}
+  .tb-prog{display:flex;align-items:baseline;gap:8px;font-size:12px;color:var(--dim)}
+  .tb-prog .big{font-family:var(--serif);font-size:22px;color:var(--ok)}
+  .tb-right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px}
+  .tb-right .sep{width:1px;height:16px;background:var(--line);margin:0 4px}
+  .body{display:grid;grid-template-columns:minmax(0,1fr) 380px}
+  @media(max-width:1080px){.body{grid-template-columns:1fr}}
+  .colA{padding:16px 18px;display:flex;flex-direction:column;gap:14px;min-width:0}
+  .colB{border-left:1px solid var(--line2);padding:16px 18px;display:flex;flex-direction:column;gap:14px}
+  @media(max-width:1080px){.colB{border-left:none}}
+  .rail{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;border:1px solid var(--line2);border-radius:10px;background:var(--bg3);padding:5px}
+  .rs{text-align:center;padding:6px 2px;border-radius:7px;background:var(--bg4);font-size:11px;color:var(--faint)}
+  .rs.done{background:rgba(121,179,114,.12);color:var(--ok)}
+  .rs.now{border:1px solid rgba(224,160,60,.5);color:var(--ai-strong);background:rgba(217,138,43,.12)}
+  .rs b{display:block;font-size:12px}
+  .rs .no{font-family:var(--mono);font-size:9px;opacity:.7}
+  .poolbar{display:flex;height:64px;border-radius:12px;overflow:hidden;border:1px solid var(--line2)}
+  .ps{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2px;font-family:var(--mono);color:#221b12;font-weight:700;font-size:13px;transition:.2s;cursor:pointer}
+  .ps.ok{background:linear-gradient(180deg,#8dc47e,#5f9656);flex:21}
+  .ps.rev{background:linear-gradient(180deg,#eec05f,#cf9426);flex:3}
+  .ps.fix{background:linear-gradient(180deg,#e4826b,#c04b37);flex:1}
+  .ps.pend{background:repeating-linear-gradient(45deg,#5c5344,#5c5344 6px,#554c3e 6px,#554c3e 12px);flex:8;color:#e7dfce}
+  .ps .n{font-size:17px}
+  .ps .lab{font-family:var(--ui);font-weight:600;font-size:11px}
+  .pslegend{display:flex;gap:16px;margin-top:8px;flex-wrap:wrap;font-size:11.5px;color:var(--dim)}
+  .pl{display:flex;gap:6px;align-items:center}
+  .sw{width:10px;height:10px;border-radius:3px;flex:none}
+  .cmd{display:flex;align-items:center;gap:16px;border:1px solid rgba(76,158,217,.4);background:rgba(74,163,217,.07);border-radius:14px;padding:13px 16px;flex-wrap:wrap}
+  .cmd .qt{font-size:11.5px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;flex:none}
+  .cmd .qt b{color:var(--human-strong);font-size:13px;letter-spacing:0;display:block;text-transform:none;margin-top:2px}
+  .cmd .btn-main{margin-left:auto;flex:none;background:var(--seal);color:#fdf3ee;font-weight:700;font-size:13.5px;padding:10px 18px;border-radius:9px;box-shadow:0 6px 20px rgba(193,74,46,.3)}
+  .cmd .alt{font-size:11px;color:var(--faint);flex:none;text-align:right;line-height:1.5}
+  .cmd .alt b{color:var(--dim);display:block}
+  .card2{display:grid;grid-template-columns:1.2fr 1fr;gap:14px}
+  @media(max-width:1080px){.card2{grid-template-columns:1fr}}
+  .box{border:1px solid var(--line2);border-radius:12px;background:var(--bg3);padding:13px 14px;min-width:0}
+  .box h5{font-size:10.5px;letter-spacing:.14em;color:var(--faint);text-transform:uppercase;display:flex;align-items:center;gap:7px;margin-bottom:9px}
+  .row{display:flex;align-items:center;gap:10px;font-size:12px;padding:5px 0;border-bottom:1px solid var(--line2)}
+  .row:last-child{border-bottom:none}
+  .cn{font-family:var(--mono);color:var(--dim);flex:none;width:46px}
+  .st{font-size:10.5px;border-radius:4px;padding:1px 6px;flex:none}
+  .st.rev{background:rgba(227,165,46,.15);color:#f0c15e}
+  .st.fix{background:rgba(217,87,83,.15);color:#ee8a87}
+  .ds{color:var(--faint);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .act{font-size:11px;color:var(--human-strong);flex:none;border:1px solid rgba(74,163,217,.35);border-radius:6px;padding:2px 8px}
+  .feed .fi{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--line2);font-size:12px}
+  .feed .fi:last-child{border-bottom:none}
+  .feed .cn{color:var(--faint)}
+  .feed .tx{color:var(--dim)}
+  .feed .tx b{color:var(--text)}
+  .feed .tm{margin-left:auto;color:var(--faint);font-family:var(--mono);font-size:10.5px;flex:none}
+  .signal{display:flex;gap:22px;align-items:center;padding:10px 18px;border-top:1px solid var(--line2);background:var(--bg-deep);font-size:12px;color:var(--faint);flex-wrap:wrap}
+  .signal .sg{display:flex;gap:6px;align-items:center}
+  .signal .sg b{color:var(--dim);font-family:var(--mono)}
+  .signal .sg.good b{color:var(--ok)}
+  .signal .right{margin-left:auto}
+  .drawer-list{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+  .dl{background:var(--bg3);border:1px solid var(--line2);border-radius:8px;padding:8px 10px;font-size:11.5px;color:var(--dim)}
+  .dl .di{font-size:10px;color:var(--faint);margin-top:2px;font-family:var(--mono)}
+  .dl.dim{opacity:.65}
+
+  .subpage{display:none;margin-top:16px;background:var(--bg2);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+  .subpage.active{display:block}
+  .subpage-head{display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid var(--line2);background:var(--bg-deep);flex-wrap:wrap}
+  .subpage-back{font-size:12px;color:var(--faint);border:1px solid var(--line);border-radius:7px;padding:3px 10px;white-space:nowrap}
+  .subpage-title{font-family:var(--serif);font-size:22px;line-height:1.2}
+  .subpage-meta{font-size:12px;color:var(--dim);line-height:1.4}
+  .subpage-actions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .btn{font-size:11.5px;color:var(--dim);border:1px solid var(--line);border-radius:7px;padding:5px 11px;white-space:nowrap}
+  .btn:hover{border-color:rgba(217,138,43,.45);color:var(--text)}
+  .btn.main{background:var(--seal);border-color:var(--seal);color:#fdf3ee;font-weight:700}
+  .btn.main:hover{background:color-mix(in srgb,var(--seal) 88%,#000)}
+  .btn.amber{color:var(--ai-strong);border-color:rgba(217,138,43,.4);background:rgba(217,138,43,.12)}
+  .tabs{display:flex;gap:6px;padding:8px 18px;border-bottom:1px solid var(--line2);background:var(--bg3);flex-wrap:wrap}
+  .tab{font-size:11.5px;color:var(--dim);border:1px solid transparent;border-radius:7px;padding:5px 10px;white-space:nowrap}
+  .tab.active{background:rgba(217,138,43,.14);border-color:rgba(217,138,43,.5);color:var(--ai-strong)}
+  .subpage-body{padding:16px 18px;display:flex;flex-direction:column;gap:14px}
+  .grid{display:grid;gap:14px}
+  .grid.two{grid-template-columns:1fr 1fr}
+  .grid.main-side{grid-template-columns:minmax(0,1fr) 340px}
+  .grid.tree-detail{grid-template-columns:260px minmax(0,1fr)}
+  @media(max-width:960px){.grid.two,.grid.main-side,.grid.tree-detail{grid-template-columns:1fr}}
+  .card{background:var(--bg3);border:1px solid var(--line2);border-radius:12px;padding:13px 14px;min-width:0}
+  .card h4{font-size:11px;letter-spacing:.12em;color:var(--faint);text-transform:uppercase;display:flex;align-items:center;gap:7px;margin-bottom:9px}
+  .card h3{font-size:14px;color:var(--text);margin-bottom:6px}
+  .card p{font-size:12px;color:var(--dim);line-height:1.8}
+  .field{margin:0 0 12px}
+  .field:last-child{margin-bottom:0}
+  .field-label{display:block;font-size:11px;color:var(--faint);margin-bottom:5px}
+  .field-value{font-size:12px;color:var(--text);line-height:1.8}
+  .textarea,.input{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--bg4);color:var(--text);font-family:var(--ui);font-size:12px;line-height:1.8;padding:8px 10px;outline:none}
+  .textarea{min-height:150px;resize:vertical}
+  .list{border:1px solid var(--line2);border-radius:10px;background:var(--bg3);overflow:hidden}
+  .list .row{padding:9px 12px;border-bottom:1px solid var(--line2)}
+  .list .row:last-child{border-bottom:none}
+  .tree{background:var(--bg3);border:1px solid var(--line2);border-radius:12px;padding:10px;overflow:auto}
+  .tree-item{display:flex;align-items:center;gap:8px;padding:8px 9px;border-radius:8px;font-size:12px;color:var(--dim);cursor:pointer}
+  .tree-item:hover{background:rgba(217,138,43,.08)}
+  .tree-item.active{background:rgba(217,138,43,.14);border:1px solid rgba(217,138,43,.45);color:var(--ai-strong)}
+  .tree-item .no{font-family:var(--mono);color:var(--faint);min-width:2ch;text-align:right}
+  .console{font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.9;background:var(--bg3);border:1px solid var(--line2);border-radius:9px;padding:9px 12px}
+  .console .ok{color:var(--ok)} .console .warn{color:var(--ai-strong)} .console .err{color:#ff8f8a}
+  .console-bar{display:flex;align-items:center;gap:8px}
+  .console-bar .bar{flex:1;height:4px;border-radius:99px;background:var(--idle);overflow:hidden}
+  .console-bar .bar i{display:block;height:100%;width:62%;background:var(--ai)}
+  .foot-note{margin-top:2px;font-size:11px;color:var(--faint);line-height:1.7}
+  .tag{font-size:10.5px;border:1px solid var(--line);border-radius:5px;padding:1px 7px;color:var(--dim);white-space:nowrap}
+  .eyebrow{font-size:10px;letter-spacing:.16em;color:var(--faint);text-transform:uppercase}
+  .section-label{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--faint);letter-spacing:.12em;text-transform:uppercase;margin:2px 0 6px}
+  .section-label::after{content:"";flex:1;height:1px;background:var(--line2)}
+
+  /* ===== 墨案签名元素 ===== */
+  .ai-tag{display:inline-flex;align-items:center;font-family:var(--mono);font-size:9px;letter-spacing:.08em;color:var(--ai);border:1px solid rgba(217,138,43,.35);border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:middle;background:var(--ai-soft)}
+  .dot.seal{background:var(--seal)}
+  /* 状态池窄段：防换行 + 最小宽度 */
+  .ps .n,.ps .lab{white-space:nowrap}
+  .ps.rev{min-width:52px}
+  .ps.fix{min-width:56px}
+  body[data-mode="paper"] .ps.pend{background:repeating-linear-gradient(45deg,#c3b9a7,#c3b9a7 6px,#b8ad9a 6px,#b8ad9a 12px);color:#4a4438}
+  /* 焦点环 */
+  .btn:focus-visible,.nav-btn:focus-visible,.tab:focus-visible,.demo-nav button:focus-visible,.group-nav button:focus-visible,.tree-item:focus-visible,.input:focus-visible,.textarea:focus-visible{outline:2px solid var(--seal);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+  }
+  /* 阅读/设定承载面：稿纸纹（签名） */
+  .docs-surface{background-image:repeating-linear-gradient(0deg,transparent 0,transparent 27px,var(--paper-grid) 27px,var(--paper-grid) 28px)}
+  /* 线性图标（去 emoji 字形） */
+  .sicon{display:inline-block;flex:none;vertical-align:-2px;margin-right:4px}
+  .sicon svg{display:block}
+  .btn .sicon,.btn-main .sicon,.subpage-back .sicon{vertical-align:middle;margin-right:5px}
+</style>
+</head>
+<body data-mode="ink">
+
+<div class="demo-head">
+  <div class="demo-brand">
+    <div class="demo-logo">书</div>
+    <div>
+      <div class="demo-name">小说工坊 · 子页面排版 Demo</div>
+      <div class="demo-sub">墨案 InkDesk · 纯静态样张，不接功能 · 点页签查看不同布局</div>
+    </div>
+  </div>
+  <button class="btn" id="modeToggle">☾ 墨纸</button>
+  <div class="demo-nav" id="demoNav"></div>
+</div>
+
+<div class="group-nav" id="groupNav"></div>
+
+<style>
+  .shelf-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg3);border:1px solid var(--line2);border-radius:12px;padding:10px 12px}
+  .shelf-toolbar .input{max-width:260px}
+  .shelf-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+  .shelf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
+  .shelf-card{background:var(--bg3);border:1px solid var(--line2);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  .shelf-cover{height:86px;border-radius:10px;background:linear-gradient(135deg,#3a3329,#211c16);border:1px solid var(--line);display:grid;place-items:center;font-family:var(--serif);font-size:28px;color:var(--ai-strong)}
+  .shelf-name{font-family:var(--serif);font-size:17px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .shelf-meta{font-size:11px;color:var(--faint);line-height:1.5}
+  .shelf-progress{height:5px;border-radius:99px;background:var(--idle);overflow:hidden}
+  .shelf-progress i{display:block;height:100%;background:linear-gradient(90deg,#8dc47e,#5f9656)}
+  .shelf-actions{display:flex;gap:6px;flex-wrap:wrap}
+  .shelf-stat{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--dim)}
+  .shelf-stat b{font-family:var(--mono);color:var(--text);font-weight:600}
+  .shelf-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+  .shelf-stat-card{background:var(--bg3);border:1px solid var(--line2);border-radius:10px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+  .shelf-stat-card span{font-size:11px;color:var(--faint);white-space:nowrap}
+  .shelf-stat-card b{font-family:var(--mono);font-size:18px;color:var(--text);font-weight:600}
+  .shelf-card-head{display:flex;align-items:flex-start;gap:8px}
+  .shelf-status{font-size:10px;color:var(--dim);border:1px solid var(--line);border-radius:99px;padding:1px 7px;white-space:nowrap;flex:none}
+  .shelf-status.active{color:var(--human-strong);border-color:rgba(74,163,217,.4);background:rgba(74,163,217,.08)}
+  .shelf-status.done{color:var(--ok);border-color:rgba(121,179,114,.4);background:rgba(121,179,114,.08)}
+  .shelf-status.none{color:var(--faint);border-color:var(--line)}
+  @media(max-width:760px){.shelf-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+<section class="subpage active" id="page-shelf">
+  <div class="subpage-head">
+    <span class="subpage-back">作者首页</span>
+    <span class="subpage-title">书架</span>
+    <span class="subpage-meta">4 本书 · 当前书《雾都手记》</span>
+    <div class="subpage-actions">
+      <span class="btn">导入 DOCX</span>
+      <span class="btn amber">粘贴大纲开书</span>
+    </div>
+  </div>
+  <div class="subpage-body">
+    <div class="shelf-toolbar">
+      <input class="input" value="搜索书名…">
+      <div class="shelf-tabs">
+        <span class="tab active">全部</span>
+        <span class="tab">进行中</span>
+        <span class="tab">已完结</span>
+        <span class="tab">未开书</span>
+      </div>
+    </div>
+    <div class="shelf-stat-grid">
+      <div class="shelf-stat-card"><span>总书数</span><b>4</b></div>
+      <div class="shelf-stat-card"><span>进行中</span><b>2</b></div>
+      <div class="shelf-stat-card"><span>已完结</span><b>1</b></div>
+      <div class="shelf-stat-card"><span>未开书</span><b>1</b></div>
+    </div>
+    <div class="shelf-grid">
+      <div class="shelf-card">
+        <div class="shelf-cover">雾</div>
+        <div class="shelf-card-head"><span class="shelf-name">《雾都手记》</span><span class="shelf-status active">进行中</span></div>
+        <div class="shelf-meta">架空悬疑 · 33 章 · 更新于 2 小时前</div>
+        <div class="shelf-progress"><i style="width:64%"></i></div>
+        <div class="shelf-stat">进度 <b>21/33</b> · 142k 字</div>
+        <div class="shelf-actions"><span class="btn main">打开总编台</span><span class="btn">阅读</span></div>
+      </div>
+      <div class="shelf-card">
+        <div class="shelf-cover">纸</div>
+        <div class="shelf-card-head"><span class="shelf-name">《纸灰渡口》</span><span class="shelf-status active">进行中</span></div>
+        <div class="shelf-meta">都市志怪 · 18 章 · 更新于 昨天</div>
+        <div class="shelf-progress"><i style="width:28%"></i></div>
+        <div class="shelf-stat">进度 <b>5/18</b> · 31k 字</div>
+        <div class="shelf-actions"><span class="btn">打开</span><span class="btn">阅读</span></div>
+      </div>
+      <div class="shelf-card">
+        <div class="shelf-cover">灯</div>
+        <div class="shelf-card-head"><span class="shelf-name">《灯局旧案》</span><span class="shelf-status done">已完结</span></div>
+        <div class="shelf-meta">历史悬疑 · 26 章 · 更新于 3 天前</div>
+        <div class="shelf-progress"><i style="width:100%"></i></div>
+        <div class="shelf-stat">已完成 · 148k 字</div>
+        <div class="shelf-actions"><span class="btn">打开</span><span class="btn">阅读</span></div>
+      </div>
+      <div class="shelf-card">
+        <div class="shelf-cover" style="background:linear-gradient(135deg,#332c22,#201c16);color:var(--faint)">河</div>
+        <div class="shelf-card-head"><span class="shelf-name">《河图残卷》</span><span class="shelf-status none">未开书</span></div>
+        <div class="shelf-meta">尚无项目 · 未规划章节</div>
+        <div class="shelf-progress"><i style="width:0"></i></div>
+        <div class="shelf-stat">尚未开始</div>
+        <div class="shelf-actions"><span class="btn main">打开总编台</span></div>
+      </div>
+      <div class="shelf-card" style="border-style:dashed;place-items:center;justify-content:center">
+        <div class="shelf-cover" style="background:transparent;border-style:dashed;color:var(--faint)">+</div>
+        <div class="shelf-name" style="font-family:var(--ui);font-size:13px;color:var(--dim)">新建一本书</div>
+      </div>
+      <div class="shelf-card" style="border-style:dashed;place-items:center;justify-content:center">
+        <div class="shelf-cover" style="background:transparent;border-style:dashed;color:var(--faint)"><span class="sicon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg></span></div>
+        <div class="shelf-name" style="font-family:var(--ui);font-size:13px;color:var(--dim)">导入已有小说</div>
+        <div class="shelf-meta">项目目录或 txt / md 全本</div>
+      </div>
+    </div>
+    <div class="grid two">
+      <div class="card"><h4>书架说明</h4><p>一本书对应一条 AI 生产线。点开书进入总编台，阅读模式只读正文，不触发生成。</p></div>
+      <div class="card"><h4>作者级入口</h4><p>改编模式、题材雷达、创意灵感、书分析、作者资产库、全局写作资产库与设置，仍可在作者首页访问。</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-adapt">
+  <div class="subpage-head">
+    <span class="subpage-back">← 作者首页</span>
+    <span class="subpage-title">改编模式</span>
+    <span class="subpage-meta">6 步 · 上传全文 → 新书待写</span>
+    <div class="subpage-actions"><span class="btn main">开始分析</span></div>
+  </div>
+  <div class="tabs">
+    <span class="tab active">1 导入全文</span><span class="tab">2 设定卡片</span><span class="tab">3 确认改编维度</span><span class="tab">4 编辑改编方案</span><span class="tab">5 提炼新书资料</span><span class="tab">6 保存并开始写书</span>
+  </div>
+  <div class="subpage-body">
+    <div class="grid main-side">
+      <div class="card">
+        <h4>Source Text</h4>
+        <textarea class="textarea" style="min-height:180px">雨夜，一封信把沈砚带回南城旧案。无字铺、灯局、纸灰渡口，所有人都在等一场十三年前的大火重新烧起来……</textarea>
+        <div class="foot-note">支持 txt / md 全文；带分卷与章节标题更准。</div>
+      </div>
+      <div class="card">
+        <h4>识别结果</h4>
+        <div class="row"><span class="cn">01</span><span class="ds">主角：沈砚</span><span class="tag">低风险</span></div>
+        <div class="row"><span class="cn">02</span><span class="ds">组织：灯局</span><span class="tag">中风险</span></div>
+        <div class="row"><span class="cn">03</span><span class="ds">地名：纸灰渡口</span><span class="tag">可改</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h4>Mapping & Rules</h4>
+      <div class="grid two">
+        <div class="row"><span class="cn">原值</span><span class="ds">沈砚</span><span class="cn">新值</span><span class="ds">沈临舟</span><span class="act">保留</span></div>
+        <div class="row"><span class="cn">原值</span><span class="ds">灯局</span><span class="cn">新值</span><span class="ds">巡夜司</span><span class="act">可改</span></div>
+      </div>
+      <div class="foot-note">规则：仅术语替换 / 深度改写 / 约束红线；可先下载替换结果，或继续提炼待写新书。</div>
+    </div>
+    <div class="grid two">
+      <div class="card"><h4>输出</h4><p>新书《雾都手记·改编版》 · 33 章待写</p></div>
+      <div class="card"><h4>可微调</h4><p>总纲 / 道藏 / 角色名 / 卷计划 / 章节计划</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-radar">
+  <div class="subpage-head">
+    <span class="subpage-back">← 作者首页</span>
+    <span class="subpage-title">题材雷达</span>
+    <span class="subpage-meta">番茄 / 起点 / 晋江 · 扫榜 → 信号 → 创作</span>
+    <div class="subpage-actions"><span class="btn main">扫榜</span></div>
+  </div>
+  <div class="subpage-body">
+    <div class="card">
+      <h4>Platforms</h4>
+      <div class="tabs" style="border:none;padding:0">
+        <span class="tab active">番茄小说</span><span class="tab">起点中文网</span><span class="tab">晋江文学城</span>
+      </div>
+      <div class="foot-note">榜单文本兜底可选；扫榜后从候选里勾选要分析的书。</div>
+    </div>
+    <div class="card">
+      <h4>Public Candidates</h4>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
+        <div class="list">
+          <div class="row"><span class="cn">01</span><span class="ds">《雾都手记》</span><span class="tag">悬疑</span><span class="act">选</span></div>
+          <div class="row"><span class="cn">02</span><span class="ds">《纸灰渡口》</span><span class="tag">都市</span><span class="act">选</span></div>
+          <div class="row"><span class="cn">03</span><span class="ds">《灯局旧案》</span><span class="tag">历史</span><span class="act">选</span></div>
+        </div>
+        <div class="list">
+          <div class="row"><span class="cn">01</span><span class="ds">《南城十二坊》</span><span class="tag">群像</span><span class="act">选</span></div>
+          <div class="row"><span class="cn">02</span><span class="ds">《无字铺》</span><span class="tag">志怪</span><span class="act">选</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+      <div class="card"><h4>信号 · 题材</h4><p>南方旧城悬疑</p><div class="foot-note">正在升温 · 推荐</div></div>
+      <div class="card"><h4>信号 · 关系</h4><p>双主角信息差</p><div class="foot-note">相对稳定</div></div>
+      <div class="card"><h4>信号 · 机会</h4><p>地域质感 + 强钩子</p><div class="foot-note">当前高频</div></div>
+    </div>
+    <div class="card">
+      <h4>Influence Mode</h4>
+      <div class="row"><span class="ds">已选 3/5 项市场信号</span><span class="act">跟随热门</span><span class="btn main">用这些信号创作</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-idea">
+  <div class="subpage-head">
+    <span class="subpage-back">← 作者首页</span>
+    <span class="subpage-title">创意灵感</span>
+    <span class="subpage-meta">一句话 / 题材方向 → 多个可开书创意</span>
+    <div class="subpage-actions"><span class="btn main">生成灵感</span></div>
+  </div>
+  <div class="subpage-body">
+    <div class="card">
+      <h4>Idea Input</h4>
+      <textarea class="textarea">重生后我在城隍庙摆摊；反派每天都被打脸却越来越强。</textarea>
+      <div class="foot-note">输入一句话方向，给出 3–8 个差异化开书方案。</div>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
+      <div class="card"><h4>《城隍夜档》</h4><p>悬疑 · 第一人称 · 强钩子</p><div class="foot-note">可复制 / 以此方向开书</div></div>
+      <div class="card"><h4>《我在阴司摆摊》</h4><p>都市志怪 · 轻群像</p><div class="foot-note">可复制 / 以此方向开书</div></div>
+      <div class="card"><h4>《反派越来越强》</h4><p>反套路 · 男主视角</p><div class="foot-note">可复制 / 以此方向开书</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-analysis">
+  <div class="subpage-head">
+    <span class="subpage-back">← 作者首页</span>
+    <span class="subpage-title">书分析</span>
+    <span class="subpage-meta">拆书 · 卖点 / 结构 / 可借鉴 / 风险</span>
+    <div class="subpage-actions"><span class="btn main">开始分析</span></div>
+  </div>
+  <div class="subpage-body">
+    <div class="card">
+      <h4>Book Text</h4>
+      <textarea class="textarea" style="min-height:200px">粘贴一本书或章节正文，AI 会做结构与卖点体检，但不照搬具体作品。</textarea>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+      <div class="card"><h4>卖点</h4><p>地域质感、信息差、强钩子</p></div>
+      <div class="card"><h4>结构</h4><p>双线并行，第 3 章信息密度略低</p></div>
+      <div class="card"><h4>可借鉴</h4><p>雨夜开场 / 冷峻对白</p></div>
+      <div class="card"><h4>风险</h4><p>支线回收偏慢，人物动机需补强</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-author-assets">
+  <div class="subpage-head">
+    <span class="subpage-back">← 作者首页</span>
+    <span class="subpage-title">作者资产库</span>
+    <span class="subpage-meta">跨书可复用 · 笔法 / 红线 / 套路 / 角色 / 世界观</span>
+    <div class="subpage-actions"><span class="btn main">新增资产</span><span class="btn">导入默认资产</span></div>
+  </div>
+  <div class="subpage-body">
+    <div class="tabs" style="border:none;padding:0">
+      <span class="tab active">全部</span><span class="tab">笔法</span><span class="tab">红线/反AI</span><span class="tab">推进模式</span><span class="tab">题材</span><span class="tab">角色模板</span><span class="tab">世界观模板</span>
+    </div>
+    <div class="card">
+      <h4>Style Assets</h4>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr))">
+        <div class="card"><div class="row"><span class="tag">笔法</span><span class="ds">短句快节奏爽文风</span></div><p>短段落、强动作、低解释。</p></div>
+        <div class="card"><div class="row"><span class="tag">红线/反AI</span><span class="ds">禁止机械排比</span></div><p>避免连续三段相同句式。</p></div>
+        <div class="card"><div class="row"><span class="tag">角色模板</span><span class="ds">痞坏型主角</span></div><p>表面懒散、内里狠辣。</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-global-assets">
+  <div class="subpage-head">
+    <span class="subpage-back">← 作者首页</span>
+    <span class="subpage-title">全局写作资产库</span>
+    <span class="subpage-meta">内置题材 / 反AI规则 / 风格模板 / 推进模式 / 剧情桥段 · 只读</span>
+    <div class="subpage-actions"><span class="btn">在书内绑定</span></div>
+  </div>
+  <div class="subpage-body">
+    <div class="tabs" style="border:none;padding:0">
+      <span class="tab active">题材</span><span class="tab">反AI规则</span><span class="tab">风格模板</span><span class="tab">推进模式</span><span class="tab">剧情桥段</span>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
+      <div class="card"><h4>悬疑</h4><p>旧城 / 案件 / 信息差 / 强钩子</p></div>
+      <div class="card"><h4>都市志怪</h4><p>现代场景 + 低魔规则</p></div>
+      <div class="card"><h4>历史悬疑</h4><p>年代质感 + 史料锚点</p></div>
+    </div>
+    <div class="card">
+      <h4>Library Notes</h4>
+      <p>内置库只读；想要在书里使用，请进入某本书的「创作资产」页绑定，或导入作者资产库沉淀为个人条目。</p>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-settings">
+  <div class="subpage-head">
+    <span class="subpage-back">← 作者首页</span>
+    <span class="subpage-title">设置</span>
+    <span class="subpage-meta">模型 / 写作 / 路径 / 外观 · 全局生效</span>
+    <div class="subpage-actions"><span class="btn main">保存设置</span></div>
+  </div>
+  <div class="subpage-body">
+    <div class="tabs" style="border:none;padding:0">
+      <span class="tab active">模型与推理</span><span class="tab">写作与审稿</span><span class="tab">路径与文件</span><span class="tab">外观与主题</span>
+    </div>
+    <div class="grid two">
+      <div class="card"><h4>模型与推理</h4><div class="field"><label class="field-label">Provider</label><input class="input" value="openai"></div><div class="field"><label class="field-label">Model</label><input class="input" value="gpt-4.1-mini"></div></div>
+      <div class="card"><h4>写作与审稿</h4><div class="field"><label class="field-label">每章目标字数</label><input class="input" value="3000 - 4000"></div><div class="field"><label class="field-label">审稿通过分</label><input class="input" value="78"></div></div>
+      <div class="card"><h4>路径与文件</h4><div class="field"><label class="field-label">输出目录</label><input class="input" value="C:/novels/output"></div></div>
+      <div class="card"><h4>外观与主题</h4><div class="field"><label class="field-label">主题风格</label><select class="input"><option>墨纸 · 暖编辑</option><option>新拟物</option><option>macOS 玻璃</option></select></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-workflow">
+  <div class="topbar">
+    <span class="tb-back">← 书架</span>
+    <span class="tb-title">《雾都手记》</span>
+    <span class="tb-prog"><span class="big">21</span>/33 章过审</span>
+    <span class="pill"><span class="dot ok"></span>正文阶段</span>
+    <div class="tb-right">
+      <span class="btn"><span class="sicon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M9 7h8v8"/></svg></span>章节工作台</span>
+      <span class="btn amber"><span class="sicon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>生产单</span>
+      <span class="sep"></span>
+      <span class="btn"><span class="sicon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></span>侧柜</span>
+    </div>
+  </div>
+  <div class="body">
+    <div class="colA">
+      <div class="rail">
+        <div class="rs done"><span class="no">01</span>大纲 <b>✓</b></div>
+        <div class="rs done"><span class="no">02</span>设定 <b>✓</b></div>
+        <div class="rs done"><span class="no">03</span>卷计划 <b>✓</b></div>
+        <div class="rs done"><span class="no">04</span>章节计划 <b>✓</b></div>
+        <div class="rs now"><span class="no">05</span>正文 <b>21/33</b></div>
+        <div class="rs"><span class="no">06</span>审稿收尾</div>
+      </div>
+      <div class="poolbar">
+        <div class="ps ok"><span class="n">21</span><span class="lab">已过审</span></div>
+        <div class="ps rev"><span class="n">3</span><span class="lab">待审</span></div>
+        <div class="ps fix"><span class="n">1</span><span class="lab">待修订</span></div>
+        <div class="ps pend"><span class="n">8</span><span class="lab">待生成</span></div>
+      </div>
+      <div class="pslegend">
+        <span class="pl"><span class="sw" style="background:#5f9656"></span>approved 已过审 21</span>
+        <span class="pl"><span class="sw" style="background:#cf9426"></span>written 待审 3</span>
+        <span class="pl"><span class="sw" style="background:#c04b37"></span>rejected 待修订 1</span>
+        <span class="pl"><span class="sw" style="background:#554c3e"></span>pending 待生成 8</span>
+      </div>
+      <div class="cmd">
+        <div class="qt">机器空转状态 — 该你下令了<b>有 8 个章节等 AI 写 · 3 个等审稿 · 1 个等裁决</b></div>
+        <div class="btn-main"><span class="sicon"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 4 20 12 6 20 6 4"/></svg></span>让 AI 继续生产 · 剩余 8 章</div>
+        <div class="alt"><b>或 收起按钮只留一个</b>审稿 3 章<br>修订 1 章</div>
+      </div>
+      <div class="card2">
+        <div class="box">
+          <h5><span class="dot human"></span>需要总编裁决 · 4 项</h5>
+          <div class="row"><span class="cn">第 09 章</span><span class="st fix">待修订</span><span class="ds">高潮段动机断裂，已自动修订 2 轮未过</span><span class="act">处理</span></div>
+          <div class="row"><span class="cn">第 11 章</span><span class="st rev">待审</span><span class="ds">AI 已写完 2,410 字，等审稿判卷</span><span class="act">审</span></div>
+          <div class="row"><span class="cn">第 12 章</span><span class="st rev">待审</span><span class="ds">AI 已写完 3,842 字，等审稿判卷</span><span class="act">审</span></div>
+          <div class="row"><span class="cn">第 13 章</span><span class="st rev">待审</span><span class="ds">AI 已写完 2,008 字，等审稿判卷</span><span class="act">审</span></div>
+        </div>
+        <div class="box feed">
+          <h5><span class="dot ai"></span>生产记录 · 机器最近产出</h5>
+          <div class="fi"><span class="cn">第12章</span><span class="tx"><b>已通过</b> · 自动审稿判过，作者复盘补完</span><span class="tm">昨 22:41</span></div>
+          <div class="fi"><span class="cn">第11章</span><span class="tx"><b>已通过</b> · 修订 1 轮后过审</span><span class="tm">昨 21:30</span></div>
+          <div class="fi"><span class="cn">第10章</span><span class="tx"><b>已通过</b></span><span class="tm">3 天前</span></div>
+          <div class="fi"><span class="cn">第09章</span><span class="tx"><b style="color:#ee8a87">待修订</b> · 自动修订 2 轮未过，移交人工</span><span class="tm">4 天前</span></div>
+        </div>
+      </div>
+      <div class="box">
+        <h5><span class="dot idle"></span><span class="sicon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></span>这本书的资料侧柜</h5>
+        <div class="drawer-list">
+          <div class="dl">总纲 / 大纲 <span class="di">● 已导入</span></div>
+          <div class="dl">道藏（本书设定） <span class="di">● 已提炼</span></div>
+          <div class="dl dim">卷计划 <span class="di">已就绪 · 只读</span></div>
+          <div class="dl dim">写作资产 / 素材 <span class="di">12 条</span></div>
+          <div class="dl">角色（含幕后卡） <span class="di">7 人</span></div>
+          <div class="dl dim">剧情线摘要 <span class="di">3 条推进中</span></div>
+          <div class="dl">伏笔账本 <span class="di">14 埋 / 3 回收</span></div>
+          <div class="dl dim">作者复盘 <span class="di">钩子兑现 11/12</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="colB">
+      <div class="box" style="border-color:rgba(76,158,217,.35)">
+        <h5><span class="dot human"></span>审稿台（你的位置）</h5>
+        <p style="margin-bottom:8px">AI 判卷是预筛，最终裁决在你。此处列出全部待你裁决章。</p>
+        <div style="border:1px dashed rgba(74,163,217,.3);border-radius:9px;padding:9px 11px;font-size:11px;color:var(--faint);margin-bottom:8px">第 11 章 · 审稿报告预览：结构 A-，伏笔命中 ✓，结尾钩子 A，情节漏洞 0 → <span style="color:var(--human-strong)">[判过]</span> <span style="color:var(--human-strong)">[按意见修订]</span></div>
+        <div class="foot-note">对应页签：章节工作台 / 审稿</div>
+      </div>
+      <div class="box" style="border-color:rgba(217,138,43,.35)">
+        <h5><span class="dot ai"></span>生产单 · 批量流水线</h5>
+        <div class="console" style="margin-bottom:8px">
+          [14:02] 生产单 #7 启动 · 区间 1–33 · 断点续跑<br>
+          [14:02] 第22章 pending → <span class="warn">generating</span><br>
+          [14:03] 第22章 落盘 → <span class="warn">written</span> → <span class="ok">approved</span><br>
+          [14:05] 第23章 ……
+        </div>
+        <div class="console-bar"><span>第22章</span><span class="bar"><i></i></span><span>62%</span></div>
+      </div>
+      <div class="box">
+        <h5><span class="dot idle"></span>当前环节坐标</h5>
+        <p>机器正在跑：<b style="color:var(--text)">待生成 8 章</b>（第 14–21 章）<br>生产线吞吐：<b style="color:var(--text)">+3 章/天</b> · 约 3 天全本初稿<br>卡点：<b style="color:#ee8a87">第 09 章</b> 已 2 轮修订未过</p>
+      </div>
+    </div>
+  </div>
+  <div class="signal">
+    <span class="sg">今日机器产出 <b>+4,800</b> 字</span>
+    <span class="sg good">质检 <b>0</b> 矛盾</span>
+    <span class="sg good">复盘钩子 <b>11/12</b></span>
+    <span class="sg">全书 <b>142k</b> 字</span>
+    <span class="right">信号一行放完，不再摊成四张并列大卡</span>
+  </div>
+</section>
+<section class="subpage" id="page-overview">
+  <div class="subpage-head">
+    <span class="subpage-back">← 总编台</span>
+    <span class="subpage-title">大纲</span>
+    <span class="subpage-meta">当前书总纲 · 12,480 字 · 只读</span>
+    <div class="subpage-actions">
+      <span class="btn">更新大纲</span>
+      <span class="btn amber">反推大纲</span>
+      <span class="btn main">保存</span>
+    </div>
+  </div>
+  <div class="subpage-body">
+    <div class="section-label">Outline Document</div>
+    <div class="card docs-surface">
+      <div class="field-label">书名</div>
+      <div class="field-value serif" style="font-size:20px">《雾都手记》</div>
+      <div style="height:1px;background:var(--line2);margin:12px 0"></div>
+      <div class="field-label">总纲正文</div>
+      <div class="field-value" style="white-space:pre-line">第一卷 · 雾锁南城
+      少年沈砚在雨夜收到一封没有署名的信，被迫卷入南城旧案。为追查父亲失踪真相，他进入表面是古董行、实为情报网据点的“无字铺”。
+
+      第二卷 · 纸灰燃城
+      旧案线索指向十三年前一场大火。沈砚与身份不明的制图师林照影结盟，逐步揭开南城地下的“灯局”组织。
+
+      第三卷 · 旧城重启
+      多方势力汇聚，沈砚必须在父亲留下的半张地图和整座城之间做出选择。</div>
+    </div>
+    <div class="grid two">
+      <div class="card"><h4>Structure</h4><p>已识别 3 卷 / 33 章</p><p class="foot-note">这是文档页单栏排版，不做多卡片嵌套。</p></div>
+      <div class="card"><h4>Sync</h4><p>卷计划、章节计划与道藏均从这份总纲派生。</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-plan">
+  <div class="subpage-head">
+    <span class="subpage-back">← 总编台</span>
+    <span class="subpage-title">章节工作台</span>
+    <span class="subpage-meta">3 卷 · 33 章 · 当前第 22 章</span>
+    <div class="subpage-actions">
+      <span class="btn">生成章节计划</span>
+      <span class="btn main">写这一章</span>
+    </div>
+  </div>
+  <div class="tabs"><span class="tab active">章节计划</span><span class="tab">续写模式</span></div>
+  <div class="subpage-body">
+    <div class="grid tree-detail">
+      <div class="tree">
+        <div class="tree-item active"><span class="no">22</span>旧火重燃</div>
+        <div class="tree-item"><span class="no">23</span>灯局来客</div>
+        <div class="tree-item"><span class="no">24</span>半张地图</div>
+        <div class="tree-item"><span class="no">25</span>纸灰渡口</div>
+        <div class="tree-item"><span class="no">26</span>城门之后</div>
+      </div>
+      <div class="card">
+        <h3 class="serif" style="font-size:20px">第 22 章 · 旧火重燃</h3>
+        <div class="section-label">本章目标</div>
+        <p>沈砚取得灯局账册，并发现林照影与父亲旧案之间存在直接联系。</p>
+        <div class="section-label">剧情要点</div>
+        <div class="list">
+          <div class="row"><span class="cn">A</span><span>夜探无字铺库房，取得账册残页</span></div>
+          <div class="row"><span class="cn">B</span><span>林照影现身，被迫短暂结盟</span></div>
+          <div class="row"><span class="cn">C</span><span>账册指向十三年前纸厂大火</span></div>
+        </div>
+        <div class="section-label">结尾钩子</div>
+        <p>账册最后一页写着沈砚父亲的名字。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-bible">
+  <div class="subpage-head">
+    <span class="subpage-back">← 总编台</span>
+    <span class="subpage-title">本书设定</span>
+    <span class="subpage-meta">道藏 · 已提炼</span>
+    <div class="subpage-actions"><span class="btn main">提炼道藏</span></div>
+  </div>
+  <div class="tabs">
+    <span class="tab active">道藏</span><span class="tab">大世界</span><span class="tab">角色库</span><span class="tab">编年 / 复盘</span><span class="tab">写作与审稿</span>
+  </div>
+  <div class="subpage-body">
+    <div class="section-label">Story Bible</div>
+    <div class="grid two">
+      <div class="card"><h4>Genre</h4><p>架空悬疑 · 南方旧城 · 轻群像</p></div>
+      <div class="card"><h4>Red Lines</h4><p>不提前揭露林照影真实身份；沈砚前 10 章不可使用武力。</p></div>
+    </div>
+    <div class="card docs-surface">
+      <h4>World Rules · 12</h4>
+      <div class="list">
+        <div class="row"><span class="cn">01</span><span>灯局是南城地下秩序的管理者</span></div>
+        <div class="row"><span class="cn">02</span><span>纸灰渡口只在雨夜开放</span></div>
+        <div class="row"><span class="cn">03</span><span>旧火案的官方记录全部缺失</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h4>Characters · 7</h4>
+      <div class="list">
+        <div class="row"><span class="cn">沈砚</span><span class="tag">主角</span><span>寻找父亲失踪真相</span></div>
+        <div class="row"><span class="cn">林照影</span><span class="tag">女主</span><span>身份成谜的制图师</span></div>
+        <div class="row"><span class="cn">周鹤年</span><span class="tag">配角</span><span>无字铺掌柜</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-world">
+  <div class="subpage-head">
+    <span class="subpage-back">← 总编台</span>
+    <span class="subpage-title">本书设定</span>
+    <span class="subpage-meta">大世界 · 已提炼</span>
+    <div class="subpage-actions"><span class="btn main">AI 提炼</span></div>
+  </div>
+  <div class="tabs">
+    <span class="tab">道藏</span><span class="tab active">大世界</span><span class="tab">角色库</span><span class="tab">编年 / 复盘</span><span class="tab">写作与审稿</span>
+  </div>
+  <div class="subpage-body">
+    <div class="section-label">World Structure</div>
+    <div class="grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="card"><h4>境界体系</h4><p>凡尘 / 灯使 / 守城人</p></div>
+      <div class="card"><h4>区域</h4><p>南城 / 北岸 / 纸灰渡口</p></div>
+      <div class="card"><h4>势力</h4><p>无字铺 / 灯局 / 城防司</p></div>
+    </div>
+    <div class="card docs-surface">
+      <h4>Structured Data</h4>
+      <div class="row"><span class="cn">区域</span><span class="ds">南城由十二坊组成，核心为纸厂坊</span></div>
+      <div class="row"><span class="cn">势力</span><span class="ds">灯局控制信息与道路，城防司控制明面秩序</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-roles">
+  <div class="subpage-head">
+    <span class="subpage-back">← 总编台</span>
+    <span class="subpage-title">本书设定</span>
+    <span class="subpage-meta">角色库 · 7 人</span>
+    <div class="subpage-actions"><span class="btn main">AI 提炼角色</span></div>
+  </div>
+  <div class="tabs">
+    <span class="tab">道藏</span><span class="tab">大世界</span><span class="tab active">角色库</span><span class="tab">编年 / 复盘</span><span class="tab">写作与审稿</span>
+  </div>
+  <div class="subpage-body">
+    <div class="card">
+      <div class="row"><span class="serif" style="font-size:16px">沈砚</span><span class="tag">主角</span><span class="ds">定位：查案者 / 无字铺新伙计</span><span class="act">编辑</span></div>
+      <div class="foot-note">当前状态：已进入南城 · 出场 21 次 · 最近第 22 章</div>
+      <div class="foot-note">知情度：尚未知道林照影与父亲的直接联系</div>
+    </div>
+    <div class="card">
+      <div class="row"><span class="serif" style="font-size:16px">林照影</span><span class="tag">女主</span><span class="ds">定位：制图师 / 灯局叛逃者</span><span class="act">编辑</span></div>
+      <div class="foot-note">成长线：陌生 → 短暂结盟 → 猜疑 → 共同查案</div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-facts">
+  <div class="subpage-head">
+    <span class="subpage-back">← 总编台</span>
+    <span class="subpage-title">本书设定</span>
+    <span class="subpage-meta">编年 / 复盘</span>
+    <div class="subpage-actions"><span class="btn">回填历史章节</span></div>
+  </div>
+  <div class="tabs">
+    <span class="tab">道藏</span><span class="tab">大世界</span><span class="tab">角色库</span><span class="tab active">编年 / 复盘</span><span class="tab">写作与审稿</span>
+  </div>
+  <div class="subpage-body">
+    <div class="tabs" style="border:none;padding:0">
+      <span class="tab active">编年录</span><span class="tab">复盘记录</span>
+    </div>
+    <div class="card">
+      <h4>Fact Ledger</h4>
+      <div class="list">
+        <div class="row"><span class="cn">Ch.21</span><span class="ds">沈砚拿到无字铺后门钥匙</span><span class="tag">物品</span></div>
+        <div class="row"><span class="cn">Ch.21</span><span class="ds">林照影受伤，暂住南岸旧屋</span><span class="tag">状态</span></div>
+        <div class="row"><span class="cn">Ch.20</span><span class="ds">灯局已察觉无字铺异动</span><span class="tag">关系</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h4>Author Review · Ch.22</h4>
+      <p>钩子兑现：上章账册线索已推进 ✓ · 结尾钩子 8/10 · 连续性正常 · 近期节奏稳定。</p>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-prefs">
+  <div class="subpage-head">
+    <span class="subpage-back">← 总编台</span>
+    <span class="subpage-title">本书设定</span>
+    <span class="subpage-meta">写作与审稿</span>
+    <div class="subpage-actions"><span class="btn main">保存设置</span></div>
+  </div>
+  <div class="tabs">
+    <span class="tab">道藏</span><span class="tab">大世界</span><span class="tab">角色库</span><span class="tab">编年 / 复盘</span><span class="tab active">写作与审稿</span>
+  </div>
+  <div class="subpage-body">
+    <div class="grid two">
+      <div class="card"><h4>Chapter Size</h4><div class="field-label">每章目标字数</div><input class="input" value="3000 - 4000"></div>
+      <div class="card"><h4>Review Pass Score</h4><div class="field-label">审稿通过分</div><input class="input" value="78"></div>
+      <div class="card"><h4>Auto Review</h4><p>生成后自动审稿：开启</p><p>修订后自动重审：开启</p></div>
+      <div class="card"><h4>Continuation</h4><p>续写模式读取上一章结尾 + 编年录锚点。</p></div>
+    </div>
+  </div>
+</section>
+<section class="subpage" id="page-plotlines">
+  <div class="subpage-head">
+    <span class="subpage-back">← 总编台</span>
+    <span class="subpage-title">长线管理</span>
+    <span class="subpage-meta">剧情线 / 伏笔</span>
+    <div class="subpage-actions"><span class="btn">新建剧情线</span></div>
+  </div>
+  <div class="tabs"><span class="tab active">剧情线</span><span class="tab">伏笔</span></div>
+  <div class="subpage-body">
+    <div class="card">
+      <div class="row"><span class="serif" style="font-size:16px">旧火案真相</span><span class="tag">主线</span><span class="tag">推进中</span><span class="act">刷新进度</span></div>
+      <p>目标：查明十三年前纸厂大火真相。当前已获得账册残页与半张地图。</p>
+    </div>
+    <div class="card">
+      <div class="row"><span class="serif" style="font-size:16px">林照影身份</span><span class="tag">悬念线</span><span class="tag">推进中</span><span class="act">刷新进度</span></div>
+      <p>目标：逐步揭示林照影与灯局、旧火案的关系。当前进展：第 22 章首次正面冲突。</p>
+    </div>
+    <div class="card">
+      <h4>Foreshadows</h4>
+      <div class="list">
+        <div class="row"><span class="cn">V01</span><span class="ds">无字铺账册最后一页的人名</span><span class="tag">planned</span></div>
+        <div class="row"><span class="cn">V03</span><span class="ds">纸灰渡口的雨夜信号</span><span class="tag">progressing</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-run">
+  <div class="subpage-head">
+    <span class="subpage-back">← 总编台</span>
+    <span class="subpage-title">生产单</span>
+    <span class="subpage-meta">#7 · 第 1–33 章 · 当前第 22 章</span>
+    <div class="subpage-actions"><span class="btn">暂停</span><span class="btn amber">停止</span></div>
+  </div>
+  <div class="subpage-body">
+    <div class="card">
+      <div class="row" style="border-bottom:1px solid var(--line2)"><span class="subpage-meta">范围 1–33 · 当前 22 · 62%</span><span class="act">继续</span></div>
+      <div class="console-bar" style="margin-top:10px"><span class="bar"><i></i></span><span>62%</span></div>
+    </div>
+    <div class="console">
+      [14:02] 生产单 #7 启动 · 区间 1–33 · 断点续跑<br>
+      [14:02] 第22章 pending → <span class="warn">generating</span><br>
+      [14:03] 第22章 落盘 → <span class="warn">written</span> → 自动审稿 → <span class="ok">approved</span><br>
+      [14:05] 第23章 ……
+    </div>
+    <div class="grid two">
+      <div class="card"><h4>Stats</h4><p>新生成 22 · 修订通过 1 · 豁免 0 · 重生成 0 · 失败 0</p></div>
+      <div class="card"><h4>Pending Manual</h4><p>第 09 章：两轮修订仍不过，保留草稿。</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-director">
+  <div class="subpage-head">
+    <span class="subpage-back">← 总编台</span>
+    <span class="subpage-title">自动编辑</span>
+    <span class="subpage-meta">下一阶段节点 · 节奏板 · 风险</span>
+    <div class="subpage-actions"><span class="btn main">开始自动编辑</span></div>
+  </div>
+  <div class="subpage-body">
+    <div class="card">
+      <h4>Next Arc</h4>
+      <p>未来 5 章：沈砚与林照影从互不信任转向被迫合作，正式进入灯局内层。</p>
+      <div class="list">
+        <div class="row"><span class="cn">23</span><span class="ds">灯局来客</span><span class="act">采纳为剧情线</span></div>
+        <div class="row"><span class="cn">24</span><span class="ds">半张地图</span><span class="act">采纳为剧情线</span></div>
+        <div class="row"><span class="cn">25</span><span class="ds">纸灰渡口</span><span class="act">采纳为剧情线</span></div>
+      </div>
+    </div>
+    <div class="card"><h4>Risks</h4><p>林照影真实目的若提前暴露，会削弱悬念线。</p></div>
+  </div>
+</section>
+
+<section class="subpage" id="page-breakdown">
+  <div class="subpage-head">
+    <span class="subpage-back">← 总编台</span>
+    <span class="subpage-title">拆书分析</span>
+    <span class="subpage-meta">最近 20 章 · 快速</span>
+    <div class="subpage-actions"><span class="btn main">开始拆书</span></div>
+  </div>
+  <div class="subpage-body">
+    <div class="grid two">
+      <div class="card"><h4>定位</h4><p>南方旧城悬疑 / 轻群像 / 强钩子。</p></div>
+      <div class="card"><h4>卖点</h4><p>地域质感、信息差、双主角关系张力。</p></div>
+    </div>
+    <div class="card">
+      <h4>Structure</h4>
+      <div class="list">
+        <div class="row"><span class="cn">01</span><span class="ds">开场悬念成立，但第 3 章信息密度略低</span></div>
+        <div class="row"><span class="cn">02</span><span class="ds">第 12 章中段冲突升级有效，建议保留</span></div>
+        <div class="row"><span class="cn">03</span><span class="ds">第 18 章支线回收偏慢</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-blurb">
+  <div class="subpage-head">
+    <span class="subpage-back">← 总编台</span>
+    <span class="subpage-title">简介 / 封面</span>
+    <span class="subpage-meta">书架卡片与导出封面</span>
+    <div class="subpage-actions"><span class="btn main">保存</span></div>
+  </div>
+  <div class="subpage-body">
+    <div class="grid main-side">
+      <div class="card">
+        <h4>Blurb</h4>
+        <textarea class="textarea">雨夜，一封信把沈砚带回南城旧案。无字铺、灯局、纸灰渡口，所有人都在等一场十三年前的大火重新烧起来。</textarea>
+        <div class="foot-note">文案应控制在 80–160 字，用于书架卡片与全本导出。</div>
+      </div>
+      <div class="card">
+        <h4>Cover</h4>
+        <div style="height:120px;border:1px dashed var(--line);border-radius:10px;display:grid;place-items:center;color:var(--faint);background:var(--bg4)">封面预览区</div>
+        <div class="foot-note">纯文本插件：封面仅作为占位，不做图片生成。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-knowledge">
+  <div class="subpage-head">
+    <span class="subpage-back">← 总编台</span>
+    <span class="subpage-title">知识库</span>
+    <span class="subpage-meta">书内参考文档 · 生成时检索注入</span>
+    <div class="subpage-actions"><span class="btn main">新建文档</span></div>
+  </div>
+  <div class="subpage-body">
+    <div class="grid main-side">
+      <div class="tree">
+        <div class="tree-item active">南方旧城地理</div>
+        <div class="tree-item">灯局组织结构</div>
+        <div class="tree-item">纸厂大火时间线</div>
+        <div class="tree-item">人物称呼与口癖</div>
+      </div>
+      <div class="card docs-surface">
+        <h3>南方旧城地理</h3>
+        <p>南城十二坊，核心为纸厂坊；北岸为旧仓库与码头；纸灰渡口只在雨夜开放。</p>
+        <div class="foot-note">这些参考内容会被检索并注入相关章节生成。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="subpage" id="page-assets">
+  <div class="subpage-head">
+    <span class="subpage-back">← 总编台</span>
+    <span class="subpage-title">创作资产</span>
+    <span class="subpage-meta">题材 · 推进 · 笔法帖 · 文戒 · 心法</span>
+    <div class="subpage-actions"><span class="btn main">绑定资产</span></div>
+  </div>
+  <div class="subpage-body">
+    <div class="tabs" style="border:none;padding:0">
+      <span class="tab active">题材 / 推进</span><span class="tab">笔法帖</span><span class="tab">文戒</span><span class="tab">心法</span>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="card"><h4>题材</h4><p>悬疑 / 旧城 / 轻群像</p></div>
+      <div class="card"><h4>主推进</h4><p>旧火案真相</p></div>
+      <div class="card"><h4>辅助推进</h4><p>林照影身份 · 灯局内斗</p></div>
+    </div>
+    <div class="card">
+      <h4>Style Templates</h4>
+      <div class="list">
+        <div class="row"><span class="cn">01</span><span class="ds">雨夜开场 / 冷峻对白 / 南方旧城质感</span></div>
+        <div class="row"><span class="cn">02</span><span class="ds">信息差控制 / 群像切换 / 双线并行</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+<style>
+  .demo-nav{margin-left:auto;flex:none}
+  .demo-nav select.demo-select{
+    appearance:none;
+    -webkit-appearance:none;
+    min-width:220px;
+    padding:8px 34px 8px 12px;
+    border:1px solid var(--line);
+    border-radius:10px;
+    background:var(--bg3);
+    color:var(--text);
+    font-family:var(--ui);
+    font-size:12px;
+    cursor:pointer;
+    background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),linear-gradient(135deg,var(--dim) 50%,transparent 50%);
+    background-position:calc(100% - 16px) 50%,calc(100% - 11px) 50%;
+    background-size:5px 5px,5px 5px;
+    background-repeat:no-repeat;
+  }
+  .demo-nav select.demo-select:hover{border-color:rgba(217,138,43,.45)}
+  .demo-nav select.demo-select:focus-visible{outline:1px solid var(--ai-strong);outline-offset:2px}
+</style>
+<style>
+  .group-nav{display:none;margin:0 0 16px;padding:10px 14px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;gap:6px;flex-wrap:wrap}
+  .group-nav.show{display:flex}
+  .group-nav button{font-size:11.5px;color:var(--dim);border:1px solid var(--line);border-radius:8px;padding:5px 10px;background:var(--bg3)}
+  .group-nav button:hover{border-color:rgba(217,138,43,.45);color:var(--text)}
+  .group-nav button.active{background:rgba(217,138,43,.14);border-color:rgba(217,138,43,.5);color:var(--ai-strong)}
+</style>
+<style>
+  .group-nav{display:none;margin:0 0 16px;padding:10px 14px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;gap:6px;flex-wrap:wrap}
+  .group-nav.show{display:flex}
+  .group-nav button{font-size:11.5px;color:var(--dim);border:1px solid var(--line);border-radius:8px;padding:5px 10px;background:var(--bg3)}
+  .group-nav button:hover{border-color:rgba(217,138,43,.45);color:var(--text)}
+  .group-nav button.active{background:rgba(217,138,43,.14);border-color:rgba(217,138,43,.5);color:var(--ai-strong)}
+</style>
+<style>
+  .group-nav{display:none;margin:0 0 16px;padding:10px 14px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;gap:6px;flex-wrap:wrap}
+  .group-nav.show{display:flex}
+  .group-nav button{font-size:11.5px;color:var(--dim);border:1px solid var(--line);border-radius:8px;padding:5px 10px;background:var(--bg3)}
+  .group-nav button:hover{border-color:rgba(217,138,43,.45);color:var(--text)}
+  .group-nav button.active{background:rgba(217,138,43,.14);border-color:rgba(217,138,43,.5);color:var(--ai-strong)}
+</style>
+<script>
+  const authorNavGroups = [
+    { id: 'create', label: '创作', items: [['shelf', '书架'], ['adapt', '改编模式']] },
+    { id: 'inspiration', label: '灵感·策划', items: [['radar', '题材雷达'], ['idea', '创意灵感'], ['analysis', '书分析']] },
+    { id: 'author-assets', label: '资产', items: [['author-assets', '作者资产库'], ['global-assets', '全局写作资产库']] },
+  ];
+  const bookNavGroups = [
+    { id: 'home', label: '总编台', items: [['workflow', '总编台']] },
+    { id: 'write', label: '写作', items: [['plan', '卷/章节计划'], ['run', '生产单']] },
+    { id: 'setup', label: '设定', items: [['overview', '大纲'], ['bible', '道藏'], ['world', '大世界'], ['roles', '角色库'], ['facts', '编年/复盘'], ['prefs', '写作与审稿']] },
+    { id: 'advanced', label: '规划复盘', items: [['plotlines', '剧情线/伏笔'], ['director', '自动编辑'], ['breakdown', '拆书分析']] },
+    { id: 'materials', label: '资料', items: [['blurb', '简介/封面'], ['knowledge', '知识库'], ['assets', '创作资产']] },
+  ];
+
+  const authorTopItems = [
+    ...authorNavGroups.map(group => ({ id: group.id, label: group.label, group, kind: 'author' })),
+    { id: 'settings', label: '设置', group: null, kind: 'settings' },
+  ];
+  const bookTopItems = bookNavGroups.map(group => ({ id: group.id, label: group.label, group, kind: 'book' }));
+
+  const topNav = document.getElementById('demoNav');
+  const groupNav = document.getElementById('groupNav');
+  const allSections = [
+    ['shelf', '书架'], ['adapt', '改编模式'], ['radar', '题材雷达'], ['idea', '创意灵感'],
+    ['analysis', '书分析'], ['author-assets', '作者资产库'], ['global-assets', '全局写作资产库'], ['settings', '设置'],
+    ...bookNavGroups.flatMap(group => group.items),
+  ].map(([id]) => document.getElementById('page-' + id));
+
+  let context = 'author';
+
+  const clearActive = (container) => {
+    if (!container) return;
+    container.querySelectorAll('button').forEach(btn => btn.classList.remove('active'));
+  };
+
+  const showPage = (id) => {
+    allSections.forEach(section => section.classList.toggle('active', section.id === 'page-' + id));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const renderTopNav = (items, activeId) => {
+    topNav.innerHTML = '';
+    items.forEach(item => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = item.label;
+      if (item.id === activeId) button.classList.add('active');
+      button.addEventListener('click', () => {
+        if (item.kind === 'author') selectAuthorGroup(item.group);
+        else if (item.kind === 'settings') selectAuthorPage('settings');
+        else if (item.kind === 'book') selectBookGroup(item.group);
+        else goShelf();
+      });
+      topNav.appendChild(button);
+    });
+  };
+
+  const renderGroupNav = (group, activeId) => {
+    groupNav.innerHTML = '';
+    groupNav.classList.toggle('show', group.items.length > 1);
+    group.items.forEach(([id, label]) => {
+      const sub = document.createElement('button');
+      sub.type = 'button';
+      sub.textContent = label;
+      sub.dataset.page = id;
+      if (id === activeId) sub.classList.add('active');
+      sub.addEventListener('click', () => {
+        clearActive(groupNav);
+        sub.classList.add('active');
+        showPage(id);
+      });
+      groupNav.appendChild(sub);
+    });
+  };
+
+  const selectAuthorGroup = (group) => {
+    context = 'author';
+    renderTopNav(authorTopItems, group.id);
+    renderGroupNav(group, group.items[0][0]);
+    showPage(group.items[0][0]);
+  };
+
+  const selectAuthorPage = (id) => {
+    if (id === 'shelf') {
+      goShelf();
+      return;
+    }
+    context = 'author';
+    if (id === 'settings') {
+      renderTopNav(authorTopItems, 'settings');
+      groupNav.classList.remove('show');
+      groupNav.innerHTML = '';
+      showPage('settings');
+      return;
+    }
+    const group = authorNavGroups.find(g => g.items.some(([itemId]) => itemId === id));
+    if (!group) return;
+    renderTopNav(authorTopItems, group.id);
+    renderGroupNav(group, id);
+    showPage(id);
+  };
+
+  const selectBookGroup = (group) => {
+    context = 'book';
+    renderTopNav(bookTopItems, group.id);
+    renderGroupNav(group, group.items[0][0]);
+    showPage(group.items[0][0]);
+  };
+
+  const selectBookPage = (id) => {
+    context = 'book';
+    const group = bookNavGroups.find(g => g.items.some(([itemId]) => itemId === id));
+    if (!group) return;
+    renderTopNav(bookTopItems, group.id);
+    renderGroupNav(group, id);
+    showPage(id);
+  };
+
+  const goShelf = () => {
+    context = 'author';
+    const group = authorNavGroups.find(g => g.items.some(([itemId]) => itemId === 'shelf'));
+    renderTopNav(authorTopItems, group.id);
+    renderGroupNav(group, 'shelf');
+    showPage('shelf');
+  };
+
+  // 书内子页面顶部返回总编台；作者级子页面返回书架。
+  document.querySelectorAll('.subpage-back').forEach(back => {
+    back.addEventListener('click', () => {
+      if (context === 'book') selectBookPage('workflow');
+      else goShelf();
+    });
+  });
+
+  // 书架卡片：打开书进入总编台；阅读保持为演示入口。
+  document.querySelectorAll('.shelf-actions .btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.textContent.includes('打开')) selectBookPage('workflow');
+    });
+  });
+
+  goShelf();
+
+  // 明暗档切换（墨纸 / 纸白）
+  const bodyEl = document.body, modeBtn = document.getElementById('modeToggle');
+  const setMode = (m) => {
+    bodyEl.dataset.mode = m;
+    modeBtn.textContent = m === 'ink' ? '☾ 墨纸' : '☀ 纸白';
+    modeBtn.classList.toggle('human', m === 'paper');
+  };
+  modeBtn.addEventListener('click', () => setMode(bodyEl.dataset.mode === 'ink' ? 'paper' : 'ink'));
+</script>
+</body>
+</html>
+
+
+
+

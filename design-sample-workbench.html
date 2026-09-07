@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小说工坊 · 总编台（墨案 InkDesk 概念样稿）</title>
+<style>
+  /* ============================================================
+     墨案 InkDesk · 设计系统 token（两档模式：墨纸 / 纸白）
+     ============================================================ */
+  :root{
+    /* ---- 排版档位（主题无关） ---- */
+    --font-display:Georgia,"Noto Serif SC","Source Han Serif SC","Songti SC",SimSun,serif;
+    --font-ui:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",sans-serif;
+    --font-mono:"Cascadia Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --measure:720px;
+    --fs-display:24px; --fs-title:16px; --fs-body:13px; --fs-meta:12px; --fs-caption:11px;
+    --r:12px; --r-sm:8px; --r-lg:16px;
+    --space:16px; --space-lg:24px; --space-section:48px;
+  }
+
+  /* ---- 模式：墨纸（暗）default ---- */
+  html{color-scheme:dark}
+  body[data-mode="paper"]{color-scheme:light}
+
+  :root,
+  body[data-mode="ink"]{
+    --bg:#17140f; --bg-raise:#201c16; --bg-inset:#2a241c; --bg-deep:#100e0a;
+    --line:rgba(242,233,220,.12); --line-2:rgba(242,233,220,.05);
+    --text:#eee7da; --dim:#b3a78f; --faint:#8a7f6c;
+    --ok:#79b372; --warn:#e3a52e; --bad:#d95753; --idle:#5c5344;
+    --ai:#d98a2b; --human:#4aa3d9;
+    --seal:#c14a2e;                     /* 朱砂 · 人的裁决 / 主动作 */
+    --seal-hover:#d95a3a;
+    --seal-soft:rgba(193,74,46,.14);
+    --ai-soft:rgba(217,138,43,.12);
+    --human-soft:rgba(74,163,217,.12);
+    --paper-grid:rgba(242,233,220,.05);
+    --shadow:0 8px 24px rgba(0,0,0,.35);
+  }
+  body[data-mode="paper"]{
+    --bg:#f6f3ec; --bg-raise:#fcfaf6; --bg-inset:#efe9dc; --bg-deep:#e9e2d4;
+    --line:rgba(38,34,27,.14); --line-2:rgba(38,34,27,.06);
+    --text:#26221b; --dim:#6f665a; --faint:#9c9284;
+    --ok:#5f9656; --warn:#c98a1f; --bad:#b94a41; --idle:#cfc6b5;
+    --ai:#c07c22; --human:#2f6fa3;
+    --seal:#a63e2a; --seal-hover:#8c3321;
+    --seal-soft:rgba(166,62,42,.12);
+    --ai-soft:rgba(192,124,34,.13);
+    --human-soft:rgba(47,111,163,.12);
+    --paper-grid:rgba(38,34,27,.05);
+    --shadow:0 8px 24px rgba(0,0,0,.12);
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.6;-webkit-font-smoothing:antialiased;padding:22px 26px 70px}
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+  a{color:inherit}
+  .serif{font-family:var(--font-display)} .mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+
+  /* ===== 页面头 ===== */
+  .page-head{position:sticky;top:0;z-index:40;background:color-mix(in srgb,var(--bg-deep) 92%,transparent);backdrop-filter:blur(12px);border:1px solid var(--line);border-radius:var(--r-lg);padding:13px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:10px;min-width:0}
+  .logo{width:32px;height:32px;border-radius:9px;background:var(--bg-inset);border:1px solid var(--line);display:grid;place-items:center;font-family:var(--font-display);font-weight:700;font-size:16px;color:var(--seal)}
+  .brand-name{font-family:var(--font-display);font-size:17px}
+  .brand-sub{font-size:var(--fs-caption);color:var(--faint)}
+  .crumbs{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:var(--fs-meta);color:var(--dim);flex-wrap:wrap}
+  .crumbs b{color:var(--text);font-weight:600}
+  .crumbs .sep{color:var(--faint)}
+  .code-chip{border:1px solid var(--line);border-radius:99px;padding:2px 9px;font-size:var(--fs-caption);color:var(--dim)}
+
+  /* ===== 作者级顶部导航 ===== */
+  .author-nav{display:flex;align-items:center;gap:4px;flex-wrap:wrap;background:var(--bg-raise);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;margin-top:14px}
+  .nav-group{font-size:var(--fs-caption);letter-spacing:.14em;color:var(--faint);text-transform:uppercase;margin:0 8px 0 2px;white-space:nowrap}
+  .nav-btn{font-size:var(--fs-meta);color:var(--dim);border:1px solid transparent;border-radius:8px;padding:5px 10px;white-space:nowrap;transition:background .12s,color .12s,border-color .12s}
+  .nav-btn:hover{background:var(--bg-inset);color:var(--text)}
+  .nav-btn.active{background:var(--ai-soft);border-color:rgba(217,138,43,.4);color:var(--ai)}
+  body[data-mode="paper"] .nav-btn.active{color:#96610f}
+
+  /* ===== 总编台 ===== */
+  .stage{margin-top:16px;background:var(--bg-raise);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden}
+  .topbar{display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--line-2);background:var(--bg-deep);flex-wrap:wrap}
+  .tb-back{font-size:var(--fs-meta);color:var(--dim);border:1px solid var(--line);border-radius:7px;padding:3px 10px;white-space:nowrap}
+  .tb-title{font-family:var(--font-display);font-size:22px}
+  .tb-prog{display:flex;align-items:baseline;gap:8px;font-size:var(--fs-meta);color:var(--dim)}
+  .tb-prog .big{font-family:var(--font-display);font-size:22px;color:var(--ok);font-weight:600}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-caption);padding:3px 10px;border-radius:99px;border:1px solid var(--line);color:var(--dim);background:var(--bg-raise)}
+  .dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
+  .dot.ok{background:var(--ok)}.dot.ai{background:var(--ai)}.dot.human{background:var(--human)}.dot.bad{background:var(--bad)}.dot.idle{background:var(--idle)}.dot.seal{background:var(--seal)}
+  .tb-right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:var(--fs-meta)}
+
+  /* ---- 按钮系统 ---- */
+  .btn{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-meta);color:var(--dim);border:1px solid var(--line);border-radius:8px;padding:5px 11px;white-space:nowrap;background:var(--bg-inset);transition:background .12s,color .12s,border-color .12s,transform .1s}
+  .btn:hover{background:var(--bg-deep);color:var(--text)}
+  .btn:active{transform:scale(.97)}
+  .btn:focus-visible{outline:2px solid var(--seal);outline-offset:2px}
+  .btn.main{background:var(--seal);border-color:var(--seal);color:#fdf3ee;font-weight:700}
+  .btn.main:hover{background:var(--seal-hover);border-color:var(--seal-hover)}
+  .btn.ai{color:var(--ai);border-color:rgba(217,138,43,.4);background:var(--ai-soft)}
+  .btn.ai:hover{background:color-mix(in srgb,var(--ai-soft) 60%,var(--bg-inset));color:var(--ai)}
+  .btn.human{color:var(--human);border-color:rgba(74,163,217,.4);background:var(--human-soft)}
+  .btn.ghost{background:none;border-color:transparent;color:var(--dim)}
+  .btn.ghost:hover{background:var(--bg-inset);color:var(--text)}
+  .btn.sm{font-size:var(--fs-caption);padding:3px 9px}
+
+  /* AI 微签（签名 3） */
+  .ai-tag{display:inline-flex;align-items:center;font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;color:var(--ai);border:1px solid rgba(217,138,43,.35);border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:middle;background:var(--ai-soft)}
+  body[data-mode="paper"] .ai-tag{color:#96610f}
+
+  /* ---- AI 进度 · 悬浮窗 ---- */
+  .ai-float{position:fixed;top:18px;right:18px;z-index:60;width:340px;max-width:calc(100vw - 28px);display:none;flex-direction:column;border:1px solid rgba(217,138,43,.35);border-radius:var(--r);background:linear-gradient(180deg,var(--bg-raise),var(--bg-deep));box-shadow:var(--shadow);overflow:hidden}
+  .ai-float.show{display:flex}
+  .ai-float-head{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line-2);background:var(--bg-deep);cursor:grab;user-select:none}
+  .ai-float-head:active{cursor:grabbing}
+  .ai-pulse{width:8px;height:8px;border-radius:50%;background:var(--ai);box-shadow:0 0 10px rgba(217,138,43,.7);flex:none}
+  .ai-progress-title{font-family:var(--font-display);font-size:15px;color:var(--text)}
+  .ai-state{font-size:var(--fs-caption);color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .ai-float-close{font-size:var(--fs-caption);color:var(--faint);border:1px solid var(--line-2);border-radius:6px;padding:2px 7px;flex:none}
+  .ai-float-close:hover{background:var(--bg-inset);color:var(--text)}
+  .ai-float-body{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+  .ai-task{font-size:var(--fs-body);color:var(--text)}
+  .ai-task b{color:var(--ai);font-weight:600}
+  .ai-bar{height:8px;border-radius:99px;background:var(--idle);overflow:hidden;border:1px solid var(--line-2)}
+  .ai-bar i{display:block;height:100%;width:62%;background:linear-gradient(90deg,var(--ai),color-mix(in srgb,var(--ai) 50%,#fff));transition:width .4s ease}
+  body[data-mode="paper"] .ai-bar i{background:linear-gradient(90deg,var(--ai),var(--ai-soft))}
+  .ai-log{font-family:var(--font-mono);font-size:var(--fs-caption);color:var(--faint);line-height:1.9;margin:0}
+  .ai-log .ok{color:var(--ok)} .ai-log .warn{color:var(--ai)}
+
+  /* ---- 四常驻指标 ---- */
+  .metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:14px 18px 0}
+  .metric{background:var(--bg-inset);border:1px solid var(--line-2);border-radius:var(--r-sm);padding:9px 11px;display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+  .metric span{font-size:var(--fs-caption);color:var(--dim);white-space:nowrap}
+  .metric b{font-family:var(--font-display);font-size:20px;color:var(--text);font-weight:600;white-space:nowrap}
+  .metric small{display:block;font-size:var(--fs-caption);color:var(--faint);white-space:nowrap}
+  .metric b{font-variant-numeric:tabular-nums}
+  @media(max-width:760px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+  /* ---- 主布局 ---- */
+  .body{display:grid;grid-template-columns:minmax(0,1fr) 380px;margin-top:14px;border-top:1px solid var(--line-2)}
+  @media(max-width:1080px){.body{grid-template-columns:1fr}}
+  .colA{padding:16px 18px;display:flex;flex-direction:column;gap:14px;min-width:0}
+  .colB{border-left:1px solid var(--line-2);padding:16px 18px;display:flex;flex-direction:column;gap:14px}
+  @media(max-width:1080px){.colB{border-left:none}}
+
+  /* ---- 工序轨道 rail ---- */
+  .rail{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--bg-inset);padding:5px}
+  .rs{text-align:center;padding:6px 2px;border-radius:7px;background:var(--bg-deep);font-size:var(--fs-caption);color:var(--faint)}
+  .rs.done{background:color-mix(in srgb,var(--ok) 12%,var(--bg-raise));color:var(--ok)}
+  .rs.now{border:1px solid rgba(217,138,43,.5);color:var(--ai);background:var(--ai-soft)}
+  .rs b{display:block;font-size:var(--fs-meta)}
+  .rs .no{font-family:var(--font-mono);font-size:9px;opacity:.7}
+  @media(max-width:760px){.rail{grid-template-columns:repeat(3,1fr)}}
+
+  /* ---- 状态池 poolbar ---- */
+  .poolbar{display:flex;height:64px;border-radius:var(--r);overflow:hidden;border:1px solid var(--line-2)}
+  .ps{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2px;font-family:var(--font-mono);color:#221b12;font-weight:700;font-size:var(--fs-body)}
+  .ps.ok{background:linear-gradient(180deg,#8dc47e,#5f9656);flex:21}
+  body[data-mode="paper"] .ps.ok{background:linear-gradient(180deg,#8cc47e,#5f9656)}
+  .ps.rev{background:linear-gradient(180deg,#eec05f,#cf9426);flex:3}
+  .ps.fix{background:linear-gradient(180deg,#e4826b,#c04b37);flex:1}
+  .ps.pend{background:repeating-linear-gradient(45deg,#5c5344,#5c5344 6px,#554c3e 6px,#554c3e 12px);flex:8;color:#e7dfce}
+  body[data-mode="paper"] .ps.pend{background:repeating-linear-gradient(45deg,#c3b9a7,#c3b9a7 6px,#b8ad9a 6px,#b8ad9a 12px);color:#4a4438}
+  .ps .n{font-size:17px}
+  .ps .n,.ps .lab{white-space:nowrap}
+  .ps.rev{min-width:52px}
+  .ps.fix{min-width:56px}
+  .ps .lab{font-family:var(--font-ui);font-weight:600;font-size:var(--fs-caption)}
+  .pslegend{display:flex;gap:16px;margin-top:8px;flex-wrap:wrap;font-size:var(--fs-caption);color:var(--dim)}
+  .pl{display:flex;gap:6px;align-items:center}
+  .sw{width:10px;height:10px;border-radius:3px;flex:none}
+
+  /* ---- 命令卡 cmd（主焦点） ---- */
+  .cmd{display:flex;align-items:center;gap:16px;border:1px solid rgba(193,74,46,.4);background:var(--seal-soft);border-radius:var(--r);padding:14px 16px;flex-wrap:wrap;box-shadow:var(--shadow)}
+  .cmd .qt{font-size:var(--fs-caption);color:var(--dim);letter-spacing:.06em;text-transform:uppercase;flex:none}
+  .cmd .qt b{color:var(--seal);font-size:var(--fs-body);letter-spacing:0;display:block;text-transform:none;margin-top:2px}
+  .cmd .btn-main{margin-left:auto;flex:none;font-size:13px;padding:10px 18px;border-radius:9px;box-shadow:0 6px 20px rgba(193,74,46,.3)}
+  .cmd .alt{font-size:var(--fs-caption);color:var(--faint);flex:none;text-align:right;line-height:1.5}
+  .cmd .alt b{color:var(--dim);display:block}
+
+  /* ---- 卡 / 列表 --- */
+  .card2{display:grid;grid-template-columns:1.2fr 1fr;gap:14px}
+  @media(max-width:1080px){.card2{grid-template-columns:1fr}}
+  .box{border:1px solid var(--line-2);border-radius:var(--r);background:var(--bg-inset);padding:13px 14px;min-width:0}
+  .box h5{font-size:var(--fs-caption);letter-spacing:.14em;color:var(--faint);text-transform:uppercase;display:flex;align-items:center;gap:7px;margin-bottom:9px}
+  .row{display:flex;align-items:center;gap:10px;font-size:var(--fs-meta);padding:6px 0;border-bottom:1px solid var(--line-2)}
+  .row:last-child{border-bottom:none}
+  .cn{font-family:var(--font-mono);color:var(--dim);flex:none;width:46px}
+  .st{font-size:var(--fs-caption);border-radius:4px;padding:1px 6px;flex:none;font-weight:600}
+  .st.rev{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+  .st.fix{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
+  .st.ok{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+  .ds{color:var(--dim);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .act{font-size:var(--fs-caption);color:var(--human);flex:none;border:1px solid rgba(74,163,217,.35);border-radius:6px;padding:2px 8px}
+  .act:hover{background:var(--human-soft)}
+  .row .cn{margin-left:2px}
+  .feed .fi{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-2);font-size:var(--fs-meta)}
+  .feed .fi:last-child{border-bottom:none}
+  .feed .cn{color:var(--faint)}
+  .feed .tx{color:var(--dim)}
+  .feed .tx b{color:var(--text)}
+  .feed .tm{margin-left:auto;color:var(--faint);font-family:var(--font-mono);font-size:var(--fs-caption);flex:none}
+
+  /* ---- 侧柜 ---- */
+  .drawer-list{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+  .dl{background:var(--bg-deep);border:1px solid var(--line-2);border-radius:var(--r-sm);padding:8px 10px;font-size:var(--fs-caption);color:var(--dim);transition:background .12s}
+  .dl:hover{background:var(--bg-inset)}
+  .dl .di{font-size:var(--fs-caption);color:var(--faint);margin-top:2px;font-family:var(--font-mono)}
+  .dl.dim{opacity:.6}
+  .dl .dotm{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--seal);margin-right:5px;vertical-align:middle}
+
+  /* ---- 审稿台 / 坐标 ---- */
+  .console{font-family:var(--font-mono);font-size:var(--fs-caption);color:var(--dim);line-height:1.9;background:var(--bg-deep);border:1px solid var(--line-2);border-radius:9px;padding:9px 12px}
+  .console .ok{color:var(--ok)} .console .warn{color:var(--ai)} .console .err{color:var(--bad)}
+  .console-bar{display:flex;align-items:center;gap:8px}
+  .console-bar .bar{flex:1;height:4px;border-radius:99px;background:var(--idle);overflow:hidden}
+  .console-bar .bar i{display:block;height:100%;width:62%;background:var(--ai)}
+  .foot-note{margin-top:2px;font-size:var(--fs-caption);color:var(--faint);line-height:1.7}
+
+  /* ---- 底部信号 ---- */
+  .signal{display:flex;gap:22px;align-items:center;padding:10px 18px;border-top:1px solid var(--line-2);background:var(--bg-deep);font-size:var(--fs-meta);color:var(--faint);flex-wrap:wrap}
+  .signal .sg{display:flex;gap:6px;align-items:center}
+  .signal .sg b{color:var(--dim);font-family:var(--font-mono)}
+  .signal .sg.good b{color:var(--ok)}
+  .signal .right{margin-left:auto;color:var(--faint)}
+
+  /* ---- 稿纸纹（签名 1）：应用在阅读面，此处作为舞台底纹装饰 ---- */
+  .stage-paper{
+    background-image:repeating-linear-gradient(0deg,transparent 0,transparent 27px,var(--paper-grid) 27px,var(--paper-grid) 28px);
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+  }
+</style>
+</head>
+<body data-mode="ink">
+
+<div class="wrap" style="max-width:1500px;margin:0 auto;display:flex;flex-direction:column;gap:0">
+
+  <header class="page-head">
+    <div class="brand">
+      <div class="logo">墨</div>
+      <div>
+        <div class="brand-name">小说工坊</div>
+        <div class="brand-sub">墨案 InkDesk · 总编台概念样稿</div>
+      </div>
+    </div>
+    <div class="crumbs">
+      <span>作者首页</span><span class="sep">/</span><b>书架</b><span class="sep">/</span><b>《雾都手记》</b><span class="sep">/</span><b>总编台</b>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="code-chip mono">21/33</span>
+      <button class="btn sm" id="modeToggle">☾ 墨纸</button>
+    </div>
+  </header>
+
+
+  <section class="stage">
+    <div class="topbar">
+      <span class="tb-back">← 书架</span>
+      <span class="tb-title">《雾都手记》</span>
+      <span class="tb-prog"><span class="big">21</span>/33 章过审</span>
+      <span class="pill"><span class="dot ok"></span>正文阶段</span>
+      <div class="tb-right">
+        <button class="btn">↗ 章节工作台</button>
+        <button class="btn ai">⚙ 生产单</button>
+        <span class="sep" style="width:1px;height:16px;background:var(--line);margin:0 4px"></span>
+        <button class="btn">▤ 侧柜</button>
+        <button type="button" class="btn" id="aiProgressToggle">AI 进度<span class="ai-tag">AI</span></button>
+      </div>
+    </div>
+
+    <div class="metrics">
+      <div class="metric"><span>今日产出</span><div style="text-align:right"><b>4,800</b><small>字 · 稳定</small></div></div>
+      <div class="metric"><span>已过审</span><div style="text-align:right"><b>21</b><small>/ 33 章</small></div></div>
+      <div class="metric"><span>待审</span><div style="text-align:right"><b>3</b><small>需人工裁决</small></div></div>
+      <div class="metric"><span>待生成</span><div style="text-align:right"><b>8</b><small>第 14–21 章</small></div></div>
+    </div>
+
+    <div class="body">
+      <div class="colA">
+        <div class="rail">
+          <div class="rs done"><span class="no">01</span>大纲 <b>✓</b></div>
+          <div class="rs done"><span class="no">02</span>设定 <b>✓</b></div>
+          <div class="rs done"><span class="no">03</span>卷计划 <b>✓</b></div>
+          <div class="rs done"><span class="no">04</span>章节计划 <b>✓</b></div>
+          <div class="rs now"><span class="no">05</span>正文 <b>21/33</b></div>
+          <div class="rs"><span class="no">06</span>审稿收尾</div>
+        </div>
+
+        <div>
+          <div class="poolbar">
+            <div class="ps ok"><span class="n">21</span><span class="lab">已过审</span></div>
+            <div class="ps rev"><span class="n">3</span><span class="lab">待审</span></div>
+            <div class="ps fix"><span class="n">1</span><span class="lab">待修订</span></div>
+            <div class="ps pend"><span class="n">8</span><span class="lab">待生成</span></div>
+          </div>
+          <div class="pslegend">
+            <span class="pl"><span class="sw" style="background:var(--ok)"></span>已过审 21</span>
+            <span class="pl"><span class="sw" style="background:var(--warn)"></span>待审 3</span>
+            <span class="pl"><span class="sw" style="background:var(--bad)"></span>待修订 1</span>
+            <span class="pl"><span class="sw" style="background:var(--idle)"></span>待生成 8</span>
+          </div>
+        </div>
+
+        <div class="cmd">
+          <div class="qt">机器空转 — 该你下令了<b>8 章等 AI 写 · 3 章等审稿 · 1 章等裁决</b></div>
+          <button class="btn main btn-main">▶ 让 AI 继续生产 · 剩余 8 章</button>
+          <div class="alt"><b>或</b>审稿 3 章<br>修订 1 章</div>
+        </div>
+
+        <div class="card2">
+          <div class="box">
+            <h5><span class="dot human"></span>需要总编裁决 · 4 项</h5>
+            <div class="row"><span class="cn">第09</span><span class="st fix">待修订</span><span class="ds">高潮动机断裂，自动修订 2 轮未过</span><button class="btn sm human">处理</button></div>
+            <div class="row"><span class="cn">第11</span><span class="st rev">待审</span><span class="ds">AI 已写完 2,410 字，等审稿判卷</span><button class="btn sm">审</button></div>
+            <div class="row"><span class="cn">第12</span><span class="st rev">待审</span><span class="ds">AI 已写完 3,842 字，等审稿判卷</span><button class="btn sm">审</button></div>
+            <div class="row"><span class="cn">第13</span><span class="st rev">待审</span><span class="ds">AI 已写完 2,008 字，等审稿判卷</span><button class="btn sm">审</button></div>
+          </div>
+          <div class="box feed">
+            <h5><span class="dot ai"></span>生产记录 · 机器最近产出</h5>
+            <div class="fi"><span class="cn">第12</span><span class="tx"><b>已通过</b> · 自动审稿判过，作者复盘补完</span><span class="tm">昨 22:41</span></div>
+            <div class="fi"><span class="cn">第11</span><span class="tx"><b>已通过</b> · 修订 1 轮后过审</span><span class="tm">昨 21:30</span></div>
+            <div class="fi"><span class="cn">第10</span><span class="tx"><b>已通过</b></span><span class="tm">3 天前</span></div>
+            <div class="fi"><span class="cn">第09</span><span class="tx"><b style="color:var(--bad)">待修订</b> · 自动修订 2 轮未过，移交人工</span><span class="tm">4 天前</span></div>
+          </div>
+        </div>
+
+        <div class="box stage-paper">
+          <h5><span class="dot seal"></span>这本书的资料侧柜</h5>
+          <div class="drawer-list">
+            <div class="dl"><span class="dotm"></span>总纲 / 大纲<span class="di">● 已导入</span></div>
+            <div class="dl"><span class="dotm"></span>道藏（本书设定）<span class="di">● 已提炼</span></div>
+            <div class="dl dim">卷计划<span class="di">已就绪 · 只读</span></div>
+            <div class="dl dim">写作资产 / 素材<span class="di">12 条</span></div>
+            <div class="dl"><span class="dotm"></span>角色（含幕后卡）<span class="di">7 人</span></div>
+            <div class="dl dim">剧情线摘要<span class="di">3 条推进中</span></div>
+            <div class="dl"><span class="dotm"></span>伏笔账本<span class="di">14 埋 / 3 回收</span></div>
+            <div class="dl dim">作者复盘<span class="di">钩子兑现 11/12</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="colB">
+        <div class="box" style="border-color:rgba(74,163,217,.35)">
+          <h5><span class="dot human"></span>审稿台 · 你的位置</h5>
+          <p style="margin-bottom:8px">AI 判卷是预筛，最终裁决在你。逐个开庭。</p>
+          <div style="border:1px dashed rgba(74,163,217,.3);border-radius:9px;padding:9px 11px;font-size:var(--fs-caption);color:var(--dim);margin-bottom:8px">
+            第 11 章 · 审稿：结构 A-，伏笔命中 ✓，结尾钩 A，漏洞 0
+            <div style="margin-top:8px;display:flex;gap:6px">
+              <button class="btn sm human">判过</button>
+              <button class="btn sm">按意见修订</button>
+            </div>
+          </div>
+          <div class="foot-note">对应页签：章节工作台 / 审稿</div>
+        </div>
+
+        <div class="box" style="border-color:rgba(217,138,43,.35)">
+          <h5><span class="dot ai"></span>生产单 · 批量流水线<span class="ai-tag">AI</span></h5>
+          <div class="console" style="margin-bottom:8px">
+            [14:02] 生产单 #7 启动 · 区间 1–33 · 断点续跑<br>
+            [14:02] 第22章 pending → <span class="warn">generating</span><br>
+            [14:03] 第22章 落盘 → <span class="warn">written</span> → <span class="ok">approved</span><br>
+            [14:05] 第23章 ……
+          </div>
+          <div class="console-bar"><span>第22章</span><span class="bar"><i></i></span><span>62%</span></div>
+        </div>
+
+        <div class="box">
+          <h5><span class="dot idle"></span>当前环节坐标</h5>
+          <p>机器正在跑：<b style="color:var(--text)">待生成 8 章</b>（第 14–21 章）<br>产能：<b style="color:var(--text)">+3 章/天</b> · 约 3 天初稿<br>卡点：<b style="color:var(--bad)">第 09 章</b> 2 轮修订未过</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="signal">
+      <span class="sg">今日机器产出 <b>+4,800</b> 字</span>
+      <span class="sg good">质检 <b>0</b> 矛盾</span>
+      <span class="sg good">复盘钩子 <b>11/12</b></span>
+      <span class="sg">全书 <b>142k</b> 字</span>
+      <span class="right">信号一行放完，不再摊成四张并列大卡</span>
+    </div>
+  </section>
+
+</div>
+
+<!-- AI 进度 · 悬浮窗 -->
+<div class="ai-float" id="aiFloat">
+  <div class="ai-float-head" id="aiFloatHead">
+    <span class="ai-pulse"></span>
+    <span class="ai-progress-title">AI 进度</span>
+    <span class="ai-state">生产单 #7 · 第 22 章 generating</span>
+    <button class="ai-float-close" id="aiFloatClose" title="收起">—</button>
+  </div>
+  <div class="ai-float-body">
+    <div class="ai-task">正在生成 <b>第 22 章《旧火重燃》</b> · 2,180 / 3,500 字</div>
+    <div class="ai-bar"><i></i></div>
+    <div class="ai-log">
+      [14:02] 第22章 pending → <span class="warn">generating</span><br>
+      [14:03] 第21章 written → 自动审稿 → <span class="ok">approved</span><br>
+      [14:05] 第20章 作者复盘已补齐
+    </div>
+  </div>
+</div>
+
+<script>
+  // 明/暗档切换（墨纸 / 纸白）
+  const body = document.body;
+  const toggle = document.getElementById('modeToggle');
+  const setMode = (mode) => {
+    body.dataset.mode = mode;
+    toggle.textContent = mode === 'ink' ? '☾ 墨纸' : '☀ 纸白';
+    toggle.classList.toggle('human', mode === 'paper');
+  };
+  toggle.addEventListener('click', () => setMode(body.dataset.mode === 'ink' ? 'paper' : 'ink'));
+
+  // AI 进度 · 悬浮窗（可拖拽）
+  const aiToggle = document.getElementById('aiProgressToggle');
+  const aiFloat = document.getElementById('aiFloat');
+  const aiFloatHead = document.getElementById('aiFloatHead');
+  const aiFloatClose = document.getElementById('aiFloatClose');
+
+  const openAi = (show) => {
+    aiFloat.classList.toggle('show', show);
+    aiToggle.classList.toggle('ai', show);
+  };
+  aiToggle.addEventListener('click', () => openAi(!aiFloat.classList.contains('show')));
+  aiFloatClose.addEventListener('click', () => openAi(false));
+
+  // 拖拽
+  let dragging = false, startX = 0, startY = 0;
+  aiFloatHead.addEventListener('pointerdown', (e) => {
+    if (e.target === aiFloatClose) return;
+    dragging = true;
+    startX = e.clientX - aiFloat.offsetLeft;
+    startY = e.clientY - aiFloat.offsetTop;
+    aiFloatHead.setPointerCapture(e.pointerId);
+  });
+  aiFloatHead.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const maxX = window.innerWidth - aiFloat.offsetWidth;
+    const maxY = window.innerHeight - aiFloat.offsetHeight;
+    const x = Math.max(0, Math.min(maxX, e.clientX - startX));
+    const y = Math.max(0, Math.min(maxY, e.clientY - startY));
+    aiFloat.style.left = x + 'px';
+    aiFloat.style.top = y + 'px';
+    aiFloat.style.right = 'auto';
+  });
+  aiFloatHead.addEventListener('pointerup', () => { dragging = false; });
+
+</script>
+</body>
+</html>

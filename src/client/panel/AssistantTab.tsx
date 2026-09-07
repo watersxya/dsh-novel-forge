@@ -11,36 +11,36 @@ import css from './panel.module.css'
 
 /** 工具中文名 + 图标映射（作者看得懂）。 */
 const TOOL_LABELS: Record<string, { icon: string; label: string }> = {
-  book_overview: { icon: '📖', label: '读取全书上下文' },
-  impact_analysis: { icon: '🔗', label: '影响分析' },
-  outline_text: { icon: '📄', label: '读取大纲' },
-  outline_replace: { icon: '📝', label: '修改大纲' },
-  bible_set_rule: { icon: '📖', label: '修改设定规则' },
-  bible_set_redline: { icon: '🚫', label: '修改写作红线' },
-  chapter_text: { icon: '📄', label: '读取章节' },
-  chapter_rewrite: { icon: '✏️', label: '修订章节' },
-  chapter_generate: { icon: '✨', label: '生成章节' },
-  chapter_review: { icon: '🔍', label: 'AI 审稿' },
-  foreshadow_add: { icon: '🪤', label: '新增伏笔' },
-  foreshadow_update: { icon: '🪤', label: '更新伏笔' },
-  export_txt: { icon: '📦', label: '导出 TXT' },
-  assets_status: { icon: '🎨', label: '查看写作资产' },
-  assets_set_genre: { icon: '🏷️', label: '设置题材' },
-  assets_set_progression: { icon: '📈', label: '设置推进模式' },
-  assets_add_rule: { icon: '🚫', label: '新增反AI规则' },
-  book_analysis: { icon: '📊', label: '拆书分析' },
-  director_advice: { icon: '🎬', label: '自动编辑' },
-  knowledge_add: { icon: '📚', label: '加入知识库' },
-  knowledge_search: { icon: '🔍', label: '检索知识库' },
-  plotline_list: { icon: '🧵', label: '查看剧情线' },
-  plotline_add: { icon: '🧵', label: '新增剧情线' },
-  director_todo_add: { icon: '✅', label: '记入编辑待办' },
-  director_todo_list: { icon: '✅', label: '查看编辑待办' },
-  knowledge_list: { icon: '📚', label: '列出全部知识库' },
-  breakdown: { icon: '🔍', label: '拆书分析' },
-  audit: { icon: '🛡️', label: '全书质检' },
-  blurb: { icon: '📄', label: '生成简介' },
-  error: { icon: '⚠️', label: '出错了' },
+  book_overview: { icon: '', label: '读取全书上下文' },
+  impact_analysis: { icon: '', label: '影响分析' },
+  outline_text: { icon: '', label: '读取大纲' },
+  outline_replace: { icon: '', label: '修改大纲' },
+  bible_set_rule: { icon: '', label: '修改设定规则' },
+  bible_set_redline: { icon: '', label: '修改写作红线' },
+  chapter_text: { icon: '', label: '读取章节' },
+  chapter_rewrite: { icon: '', label: '修订章节' },
+  chapter_generate: { icon: '', label: '生成章节' },
+  chapter_review: { icon: '', label: 'AI 审稿' },
+  foreshadow_add: { icon: '', label: '新增伏笔' },
+  foreshadow_update: { icon: '', label: '更新伏笔' },
+  export_txt: { icon: '', label: '导出 TXT' },
+  assets_status: { icon: '', label: '查看写作资产' },
+  assets_set_genre: { icon: '', label: '设置题材' },
+  assets_set_progression: { icon: '', label: '设置推进模式' },
+  assets_add_rule: { icon: '', label: '新增反AI规则' },
+  book_analysis: { icon: '', label: '拆书分析' },
+  director_advice: { icon: '', label: '自动编辑' },
+  knowledge_add: { icon: '', label: '加入知识库' },
+  knowledge_search: { icon: '', label: '检索知识库' },
+  plotline_list: { icon: '', label: '查看剧情线' },
+  plotline_add: { icon: '', label: '新增剧情线' },
+  director_todo_add: { icon: '', label: '记入编辑待办' },
+  director_todo_list: { icon: '', label: '查看编辑待办' },
+  knowledge_list: { icon: '', label: '列出全部知识库' },
+  breakdown: { icon: '', label: '拆书分析' },
+  audit: { icon: '', label: '全书质检' },
+  blurb: { icon: '', label: '生成简介' },
+  error: { icon: '', label: '出错了' },
 }
 
 /** 需要渲染成结构化结果卡片的工具（其余工具结果仍走文字回复，避免大段章节/总纲刷屏）。 */
@@ -253,7 +253,7 @@ export function AssistantTab({ api }: AssistantTabProps) {
       <div className={css.row} style={{ justifyContent: 'space-between', alignItems: 'center', gap: 'var(--nf-space-8)' }}>
         <span className={css.meta}>{tt('assistant.hint')}</span>
         <button type="button" className={css.iconButton} title="清空聊天记录" aria-label="清空聊天记录" onClick={() => { void handleClear() }}>
-          🗑️
+          
         </button>
       </div>
       {notice !== '' && <span style={{ color: 'var(--nf-success)', fontSize: 'var(--nf-fs-12)' }}>{notice}</span>}
@@ -261,8 +261,8 @@ export function AssistantTab({ api }: AssistantTabProps) {
       {/* 状态条：编辑老师正在做什么 */}
       <div className={`${css.assistantStatus} ${busy ? css.assistantStatusBusy : ''}`}>
         {busy
-          ? `🤖 编辑老师 · ${activeTool !== null ? `正在「${TOOL_LABELS[activeTool.name]?.label ?? activeTool.name}」` : `正在思考…（已 ${thinkSeconds}s）`}`
-          : '💬 编辑老师 · 等你开口'}
+          ? ` 编辑老师 · ${activeTool !== null ? `正在「${TOOL_LABELS[activeTool.name]?.label ?? activeTool.name}」` : `正在思考…（已 ${thinkSeconds}s）`}`
+          : ' 编辑老师 · 等你开口'}
       </div>
       <div
         ref={scrollRef}
@@ -280,7 +280,7 @@ export function AssistantTab({ api }: AssistantTabProps) {
             {line.tools.length > 0 && (
               <div className={css.toolSteps}>
                 {line.tools.map((tool, i) => {
-                  const meta = TOOL_LABELS[tool.name] ?? { icon: '⚙️', label: tool.name }
+                  const meta = TOOL_LABELS[tool.name] ?? { icon: '', label: tool.name }
                   return (
                     <div
                       key={i}

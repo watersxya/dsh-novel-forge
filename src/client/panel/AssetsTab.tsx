@@ -207,52 +207,42 @@ export function AssetsTab({ api, initialTab = 'genre' }: AssetsTabProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-12)', flex: 1, minHeight: 0 }}>
       <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <span className={css.cardTitle} style={{ fontSize: 'var(--nf-fs-16)', fontWeight: 700 }}>🧰 创作资产</span>
+        <div className={css.titleBlock}>
+          <span className={css.eyebrow}>Writing Assets</span>
+          <span className={css.cardTitleLg}> 创作资产</span>
+        </div>
         <span className={css.meta}>题材基底 / 推进模式 / 笔法帖 / 文戒 / 心法</span>
       </div>
       {error !== '' && <div className={css.card} style={{ borderColor: 'var(--nf-error)' }}><span style={{ color: 'var(--nf-error)' }}>{tt('common.error')}: {error}</span></div>}
       {notice !== '' && <div className={css.card}><span style={{ color: 'var(--nf-success)' }}>{notice}</span></div>}
 
-      {/* 资产状态总览（参照 AI-Novel-Writing-Assistant 状态网格） */}
-      <div className={css.assetGrid}>
-        <div className={css.assetStat}>
-          <span className={css.assetStatLabel}>当前题材</span>
-          <span className={css.assetStatValue}>{assets.genre?.name ?? '未设置'}</span>
-          {assets.genre !== undefined && <span className={css.assetStatDetail} title={assets.genre.description}>{assets.genre.description}</span>}
-        </div>
-        <div className={css.assetStat}>
-          <span className={css.assetStatLabel}>主推进模式</span>
-          <span className={css.assetStatValue}>{assets.primaryProgression?.name ?? '未设置'}</span>
-          {assets.primaryProgression !== undefined && <span className={css.assetStatDetail} title={assets.primaryProgression.driver}>{assets.primaryProgression.driver}</span>}
-        </div>
-        <div className={css.assetStat}>
-          <span className={css.assetStatLabel}>已绑定写法</span>
-          <span className={css.assetStatValue}>{assets.styleAssets?.length ?? 0} 套</span>
-          <span className={css.assetStatDetail} title={(assets.styleAssets ?? []).map(s => s.name).join('、')}>
-            {(assets.styleAssets ?? []).map(s => s.name).join('、') || '未绑定（可在「笔法帖」一键选用）'}
-          </span>
-        </div>
-        <div className={css.assetStat}>
-          <span className={css.assetStatLabel}>文戒</span>
-          <span className={css.assetStatValue}>{builtinRules.length} 内置 + {(assets.antiAiRules ?? []).length} 自定义</span>
-          <span className={css.assetStatDetail}>全部生效于生成与审稿提示词</span>
-        </div>
-      </div>
-
-      {/* 子页签：题材基底 / 推进模式 / 笔法帖 / 文戒 / 心法 */}
-      <div className={css.row} style={{ flexWrap: 'wrap', gap: 'var(--nf-space-6)' }}>
-        {SUB_TABS.map(t => (
-          <button
-            key={t.id}
-            type="button"
-            className={`${css.button} ${assetTab === t.id ? css.buttonPrimary : ''}`}
-            style={{ fontSize: 'var(--nf-fs-14)', flex: 1 }}
-            onClick={() => { setAssetTab(t.id) }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* T2 主从：左 rail 分类 + 状态摘要，右内容区。 */}
+      <div className={css.t2Master} style={{ flex: 1, minHeight: 0 }}>
+        <aside className={css.t2Rail} aria-label="资产分类">
+          <div className={css.t2RailHead}>分类</div>
+          {SUB_TABS.map(t => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={assetTab === t.id}
+              className={css.t2RailBtn}
+              data-active={assetTab === t.id ? '' : undefined}
+              onClick={() => { setAssetTab(t.id) }}
+            >
+              <span aria-hidden>{'·'}</span>
+              <span>{t.label}</span>
+            </button>
+          ))}
+          <div className={css.t2RailSep} />
+          <div className={css.t2RailMeta}>
+            <div>题材：{assets.genre?.name ?? '未设置'}</div>
+            <div>主推进：{assets.primaryProgression?.name ?? '未设置'}</div>
+            <div>已绑写法：{assets.styleAssets?.length ?? 0} 套</div>
+            <div>文戒：{builtinRules.length} 内置 + {(assets.antiAiRules ?? []).length} 自定义</div>
+          </div>
+        </aside>
+        <div className={css.t2Content}>
 
       {/* 题材基底库 */}
       {assetTab === 'genre' && (
@@ -453,6 +443,8 @@ export function AssetsTab({ api, initialTab = 'genre' }: AssetsTabProps) {
           </div>
         </div>
       )}
+        </div>
+      </div>
     </div>
   )
 }

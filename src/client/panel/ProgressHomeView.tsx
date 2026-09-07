@@ -6,6 +6,7 @@ import { useMemo } from 'react'
 import { BarChart3, BookOpen, PenLine, CheckCircle2, Clock, RefreshCw } from 'lucide-react'
 import type { BookshelfSnapshot } from '../../protocol.ts'
 import css from './panel.module.css'
+import { PageHeader } from './PageHeader.tsx'
 
 function relativeTime(iso: string): string {
   const t = new Date(iso).getTime()
@@ -42,7 +43,12 @@ export function ProgressHomeView({ shelf, onOpenBook }: {
 
   return (
     <div className={css.authorPageBody}>
-      <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-6)' }}><h2 className={css.panelTitle} style={{ margin: 0 }}>📊 AI 进度</h2><span className={css.meta}>跨书架聚合进度与最近活动</span></div>
+      <PageHeader
+        eyebrow="AI Progress"
+        title="AI 进度"
+        icon={<BarChart3 size={18} style={{ verticalAlign: -3 }} />}
+        sub="跨书架聚合进度：总书数 / 进行中 / 已完结 / 已完成章节，以及每本书的更新状态。"
+      />
 
       <div className={css.progressOverview}>
         <div className={css.progressOverviewCard}><span className={css.progressOverviewNum}>{shelf.books.length}</span><span className={css.meta}>总书数</span></div>

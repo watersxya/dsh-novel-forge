@@ -3,10 +3,11 @@
  * 内置库为固定内容；实际绑定到某本书在「创作资产」页。
  */
 import { useEffect, useState } from 'react'
-import { Info, BookOpen } from 'lucide-react'
+import { Info } from 'lucide-react'
 import type { NovelApi } from '../api.ts'
 import type { AssetsResponse, GenreNode, AntiAiRule, StyleTemplate, ProgressionMode, PlotBeatTemplate } from '../../protocol.ts'
 import css from './panel.module.css'
+import { SubPage } from './SubPage.tsx'
 
 type Tab = 'genre' | 'antiAi' | 'style' | 'progression' | 'plotBeat'
 
@@ -104,21 +105,16 @@ export function GlobalAssetLibraryView({ api }: { api: NovelApi }) {
     ));
 
   return (
-    <div className={css.authorPageBody}>
-      <div className={css.authorPageHero}>
-        <div className={css.authorPageHeader}>
-          <div>
-            <h2 className={css.panelTitle} style={{ margin: 0 }}>🎨 全局写作资产库</h2>
-            <span className={css.meta}>内置题材基底库 / 反AI规则库 / 风格模板 / 推进模式 / 剧情桥段库（跨书）——插件自带、只读。</span>
-          </div>
-        </div>
-        <div className={css.assetFilterBar}>
-          <button type="button" className={css.assetFilterChip + (tab === 'genre' ? ' ' + css.assetFilterChipActive : '')} onClick={() => setTab('genre')}>题材 {(data?.genreLibrary ?? []).length}</button>
-          <button type="button" className={css.assetFilterChip + (tab === 'antiAi' ? ' ' + css.assetFilterChipActive : '')} onClick={() => setTab('antiAi')}>反AI规则 {(data?.antiAiLibrary ?? []).length}</button>
-          <button type="button" className={css.assetFilterChip + (tab === 'style' ? ' ' + css.assetFilterChipActive : '')} onClick={() => setTab('style')}>风格模板 {(data?.styleTemplates ?? []).length}</button>
-          <button type="button" className={css.assetFilterChip + (tab === 'progression' ? ' ' + css.assetFilterChipActive : '')} onClick={() => setTab('progression')}>推进模式 {(data?.progressionLibrary ?? []).length}</button>
-          <button type="button" className={css.assetFilterChip + (tab === 'plotBeat' ? ' ' + css.assetFilterChipActive : '')} onClick={() => setTab('plotBeat')}>剧情桥段 {(data?.plotBeatLibrary ?? []).length}</button>
-        </div>
+    <SubPage
+      title="全局写作资产库"
+      meta="内置题材基底库 / 反AI规则库 / 风格模板 / 推进模式 / 剧情桥段库（跨书）——插件自带、只读。"
+    >
+      <div className={css.shelfToolbar}>
+        <button type="button" className={css.assetFilterChip + (tab === 'genre' ? ' ' + css.assetFilterChipActive : '')} onClick={() => setTab('genre')}>题材 {(data?.genreLibrary ?? []).length}</button>
+        <button type="button" className={css.assetFilterChip + (tab === 'antiAi' ? ' ' + css.assetFilterChipActive : '')} onClick={() => setTab('antiAi')}>反AI规则 {(data?.antiAiLibrary ?? []).length}</button>
+        <button type="button" className={css.assetFilterChip + (tab === 'style' ? ' ' + css.assetFilterChipActive : '')} onClick={() => setTab('style')}>风格模板 {(data?.styleTemplates ?? []).length}</button>
+        <button type="button" className={css.assetFilterChip + (tab === 'progression' ? ' ' + css.assetFilterChipActive : '')} onClick={() => setTab('progression')}>推进模式 {(data?.progressionLibrary ?? []).length}</button>
+        <button type="button" className={css.assetFilterChip + (tab === 'plotBeat' ? ' ' + css.assetFilterChipActive : '')} onClick={() => setTab('plotBeat')}>剧情桥段 {(data?.plotBeatLibrary ?? []).length}</button>
       </div>
 
       {error !== '' && <div className={css.noticeError}>{error}</div>}
@@ -167,6 +163,6 @@ export function GlobalAssetLibraryView({ api }: { api: NovelApi }) {
       <div className={css.meta} style={{ marginTop: 10 }}>
         提示：内置库为插件自带、只读。想要在书里使用，请进入某本书的「创作资产」页绑定为项目资产，或在「作者资产库」里「导入默认资产」沉淀成可复用的个人条目。
       </div>
-    </div>
+    </SubPage>
   );
 }

@@ -1,5 +1,5 @@
 /**
- * 大世界页签：境界体系 / 地理区域 / 势力分布 的结构化编辑 + AI 提炼。
+ * 大世界页签：境界体系 / 地理区域 / 势力分布 的结构化编辑 + 提炼。
  * 数据注入每章生成与审稿提示词（renderWorld），保证设定不写飞。
  */
 import { useEffect, useState } from 'react'
@@ -97,15 +97,15 @@ export function WorldTab({
           <span className={css.cardTitle}>大世界</span>
           <div className={css.row}>
             <button type="button" className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`} disabled={busy} onClick={() => { void handleGenerate() }}>
-              ✨ AI 提炼
+               提炼
             </button>
             <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={busy} onClick={() => { void handleSave() }}>
-              💾 保存
+               保存
             </button>
           </div>
         </div>
         <span className={css.meta}>
-          境界体系按由低到高排序注入章节生成提示词，模型不得随意跳级或自创境界；区域与势力约束地理/势力设定。AI 提炼不满意可逐条编辑后保存。
+          境界体系按由低到高排序注入章节生成提示词，模型不得随意跳级或自创境界；区域与势力约束地理/势力设定。提炼不满意可逐条编辑后保存。
         </span>
       </div>
 
@@ -118,7 +118,7 @@ export function WorldTab({
           </button>
         </div>
         {draft.realms.length === 0 ? (
-          <span className={css.meta}>暂无境界体系 — 点击 ✨AI 提炼 或手动添加（由低到高）。</span>
+          <span className={css.meta}>暂无境界体系 — 点击 提炼 或手动添加（由低到高）。</span>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)' }}>
             {draft.realms.map((realm, i) => (

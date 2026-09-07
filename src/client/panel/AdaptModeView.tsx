@@ -17,9 +17,10 @@ import type {
 } from '../../protocol.ts'
 import { readFileTextSmart } from '../text.ts'
 import css from './panel.module.css'
+import { SubPage } from './SubPage.tsx'
 
 const MUTABILITY_LABEL: Record<string, string> = {
-  locked: '🔒 建议保留', big: '🟡 可改影响大', small: '🟢 可改影响小', free: '🟣 可自由改', visual: '📦 仅视觉包装',
+  locked: ' 建议保留', big: ' 可改影响大', small: ' 可改影响小', free: ' 可自由改', visual: ' 仅视觉包装',
 };
 const MUTABILITY_CLS: Record<string, string> = {
   locked: 'var(--nf-muted)', big: 'var(--nf-warn)', small: 'var(--nf-info)', free: 'var(--nf-accent)', visual: 'var(--nf-muted)',
@@ -240,9 +241,11 @@ export function AdaptModeView({ api, onOpenBook }: { api: NovelApi; onOpenBook?:
   };
 
   return (
-    <div className={css.authorPageBody}>
+    <SubPage
+      title="改编模式"
+      meta="六步向导：导入全文 → 设定卡片 → 确认改编维度 → 编辑改编方案 → 提炼新书资料 → 保存并写书。"
+    >
       <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-10)' }}>
-        <h2 className={css.panelTitle} style={{ margin: 0 }}>🎬 改编模式</h2>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {STEPS.map(s => (
             <button key={s.n} type="button"
@@ -385,7 +388,7 @@ export function AdaptModeView({ api, onOpenBook }: { api: NovelApi; onOpenBook?:
           <div className={css.adaptRules}>
             {(['preserve', 'change', 'constraints'] as RuleKey[]).map(key => (
               <div key={key} className={css.adaptRule}>
-                <b>{key === 'preserve' ? '📌 保留' : key === 'change' ? '✏️ 允许变' : '🚫 红线'}</b>
+                <b>{key === 'preserve' ? ' 保留' : key === 'change' ? ' 允许变' : ' 红线'}</b>
                 {proposal.rules[key].map((s, idx) => (
                   <div key={idx} className={css.adaptRuleRow}>
                     <input className={css.input} value={s} onChange={e => patchRule(key, idx, e.target.value)} />
@@ -440,7 +443,7 @@ export function AdaptModeView({ api, onOpenBook }: { api: NovelApi; onOpenBook?:
             )}
             {saved !== null && (
               <div className={css.noticeSuccess}>
-                ✅ 已保存为新书《{saved.bookName}》（{saved.chapters} 章）。原书未改动。
+                 已保存为新书《{saved.bookName}》（{saved.chapters} 章）。原书未改动。
                 {onOpenBook !== undefined && <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => onOpenBook(saved.book.id)}>打开新书</button>}
               </div>
             )}
@@ -479,7 +482,7 @@ export function AdaptModeView({ api, onOpenBook }: { api: NovelApi; onOpenBook?:
           </div>
           {savedMaterialized !== null && (
             <div className={css.noticeSuccess}>
-              ✅ 已保存为新书《{savedMaterialized.bookName}》（{savedMaterialized.chapters} 章待写）。原书未改动。
+               已保存为新书《{savedMaterialized.bookName}》（{savedMaterialized.chapters} 章待写）。原书未改动。
               {onOpenBook !== undefined && <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => onOpenBook(savedMaterialized.book.id)}><BookOpen size={14} style={{ verticalAlign: -2 }} /> 打开新书开始编写</button>}
             </div>
           )}
@@ -492,7 +495,7 @@ export function AdaptModeView({ api, onOpenBook }: { api: NovelApi; onOpenBook?:
           <div className={css.adaptRules}>
             {(['worldRules', 'redLines', 'style'] as const).map(key => (
               <div key={key} className={css.adaptRule}>
-                <b>{key === 'worldRules' ? '🌍 世界观规则' : key === 'redLines' ? '🚫 红线' : '✒️ 风格'}</b>
+                <b>{key === 'worldRules' ? ' 世界观规则' : key === 'redLines' ? ' 红线' : ' 风格'}</b>
                 {materialized.bible[key].map((s, i) => (
                   <div key={i} className={css.adaptRuleRow}>
                     <input className={css.input} value={s} onChange={e => patchBibleList(key, i, e.target.value)} />
@@ -530,6 +533,6 @@ export function AdaptModeView({ api, onOpenBook }: { api: NovelApi; onOpenBook?:
           </div>
         </div>
       )}
-    </div>
+    </SubPage>
   );
 }

@@ -2,10 +2,65 @@
  * 纯展示组件（views）：所有状态与事件处理器都留在 NovelPanel，
  * 这里只接收 props 渲染。便于单独维护与复用。
  */
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { AuditIssue, Plotline, PlotlineHealthReport, PlotlinePlan, RoleRecord, RoleStatusCard } from '../../protocol.ts'
 import { tt, ROLE_LABELS, roleColor, kindLabel, plotlineStatusLabel, plotlineStatusColor } from './helpers.ts'
 import css from './panel.module.css'
+
+/** 滑轨胶囊导航（B5-5）：active 高亮为滑动指示块，随选中项平移。 */
+export function SlideNav<T extends string>(props: {
+  ariaLabel: string
+  items: ReadonlyArray<{ id: T; label: ReactElement | string }>
+  active: T
+  onSelect: (id: T) => void
+}): JSX.Element {
+  const { ariaLabel, items, active, onSelect } = props
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [slider, setSlider] = useState<{ left: number; width: number } | null>(null)
+  const update = useCallback(() => {
+    const el = ref.current
+    if (el === null) return
+    const btn = el.querySelector<HTMLButtonElement>('button[data-active=""]')
+    if (btn === null) { setSlider(null); return }
+    const left = btn.offsetLeft
+    const width = btn.offsetWidth
+    setSlider(prev => (prev !== null && prev.left === left && prev.width === width ? prev : { left, width }))
+  }, [])
+  // 每次渲染后测量（set 前做等值比较，不会引发循环）。
+  useEffect(() => { update() })
+  useEffect(() => {
+    const el = ref.current
+    if (el === null) return
+    const ro = new ResizeObserver(() => { update() })
+    ro.observe(el)
+    return () => { ro.disconnect() }
+  }, [update])
+  return (
+    <div ref={ref} className={`${css.pillNav} ${css.pillNavSliding}`} role="tablist" aria-label={ariaLabel}>
+      {slider !== null && (
+        <span
+          className={css.pillNavSlider}
+          style={{ transform: `translateX(${slider.left}px)`, width: `${slider.width}px` }}
+          aria-hidden
+        />
+      )}
+      {items.map(it => (
+        <button
+          key={it.id}
+          type="button"
+          role="tab"
+          aria-selected={active === it.id}
+          data-active={active === it.id ? '' : undefined}
+          className={css.pillNavPill}
+          onClick={() => { onSelect(it.id) }}
+        >
+          {it.label}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 /** 统计格：状态摘要条 / 资产健康通用。 */
 export function StatCell(props: {
@@ -101,7 +156,7 @@ export function PlotlineCard(props: {
             onClick={props.onRefresh}
             title="AI 结合编年录与章节摘要，自动更新这条线的当前进度"
           >
-            ↻ AI 刷新进度
+            ↻ 刷新进度
           </button>
           <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={props.disabled} onClick={props.onEdit}>
             {tt('plotlines.edit')}
@@ -143,7 +198,7 @@ export function RoleCandidateRow(props: {
             ＋ 采纳
           </button>
           <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={props.disabled} onClick={props.onEdit} title="修改后再采纳（候选列表保留）">
-            ✏️ 修改后采纳
+             修改后采纳
           </button>
         </span>
       </div>
@@ -191,7 +246,7 @@ export function RoleCard(props: {
   )
 }
 
-/** 🩺 剧情健康检查报告面板。 */
+/**  剧情健康检查报告面板。 */
 export function PlotlineHealthPanel(props: {
   report: PlotlineHealthReport
   disabled: boolean
@@ -202,7 +257,7 @@ export function PlotlineHealthPanel(props: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', border: '1px solid var(--nf-info)', borderRadius: 'var(--nf-radius-12)', padding: 'var(--nf-space-10)' }}>
       <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <b>🩺 剧情健康检查</b>
+        <b> 剧情健康检查</b>
         <span style={{ display: 'flex', gap: 'var(--nf-space-8)' }}>
           <button
             type="button"
@@ -211,7 +266,7 @@ export function PlotlineHealthPanel(props: {
             onClick={props.onPlan}
             title="基于本次诊断生成下一阶段剧情方案"
           >
-            ✨ 基于此设计方案
+             基于此设计方案
           </button>
           <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={props.onClose}>收起</button>
         </span>
@@ -241,7 +296,7 @@ export function PlotlineHealthPanel(props: {
   )
 }
 
-/** ✨ AI 剧情方案面板。 */
+/**  剧情方案面板。 */
 export function PlotlinePlanPanel(props: {
   plan: PlotlinePlan
   disabled: boolean
@@ -252,7 +307,7 @@ export function PlotlinePlanPanel(props: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', border: '1px solid var(--nf-accent)', borderRadius: 'var(--nf-radius-12)', padding: 'var(--nf-space-10)' }}>
       <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <b>✨ AI 剧情方案</b>
+        <b> 剧情方案</b>
         <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={props.onClose}>收起</button>
       </div>
       {plan.direction !== '' && (
@@ -281,7 +336,7 @@ export function PlotlinePlanPanel(props: {
   )
 }
 
-/** ✨ AI 建议剧情线面板。 */
+/**  建议剧情线面板。 */
 export function PlotlineSuggestionPanel(props: {
   suggestions: Plotline[]
   disabled: boolean
@@ -291,7 +346,7 @@ export function PlotlineSuggestionPanel(props: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', border: '1px solid var(--nf-info)', borderRadius: 'var(--nf-radius-12)', padding: 'var(--nf-space-10)' }}>
       <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <b>✨ AI 建议（{props.suggestions.length} 条）</b>
+        <b> 建议（{props.suggestions.length} 条）</b>
         <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={props.onClose}>收起</button>
       </div>
       {props.suggestions.length === 0 && <span className={css.meta}>没有候选线。</span>}
@@ -308,6 +363,38 @@ export function PlotlineSuggestionPanel(props: {
           </div>
           {s.goal !== '' && <div className={css.meta}>{s.goal}</div>}
         </div>
+      ))}
+    </div>
+  )
+}
+
+/** 空状态基元：图标 + 标题 + 可选提示。compact 变体用于列表/卡片内嵌场景。 */
+export function EmptyState(props: {
+  icon?: string
+  title: string
+  hint?: string
+  compact?: boolean
+}): ReactElement {
+  return (
+    <div className={css.emptyState} data-compact={props.compact === true ? 'true' : undefined}>
+      {props.icon !== undefined && <span className={css.emptyStateIcon}>{props.icon}</span>}
+      <span className={css.emptyStateTitle}>{props.title}</span>
+      {props.hint !== undefined && <span className={css.emptyStateHint}>{props.hint}</span>}
+    </div>
+  )
+}
+
+/** 骨架屏基元：rows 条微光占位行；widths 指定各行宽度档位，循环取用。 */
+export function SkeletonLines(props: {
+  rows?: number
+  widths?: Array<'full' | 'wide' | 'half'>
+}): ReactElement {
+  const rows = props.rows ?? 3
+  const widths = props.widths ?? ['full', 'wide', 'half']
+  return (
+    <div className={css.skeletonLines} aria-hidden="true">
+      {Array.from({ length: rows }, (_, i) => (
+        <span key={i} className={css.skeletonLine} data-w={widths[i % widths.length]} />
       ))}
     </div>
   )

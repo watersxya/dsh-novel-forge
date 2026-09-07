@@ -25,50 +25,61 @@ const PLUGIN_VERSION: string = typeof __NOVEL_FORGE_VERSION__ !== 'undefined' ? 
 const REPO_URL = 'https://github.com/watersxya/dsh-novel-forge'
 
 type AuthorNav = 'shelf' | 'adapt' | 'assets' | 'library' | 'marketRadar' | 'bookAnalysis' | 'ideaInspiration' | 'settings';
+type AuthorSubNav = Exclude<AuthorNav, 'settings'>;
 
-type AuthorNavGroup = { label: string; items: Array<{ id: Exclude<AuthorNav, 'settings'>; label: string; icon: JSX.Element; hint: string }> };
-
-const NAV_GROUPS: AuthorNavGroup[] = [
+/** 顶层 tab（横向，墨案：创作 / 灵感策划 / 资产 / 设置）+ 组内二级页。 */
+const NAV_TABS: Array<{
+  id: 'shelf' | 'marketRadar' | 'assets';
+  label: string;
+  icon: JSX.Element;
+  hint: string;
+  /** 组内二级页（首项即该 tab 的默认页）。 */
+  children: Array<{ id: AuthorSubNav; label: string; icon: JSX.Element }>;
+}> = [
   {
-    label: '创作',
-    items: [
-      { id: 'shelf', label: '书架', icon: <Library size={18} />, hint: '我的书' },
-      { id: 'adapt', label: '改编模式', icon: <Wand2 size={18} />, hint: '上传全文→可改范围' },
+    id: 'shelf', label: '创作', icon: <Library size={18} />, hint: '我的书 · 改编模式 · 库存',
+    /* 改编模式入口移到书架页头（与「导入已有小说」并排），此处只留书架一个子页。 */
+    children: [
+      { id: 'shelf', label: '我的书', icon: <Library size={14} /> },
     ],
   },
   {
-    label: '灵感 · 策划',
-    items: [
-      { id: 'marketRadar', label: '题材雷达', icon: <Radar size={18} />, hint: '热门题材雷达' },
-      { id: 'ideaInspiration', label: '创意灵感', icon: <Lightbulb size={18} />, hint: '多方向开书灵感' },
-      { id: 'bookAnalysis', label: '书分析', icon: <FileSearch size={18} />, hint: '拆书/卖点/可借鉴' },
+    id: 'marketRadar', label: '灵感策划', icon: <Radar size={18} />, hint: '题材雷达 · 创意灵感 · 书分析',
+    children: [
+      { id: 'marketRadar', label: '题材雷达', icon: <Radar size={14} /> },
+      { id: 'ideaInspiration', label: '创意灵感', icon: <Lightbulb size={14} /> },
+      { id: 'bookAnalysis', label: '书分析', icon: <FileSearch size={14} /> },
     ],
   },
   {
-    label: '资产',
-    items: [
-      { id: 'assets', label: '作者资产库', icon: <Boxes size={18} />, hint: '跨书总数据' },
-      { id: 'library', label: '全局写作资产库', icon: <Brush size={18} />, hint: '内置题材/规则/模板' },
+    id: 'assets', label: '资产', icon: <Boxes size={18} />, hint: '作者资产库 · 全局资产库',
+    children: [
+      { id: 'assets', label: '作者资产库', icon: <Brush size={14} /> },
+      { id: 'library', label: '全局资产库', icon: <Boxes size={14} /> },
     ],
   },
 ];
 
 
-export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onImportBook, onOpenSettings, onTheme, onBackground, onOpacity, onEndfieldAccent, adaptEnabled, progress, busy, busyLabel, liveBar, onClearProgress, onUseIdea }: {
+export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onImportBook, onOpenSettings, onBackground, adaptEnabled, progress, busy, busyLabel, liveBar, onClearProgress, onUseIdea, themeMode, themeDensity, onToggleMode, onChangeThemeMode, onChangeThemeDensity }: {
+  /** 当前显示模式（顶栏「墨纸 / 纸白」切换用）。 */
+  themeMode?: 'system' | 'light' | 'dark';
+  /** 当前界面密度。 */
+  themeDensity?: 'comfort' | 'compact' | 'spacious';
+  /** 切换墨纸 / 纸白（由 NovelPanel 落 localStorage）。 */
+  onToggleMode?: () => void;
+  /** 改变全局显示模式（联动整个面板）。 */
+  onChangeThemeMode: (m: 'system' | 'light' | 'dark') => void;
+  /** 改变全局界面密度（联动整个面板）。 */
+  onChangeThemeDensity: (d: 'comfort' | 'compact' | 'spacious') => void;
   api: NovelApi; shelf: BookshelfSnapshot;
   onOpenBook: (id: string) => void; onReadBook: (id: string) => void; onAddBook: () => void; onImportBook: () => void;
   /** 创意灵感 → 采纳某个灵感带入开书向导。 */
   onUseIdea?: (idea: import('../../protocol.ts').IdeaInspirationResult['ideas'][number]) => void;
   /** 兼容旧入口：首页设置现为独立设置页，此回调保留但不再使用。 */
   onOpenSettings?: () => void;
-  /** 主题/模式/密度变化回调（供面板根容器实时生效）。 */
-  onTheme?: (theme: 'liquid' | 'neumorph' | 'macos' | 'clay' | 'endfield', mode: 'system' | 'light' | 'dark', density: 'comfort' | 'compact' | 'spacious') => void;
   /** 自定义背景变化回调。 */
   onBackground?: (bg: string | undefined, blur: number) => void;
-  /** 玻璃透明度变化回调。 */
-  onOpacity?: (n: number) => void;
-  /** 终末地强调色变化回调。 */
-  onEndfieldAccent?: (accent: 'valley' | 'wuling') => void;
   /** 是否启用改编模式（默认 false=隐藏入口）。 */
   adaptEnabled?: boolean;
   /** AI 进度实时状态（与书内共享同一份）。 */
@@ -79,6 +90,9 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
   onClearProgress?: () => void;
 }) {
   const [nav, setNav] = useState<AuthorNav>('shelf');
+  /** 当前是否深色（墨纸）：显式 dark，或跟随系统且系统为深色。 */
+  const darkNow = themeMode === 'dark'
+    || (themeMode !== 'light' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [updating, setUpdating] = useState(false);
   const [progressOpen, setProgressOpen] = useState(false);
   const [progressPos, setProgressPos] = useState(() => {
@@ -149,7 +163,7 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
 
   return (
     <div className={css.authorHome}>
-      <nav className={css.panelNav} aria-label="作者级导航">
+      <nav className={css.authorTopNav} aria-label="作者级导航">
         <div className={css.navTitle}>
           <div className={css.navTitleLogo}>书</div>
           <div style={{ minWidth: 0 }}>
@@ -157,43 +171,90 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
             <div className={css.navTitleBook}>作者级 · 跨书</div>
           </div>
         </div>
-        {NAV_GROUPS.map(group => (
-          <div className={css.navGroup} key={group.label}>
-            <div className={css.navGroupLabel}>{group.label}</div>
-            {group.items.filter(item => item.id !== 'adapt' || adaptEnabled).map(item => (
-              <button key={item.id} type="button" role="tab" aria-selected={nav === item.id} data-active={nav === item.id ? '' : undefined} className={css.navTab} title={item.hint} onClick={() => { setNav(item.id) }}>
-                <span className={css.navTabIcon}>{item.icon}</span>
-                <span className={css.navTabLabel}>{item.label}</span>
-              </button>
-            ))}
-          </div>
-        ))}
+        {/* 顶行右侧：4 个组入口（创作 / 灵感·策划 / 资产 / 设置），点击进该组第一页 */}
         <div className={css.navSpacer} />
-        <button type="button" role="tab" aria-selected={nav === 'settings'} data-active={nav === 'settings' ? '' : undefined} className={css.navTab} title="设置" onClick={() => setNav('settings')}>
-          <span className={css.navTabIcon}><Settings size={18} /></span>
-          <span className={css.navTabLabel}>设置</span>
-        </button>
+        <div className={css.authorTopTabs}>
+          {NAV_TABS.map(tab => {
+            const inGroup = tab.children.some(c => c.id === nav)
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={inGroup}
+                data-active={inGroup ? '' : undefined}
+                className={css.authorNavBtn}
+                title={tab.hint}
+                onClick={() => { const first = tab.children[0]; if (first !== undefined) setNav(first.id) }}
+              >
+                {tab.label}
+              </button>
+            )
+          })}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={nav === 'settings'}
+            data-active={nav === 'settings' ? '' : undefined}
+            className={css.authorNavBtn}
+            title="设置"
+            onClick={() => { setNav('settings') }}
+          >
+            设置
+          </button>
+        </div>
         <div className={css.navAbout}>
           <button type="button" className={css.navAboutRow} title="打开 GitHub 仓库" onClick={() => { window.open(REPO_URL, '_blank', 'noopener') }}>
-            <span>ℹ️ v{PLUGIN_VERSION}</span>
+            <span>ℹ v{PLUGIN_VERSION}</span>
             <span className={css.meta}>GitHub ↗</span>
           </button>
           {npmLatest !== null && npmLatest !== PLUGIN_VERSION && (
             <button type="button" className={css.navAboutUpdate} title="点击自动更新（下载最新 npm 版，完成后请重启 DSH）" disabled={updating} onClick={() => { void doUpdate() }}>
-              {updating ? '🔄 更新中…' : `🔄 更新到 v${npmLatest}`}
+              {updating ? ' 更新中…' : ` 更新到 v${npmLatest}`}
             </button>
           )}
         </div>
+        {/* 墨纸 / 纸白 切换（对齐 design-sample-workbench.html 的 #modeToggle） */}
+        <button
+          type="button"
+          className={`${css.button} ${css.buttonSmall}`}
+          title={darkNow ? '切换到纸白（浅色）' : '切换到墨纸（深色）'}
+          onClick={() => { onToggleMode?.() }}
+        >
+          {darkNow ? '☀ 纸白' : '☾ 墨纸'}
+        </button>
       </nav>
+      {/* 第二行：当前组的子页按钮（仅在该组有多个子页时出现，对齐 demo 的 .group-nav） */}
+      {(() => {
+        const activeTab = NAV_TABS.find(t => t.children.some(c => c.id === nav))
+        if (activeTab === undefined || activeTab.children.length <= 1) return null
+        return (
+          <nav className={css.authorNav} aria-label={`${activeTab.label}下的子页面`}>
+            {activeTab.children.map(c => (
+              <button
+                key={c.id}
+                type="button"
+                role="tab"
+                aria-selected={nav === c.id}
+                data-active={nav === c.id ? '' : undefined}
+                className={css.authorNavBtn}
+                onClick={() => { setNav(c.id) }}
+              >
+                {c.label}
+              </button>
+            ))}
+          </nav>
+        )
+      })()}
       <div className={css.authorContent}>
-        {nav === 'shelf' && <ShelfView api={api} shelf={shelf} onOpenBook={onOpenBook} onReadBook={onReadBook} onAddBook={onAddBook} onImportBook={onImportBook} />}
+        {nav === 'shelf' && <ShelfView api={api} shelf={shelf} onOpenBook={onOpenBook} onReadBook={onReadBook} onAddBook={onAddBook} onImportBook={onImportBook} onOpenAdapt={() => { setNav('adapt') }} />}
         {nav === 'adapt' && <AdaptModeView api={api} onOpenBook={onOpenBook} />}
         {nav === 'assets' && <AuthorAssetsView api={api} />}
         {nav === 'library' && <GlobalAssetLibraryView api={api} />}
         {nav === 'marketRadar' && <MarketRadarView api={api} bookId={shelf?.activeBookId ?? undefined} />}
-        {nav === 'bookAnalysis' && <BookAnalysisView api={api} />}
         {nav === 'ideaInspiration' && <IdeaInspirationView api={api} onUseIdea={onUseIdea} />}
-        {nav === 'settings' && <SettingsView api={api} onTheme={onTheme} onBackground={onBackground} onOpacity={onOpacity} onEndfieldAccent={onEndfieldAccent} />}
+        {nav === 'bookAnalysis' && <BookAnalysisView api={api} />}
+        {nav === 'settings' && <SettingsView api={api} onBackground={onBackground} themeMode={themeMode ?? 'system'} themeDensity={themeDensity ?? 'comfort'} onChangeThemeMode={onChangeThemeMode} onChangeThemeDensity={onChangeThemeDensity} />}
       </div>
       {progressOpen && (
         <div className={css.assistantFloat} style={{ left: progressPos.x, top: progressPos.y, width: progressSize.w, height: progressSize.h }}>
@@ -205,8 +266,8 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
             }}
           >
             <span>
-              📊 AI 进度
-              {busy && <span style={{ color: 'var(--nf-accent)' }}> 🟢 任务进行中</span>}
+               AI 进度
+              {busy && <span style={{ color: 'var(--nf-accent)' }}>  任务进行中</span>}
               <span className={css.meta}>（拖动标题栏移动 · 右下角拉大小）</span>
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--nf-space-4)' }}>

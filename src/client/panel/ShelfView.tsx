@@ -3,7 +3,7 @@
  * 进入小说工坊默认展示；点击书卡进入该书工作台，＋ 进入开书向导页。
  */
 import { useEffect, useMemo, useState } from 'react'
-import { BookOpen, Download, Library, PenLine, Plus, Search } from 'lucide-react'
+import { BookOpen, Download, PenLine, Plus, Search, Wand2 } from 'lucide-react'
 import type { NovelApi } from '../api.ts'
 import type { BookshelfSnapshot } from '../../protocol.ts'
 import css from './panel.module.css'
@@ -120,6 +120,7 @@ export function ShelfView({
   onReadBook,
   onAddBook,
   onImportBook,
+  onOpenAdapt,
 }: {
   api: NovelApi
   shelf: BookshelfSnapshot
@@ -131,6 +132,8 @@ export function ShelfView({
   onAddBook: () => void
   /** 点击「导入」：打开导入弹窗（已有项目目录 / txt/md 全本）。 */
   onImportBook: () => void
+  /** 点击「改编模式」：进入改编六步向导（入口收在书架页头，与导入并排）。 */
+  onOpenAdapt?: () => void
 }) {
   const [query, setQuery] = useState('')
   /** 筛选：all=全部 / active=进行中 / done=已完结 / none=未开书。 */
@@ -156,39 +159,82 @@ export function ShelfView({
     })
   }, [shelf.books, query, filter])
 
+  const activeName = shelf.books.find(b => b.id === shelf.activeBookId)?.bookName ?? ''
+
   return (
-    <div className={css.shelfView}>
-      <div className={css.shelfHero}>
-        <div className={css.shelfTitleRow}>
-          <h2 className={css.panelTitle} style={{ margin: 0 }}><Library size={20} style={{ verticalAlign: -3 }} /> AI小说工坊 · 书架</h2>
+    <div className={css.subPage}>
+      <div className={css.subPageHead}>
+        <span className={css.subPageTitle}>书架</span>
+        <span className={css.subPageMeta}>
+          {shelf.books.length} 本书{activeName !== '' ? ` · 当前书《${activeName}》` : ''}
+        </span>
+        <div className={css.subPageActions}>
+          {onOpenAdapt !== undefined && (
+            <button type="button" className={css.button} onClick={onOpenAdapt} title="导入全文 → 六步改编成新书">
+              <Wand2 size={13} style={{ verticalAlign: -2 }} /> 改编模式
+            </button>
+          )}
+          <button type="button" className={css.button} onClick={onImportBook} title="导入已有项目目录或 txt / md 全本">
+            <Download size={13} style={{ verticalAlign: -2 }} /> 导入已有小说
+          </button>
+          <button type="button" className={`${css.button} ${css.buttonPrimary}`} onClick={onAddBook} title="书名 + 大纲，开书即建项目">
+            <Plus size={13} style={{ verticalAlign: -2 }} /> 开一本新书
+          </button>
+        </div>
+      </div>
+      <div className={css.subPageBody}>
+      <div className={css.shelfToolbar}>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <Search size={15} style={{ position: 'absolute', left: 10, color: 'var(--nf-text-3)', pointerEvents: 'none' }} />
           <input
             className={`${css.input} ${css.shelfSearch}`}
             type="search"
-            placeholder="🔍 搜索书名 / 简介…"
+            placeholder="搜索书名 / 简介…"
             value={query}
             onChange={e => { setQuery(e.target.value) }}
+            style={{ paddingLeft: 'var(--nf-space-30, 30px)' }}
           />
         </div>
-        {shelf.books.length > 0 && (
-          <div className={css.shelfStats}>
-            {[
-              { id: 'all' as const, label: '总书数', value: shelf.books.length },
-              { id: 'active' as const, label: '进行中', value: stats.active },
-              { id: 'done' as const, label: '已完结', value: stats.done },
-              { id: 'none' as const, label: '未开书', value: stats.none },
-            ].map(s => (
-              <div
-                key={s.id}
-                className={`${css.shelfStat} ${filter === s.id ? css.shelfStatActive : ''}`}
-                title={s.id === 'all' ? '显示全部书籍' : `只看「${s.label}」的书（再点一次取消筛选）`}
-                onClick={() => { setFilter(prev => prev === s.id ? 'all' : s.id) }}
-              >
-                <b>{s.value}</b><span>{s.label}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className={css.shelfTabs}>
+          {[
+            { id: 'all' as const, label: '全部' },
+            { id: 'active' as const, label: '进行中' },
+            { id: 'done' as const, label: '已完结' },
+            { id: 'none' as const, label: '未开书' },
+          ].map(t => (
+            <button
+              key={t.id}
+              type="button"
+              className={css.shelfTab}
+              data-active={filter === t.id ? '' : undefined}
+              onClick={() => { setFilter(t.id) }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {shelf.books.length > 0 && (
+        <div className={css.shelfStatGrid}>
+          {[
+            { id: 'all' as const, label: '总书数', value: shelf.books.length },
+            { id: 'active' as const, label: '进行中', value: stats.active },
+            { id: 'done' as const, label: '已完结', value: stats.done },
+            { id: 'none' as const, label: '未开书', value: stats.none },
+          ].map(s => (
+            <div
+              key={s.id}
+              className={css.shelfStatCard}
+              title={s.id === 'all' ? '显示全部书籍' : `只看「${s.label}」的书`}
+              onClick={() => { setFilter(s.id) }}
+            >
+              <span>{s.label}</span>
+              <b className={`${css.numSerif} ${css.tabular}`}>{s.value}</b>
+            </div>
+          ))}
+        </div>
+      )}
 
       {shelf.books.length === 0 ? (
         /* 空书架引导卡 */
@@ -200,7 +246,7 @@ export function ShelfView({
             ＋ 开第一本书
           </button>
           <button type="button" className={`${css.button}`} onClick={onImportBook}>
-            📥 导入已有小说
+             导入已有小说
           </button>
         </div>
       ) : visible.length === 0 ? (
@@ -221,22 +267,9 @@ export function ShelfView({
               onRead={() => { onReadBook(book.id) }}
             />
           ))}
-
-          {/* 开书入口：进入独立向导页 */}
-          <div className={`${css.bookCard} ${css.bookAddCard}`} onClick={onAddBook} role="button" tabIndex={0} aria-label="开一本新书" onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAddBook() } }}>
-            <div className={css.bookAddIcon}><Plus size={28} /></div>
-            <span>开一本新书</span>
-            <span className={css.meta}>书名 + 大纲，开书即建项目</span>
-          </div>
-
-          {/* 导入入口：已有项目目录 / txt/md 全本 */}
-          <div className={`${css.bookCard} ${css.bookAddCard}`} onClick={onImportBook} role="button" tabIndex={0} aria-label="导入已有小说" onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onImportBook() } }}>
-            <div className={css.bookAddIcon}><Download size={28} /></div>
-            <span>导入已有小说</span>
-            <span className={css.meta}>项目目录或 txt/md 全本</span>
-          </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

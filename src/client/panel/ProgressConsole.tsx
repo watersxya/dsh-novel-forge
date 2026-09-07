@@ -28,12 +28,12 @@ export function ProgressConsole({ progress, busy, busyLabel, liveBar, onClear }:
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-10)', minHeight: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontWeight: 600 }}>📊 AI 进度</span>
+        <span style={{ fontWeight: 600 }}> AI 进度</span>
         <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={onClear} title="清空活动记录">清空</button>
       </div>
       {(busy && (busyLabel !== '' || liveBar !== null)) && (
         <div style={{ border: '1px solid var(--nf-accent)', borderRadius: 'var(--nf-radius-10)', padding: 'var(--nf-space-8) var(--nf-space-12)', display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', background: 'color-mix(in srgb, var(--nf-accent) 6%, transparent)' }}>
-          <span style={{ fontSize: 'var(--nf-fs-12)', fontWeight: 600, color: 'var(--nf-accent)' }}>✍ {busyLabel !== '' ? busyLabel : (liveBar?.text ?? '任务进行中')}…</span>
+          <span style={{ fontSize: 'var(--nf-fs-12)', fontWeight: 600, color: 'var(--nf-accent)' }}> {busyLabel !== '' ? busyLabel : (liveBar?.text ?? '任务进行中')}…</span>
           {liveBar?.ratio !== undefined && (
             <div className={css.bigProgressBar}><div className={css.bigProgressBarFill} style={{ width: Math.round(liveBar.ratio * 100) + '%' }} /></div>
           )}
@@ -43,7 +43,7 @@ export function ProgressConsole({ progress, busy, busyLabel, liveBar, onClear }:
       <div className={css.progress} style={{ flex: '0 1 auto', maxHeight: '42%', minHeight: 0, overflowY: 'auto', border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-10)', background: 'var(--nf-bg-inset)', padding: 'var(--nf-space-8)', display: 'flex', flexDirection: 'column' }}>
         {progress.length === 0 ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--nf-space-6)', color: 'var(--nf-text-3)', fontSize: 'var(--nf-fs-12)', padding: 'var(--nf-space-4) 2px' }}>
-            <span>📭</span>
+            <span></span>
             <span>暂无活动记录，生成、审稿等操作会显示在这里</span>
           </div>
         ) : (

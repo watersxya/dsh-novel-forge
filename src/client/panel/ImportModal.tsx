@@ -132,7 +132,7 @@ export function ImportModal({
     <div className={css.importModalOverlay} role="dialog" aria-modal="true" aria-label="导入小说" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className={css.importModal}>
         <div className={css.importModalHead}>
-          <span className={css.panelTitle} style={{ margin: 0 }}>📥 导入小说</span>
+          <span className={css.panelTitle} style={{ margin: 0 }}> 导入小说</span>
           <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={onClose} title="关闭">✕</button>
         </div>
 
@@ -144,7 +144,7 @@ export function ImportModal({
             className={`${css.button} ${mode === 'dir' ? css.buttonPrimary : ''}`}
             onClick={() => { switchMode('dir') }}
           >
-            📂 A · 已有项目目录
+             A · 已有项目目录
           </button>
           <button
             type="button"
@@ -153,7 +153,7 @@ export function ImportModal({
             className={`${css.button} ${mode === 'text' ? css.buttonPrimary : ''}`}
             onClick={() => { switchMode('text') }}
           >
-            📄 B · txt/md 全本
+             B · txt/md 全本
           </button>
         </div>
 
@@ -191,7 +191,7 @@ export function ImportModal({
                   className={`${css.button} ${css.buttonPrimary}`}
                   onClick={() => { fileInputRef.current?.click() }}
                 >
-                  📄 选择文件
+                   选择文件
                 </button>
               </div>
               {fileName !== '' && (
@@ -202,7 +202,7 @@ export function ImportModal({
               )}
               {preview !== null && (
                 <div className={css.importPreview}>
-                  <span>📖 《{preview.bookName}》 · 识别到 {preview.chapters.length} 章</span>
+                  <span> 《{preview.bookName}》 · 识别到 {preview.chapters.length} 章</span>
                   {preview.chapters.length > 0 && (
                     <ul className={css.importPreviewList}>
                       {preview.chapters.slice(0, 5).map(c => (
@@ -262,7 +262,7 @@ export function ImportModal({
             <div className={css.importResult}>
               {result.kind === 'dir' ? (
                 <>
-                  <span>✅ 已{result.existed === true ? '重新激活' : '登记'}《{result.bookName}》</span>
+                  <span> 已{result.existed === true ? '重新激活' : '登记'}《{result.bookName}》</span>
                   <span className={css.meta}>
                     {result.existed === true
                       ? '该目录已在书架中，现已切换为当前书；工作台数据按该书目录加载。'
@@ -272,7 +272,7 @@ export function ImportModal({
                 </>
               ) : (
                 <>
-                  <span>✅ 《{result.bookName}》导入完成：{result.chapters} 章</span>
+                  <span> 《{result.bookName}》导入完成：{result.chapters} 章</span>
                   {(result.skipped ?? []).length > 0 && (
                     <span className={css.meta}>
                       跳过 {result.skipped!.length} 个过短章节：{result.skipped!.slice(0, 8).join('、')}

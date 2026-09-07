@@ -1,10 +1,11 @@
 /**
- * 「热门题材雷达」：对齐上游市场雷达页（真实榜单扫榜 → 候选勾选 → AI 分析 → 信号卡片 → 影响模式 → 用信号创作）。
+ * 「热门题材雷达」：对齐上游市场雷达页（真实榜单扫榜 → 候选勾选 → 分析 → 信号卡片 → 影响模式 → 用信号创作）。
  */
 import { useMemo, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import type { MarketRadarResult, MarketCreativeBrief, IdeaInspirationResult } from '../../protocol.ts'
 import css from './panel.module.css'
+import { SubPage } from './SubPage.tsx'
 
 const PLATFORMS = ['fanqie', 'qidian', 'jinjiang']
 const PLATFORM_LABELS: Record<string, string> = { fanqie: '番茄小说', qidian: '起点中文网', jinjiang: '晋江文学城' }
@@ -162,7 +163,7 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
     setApplied('')
     try {
       const r = await api.marketRadarApply({ bookId, foundation: result.productionFoundation })
-      setApplied(`✅ 已应用到《${r.bookName}》：后续规划/生成将按此题材与推进模式。`)
+      setApplied(` 已应用到《${r.bookName}》：后续规划/生成将按此题材与推进模式。`)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -181,7 +182,7 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
       if (r.synced.genre) parts.push('题材')
       if (r.synced.primaryMode) parts.push('主推进')
       if (r.synced.secondaryMode) parts.push('辅推进')
-      setSyncedMsg(parts.length > 0 ? `✅ 已同步到全局资源库：${parts.join('、')}` : '已在资源库中，无新增。')
+      setSyncedMsg(parts.length > 0 ? ` 已同步到全局资源库：${parts.join('、')}` : '已在资源库中，无新增。')
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -192,10 +193,12 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
   const badge = (kind: string): string => (kind === 'opportunity' ? 'var(--nf-success)' : kind === 'crowding' ? 'var(--nf-error)' : 'var(--nf-accent)')
 
   return (
-    <div className={css.authorPageBody}>
+    <SubPage
+      title="热门题材雷达"
+      meta="扫榜 → 选候选 → 分析 → 拿本期判断与可用信号，影响后续开书的题材与推进。"
+    >
       {/* 平台扫榜 */}
       <div className={`${css.card} ${css.settingsCard}`} style={{ gap: 'var(--nf-space-12)' }}>
-        <span className={css.cardTitle}>📡 热门题材雷达</span>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--nf-space-6)' }}>
           {PLATFORMS.map(p => (
             <button key={p} type="button" onClick={() => togglePlatform(p)} style={{ padding: '4px 12px', borderRadius: 999, border: '1px solid var(--nf-border)', cursor: 'pointer', background: platforms.includes(p) ? 'var(--nf-accent-soft)' : 'var(--nf-bg-inset)', color: 'var(--nf-text)', fontWeight: platforms.includes(p) ? 600 : 400 }}>
@@ -214,13 +217,13 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
           {scanning && <span style={{ fontSize: 12, color: 'var(--nf-text-2)' }}>正在抓取公开榜单（{platforms.map(p => PLATFORM_LABELS[p]).join('、')}），多平台并行，约 10–30 秒…</span>}
           {scanGroups !== null && (
             <button type="button" className={css.button} style={{ marginLeft: 8 }} disabled={analyzing || selectedCandidates.size === 0} onClick={() => { void analyze() }}>
-              {analyzing ? 'AI 分析中…' : `开始 AI 分析（${selectedCandidates.size} 本）`}
+              {analyzing ? '分析中…' : `开始 分析（${selectedCandidates.size} 本）`}
             </button>
           )}
         </div>
       </div>
 
-      {error !== '' && <div style={{ color: 'var(--nf-error)', fontSize: 13 }}>⚠ {error}</div>}
+      {error !== '' && <div style={{ color: 'var(--nf-error)', fontSize: 13 }}> {error}</div>}
 
       {/* 榜单候选：平台 tabs 切换 + 平台内榜单横排(最多三列) + 每列 10 条可滚 */}
       {scanGroups !== null && (
@@ -328,7 +331,7 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
         <div style={{ position: 'sticky', bottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: 'var(--nf-space-10) var(--nf-space-12)', border: '1px solid var(--nf-accent)', borderRadius: 12, background: 'color-mix(in srgb, var(--nf-bg) 92%, transparent)', backdropFilter: 'blur(6px)', boxShadow: 'var(--nf-shadow)' }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600 }}>已选 {selectedIds.size}/{MAX_SIGNALS} 项市场信号</div>
-            <div style={{ fontSize: 11, color: 'var(--nf-text-2)' }}>AI 推荐已自动勾选，可替换后再开书。</div>
+            <div style={{ fontSize: 11, color: 'var(--nf-text-2)' }}>推荐已自动勾选，可替换后再开书。</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <select className={css.input} style={{ width: 'auto', padding: '4px 8px' }} value={influenceMode} onChange={e => setInfluenceMode(e.target.value as 'follow_hot' | 'differentiate' | 'light')}>
@@ -343,7 +346,7 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
 
       {brief !== null && (
         <div className={`${css.card} ${css.settingsCard}`} style={{ gap: 'var(--nf-space-10)' }}>
-          <span className={css.cardTitle}>✍ 开书创意简报</span>
+          <span className={css.cardTitle}> 开书创意简报</span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-8)', fontSize: 13, lineHeight: 1.7 }}>
             <div><b>创作约束</b>：{brief.promptBlock}</div>
             <div><b>开篇想法</b>：{brief.openingIdea}</div>
@@ -352,7 +355,7 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
             <div><b>前30章承诺</b>：{brief.first30ChapterPromise}</div>
           </div>
           <button type="button" className={`${css.button} ${css.buttonPrimary}`} disabled={ideaBusy || selectedIds.size === 0} onClick={() => { void createIdeas() }}>
-            {ideaBusy ? '生成灵感中…' : '✨ 用这些信号生成灵感'}
+            {ideaBusy ? '生成灵感中…' : ' 用这些信号生成灵感'}
           </button>
         </div>
       )}
@@ -369,6 +372,6 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
           ))}
         </div>
       )}
-    </div>
+    </SubPage>
   )
 }
