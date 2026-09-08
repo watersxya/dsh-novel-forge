@@ -34,7 +34,9 @@ export function loadBookshelf(): BookshelfStore {
     const parsed = JSON.parse(raw) as BookshelfStore
     if (!Array.isArray(parsed.books)) return defaultStore()
     return { books: parsed.books, activeBookId: parsed.activeBookId ?? null }
-  } catch {
+  } catch (error) {
+    // 书架文件损坏回退默认值会遮蔽数据丢失，留痕到服务端日志。
+    console.error(`[novel-forge] bookshelf file unreadable/corrupt: ${file} — ${(error as Error).message}`)
     return defaultStore()
   }
 }
@@ -158,6 +160,24 @@ export function removeBook(id: string): boolean {
 export function activeBookOutputDir(): string | undefined {
   const book = activeBook(loadBookshelf())
   return book?.outputDir
+}
+
+/**
+ * 书目录重指向：把 outputDir 等于 from 的书条目全部改为 to（目录迁移联动）。
+ * @returns 重指向的条目数。
+ */
+export function repointBookDirs(from: string, to: string): number {
+  const store = loadBookshelf()
+  let count = 0
+  for (const book of store.books) {
+    if (book.outputDir === from) {
+      book.outputDir = to
+      book.updatedAt = new Date().toISOString()
+      count += 1
+    }
+  }
+  if (count > 0) saveBookshelf(store)
+  return count
 }
 
 /** 默认输出目录推断：~/.dsh/novels/书名。 */

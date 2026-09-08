@@ -3,7 +3,7 @@
  * 导航复用工作区 .panelNav 玻璃卡片样式（同款），导航项为作者级：书架/改编/资产库/全局资产库/AI 进度/设置。
  */
 import { useState, useRef, useEffect } from 'react'
-import { Library, Wand2, Boxes, Brush, Radar, FileSearch, Lightbulb, Settings } from 'lucide-react'
+import { Library, Boxes, Brush, Radar, FileSearch, Lightbulb } from 'lucide-react'
 import type { NovelApi } from '../api.ts'
 import type { BookshelfSnapshot } from '../../protocol.ts'
 import { ShelfView } from './ShelfView.tsx'
@@ -24,8 +24,8 @@ const PLUGIN_VERSION: string = typeof __NOVEL_FORGE_VERSION__ !== 'undefined' ? 
 /** GitHub 仓库地址（关于区块点击跳转）。 */
 const REPO_URL = 'https://github.com/watersxya/dsh-novel-forge'
 
-type AuthorNav = 'shelf' | 'adapt' | 'assets' | 'library' | 'marketRadar' | 'bookAnalysis' | 'ideaInspiration' | 'settings';
-type AuthorSubNav = Exclude<AuthorNav, 'settings'>;
+type AuthorNav = 'shelf' | 'adapt' | 'assets' | 'library' | 'marketRadar' | 'bookAnalysis' | 'ideaInspiration';
+type AuthorSubNav = AuthorNav;
 
 /** 顶层 tab（横向，墨案：创作 / 灵感策划 / 资产 / 设置）+ 组内二级页。 */
 const NAV_TABS: Array<{
@@ -61,7 +61,7 @@ const NAV_TABS: Array<{
 ];
 
 
-export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onImportBook, onOpenSettings, onBackground, adaptEnabled, progress, busy, busyLabel, liveBar, onClearProgress, onUseIdea, themeMode, themeDensity, onToggleMode, onChangeThemeMode, onChangeThemeDensity }: {
+export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onImportBook, onBackground, progress, busy, busyLabel, liveBar, onClearProgress, onUseIdea, themeMode, themeDensity, onToggleMode, onChangeThemeMode, onChangeThemeDensity }: {
   /** 当前显示模式（顶栏「墨纸 / 纸白」切换用）。 */
   themeMode?: 'system' | 'light' | 'dark';
   /** 当前界面密度。 */
@@ -76,12 +76,8 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
   onOpenBook: (id: string) => void; onReadBook: (id: string) => void; onAddBook: () => void; onImportBook: () => void;
   /** 创意灵感 → 采纳某个灵感带入开书向导。 */
   onUseIdea?: (idea: import('../../protocol.ts').IdeaInspirationResult['ideas'][number]) => void;
-  /** 兼容旧入口：首页设置现为独立设置页，此回调保留但不再使用。 */
-  onOpenSettings?: () => void;
   /** 自定义背景变化回调。 */
   onBackground?: (bg: string | undefined, blur: number) => void;
-  /** 是否启用改编模式（默认 false=隐藏入口）。 */
-  adaptEnabled?: boolean;
   /** AI 进度实时状态（与书内共享同一份）。 */
   progress?: ProgressLine[];
   busy?: boolean;
@@ -90,6 +86,8 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
   onClearProgress?: () => void;
 }) {
   const [nav, setNav] = useState<AuthorNav>('shelf');
+  // 设置改为右滑抽屉（与总编台参数抽屉同交互），不再是全屏导航页。
+  const [settingsOpen, setSettingsOpen] = useState(false);
   /** 当前是否深色（墨纸）：显式 dark，或跟随系统且系统为深色。 */
   const darkNow = themeMode === 'dark'
     || (themeMode !== 'light' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -161,48 +159,61 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
     }
   };
 
+  /** 下放到书架工具行右端的组入口（创作 / 灵感策划 / 资产）——设置仍留顶栏。 */
+  const shelfNavExtra = (
+    <>
+      {NAV_TABS.map(tab => {
+        const inGroup = tab.children.some(c => c.id === nav)
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={inGroup}
+            data-active={inGroup ? '' : undefined}
+            className={css.authorNavBtn}
+            title={tab.hint}
+            onClick={() => { const first = tab.children[0]; if (first !== undefined) setNav(first.id) }}
+          >
+            {tab.label}
+          </button>
+        )
+      })}
+    </>
+  )
+
   return (
     <div className={css.authorHome}>
       <nav className={css.authorTopNav} aria-label="作者级导航">
         <div className={css.navTitle}>
           <div className={css.navTitleLogo}>书</div>
           <div style={{ minWidth: 0 }}>
-            <div className={css.navTitleName}>小说工坊</div>
-            <div className={css.navTitleBook}>作者级 · 跨书</div>
+            <div className={css.navTitleName}>小说工坊<span className={css.brandEn}> · AI Novel Workbench</span></div>
+            <div className={css.navTitleBook}>一个 AI 智能小说助手 · 作者级 · 跨书</div>
           </div>
         </div>
-        {/* 顶行右侧：4 个组入口（创作 / 灵感·策划 / 资产 / 设置），点击进该组第一页 */}
+        {/* 顶行右侧：仅留设置（创作/灵感策划/资产已下放书架工具行） */}
         <div className={css.navSpacer} />
         <div className={css.authorTopTabs}>
-          {NAV_TABS.map(tab => {
-            const inGroup = tab.children.some(c => c.id === nav)
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={inGroup}
-                data-active={inGroup ? '' : undefined}
-                className={css.authorNavBtn}
-                title={tab.hint}
-                onClick={() => { const first = tab.children[0]; if (first !== undefined) setNav(first.id) }}
-              >
-                {tab.label}
-              </button>
-            )
-          })}
           <button
             type="button"
-            role="tab"
-            aria-selected={nav === 'settings'}
-            data-active={nav === 'settings' ? '' : undefined}
             className={css.authorNavBtn}
             title="设置"
-            onClick={() => { setNav('settings') }}
+            onClick={() => { setSettingsOpen(true) }}
           >
             设置
           </button>
         </div>
+        {/* 墨纸 / 纸白 切换（对齐 design-sample-workbench.html 的 #modeToggle） */}
+        <button
+          type="button"
+          className={`${css.button} ${css.buttonSmall}`}
+          title={darkNow ? '切换到纸白（浅色）' : '切换到墨纸（深色）'}
+          onClick={() => { onToggleMode?.() }}
+        >
+          {darkNow ? '☀ 纸白' : '☾ 墨纸'}
+        </button>
+        {/* 关于区（版本 / GitHub / 更新）置顶栏最末位 */}
         <div className={css.navAbout}>
           <button type="button" className={css.navAboutRow} title="打开 GitHub 仓库" onClick={() => { window.open(REPO_URL, '_blank', 'noopener') }}>
             <span>ℹ v{PLUGIN_VERSION}</span>
@@ -214,17 +225,7 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
             </button>
           )}
         </div>
-        {/* 墨纸 / 纸白 切换（对齐 design-sample-workbench.html 的 #modeToggle） */}
-        <button
-          type="button"
-          className={`${css.button} ${css.buttonSmall}`}
-          title={darkNow ? '切换到纸白（浅色）' : '切换到墨纸（深色）'}
-          onClick={() => { onToggleMode?.() }}
-        >
-          {darkNow ? '☀ 纸白' : '☾ 墨纸'}
-        </button>
-      </nav>
-      {/* 第二行：当前组的子页按钮（仅在该组有多个子页时出现，对齐 demo 的 .group-nav） */}
+      </nav>{/* 第二行：当前组的子页按钮（仅在该组有多个子页时出现，对齐 demo 的 .group-nav） */}
       {(() => {
         const activeTab = NAV_TABS.find(t => t.children.some(c => c.id === nav))
         if (activeTab === undefined || activeTab.children.length <= 1) return null
@@ -247,15 +248,28 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
         )
       })()}
       <div className={css.authorContent}>
-        {nav === 'shelf' && <ShelfView api={api} shelf={shelf} onOpenBook={onOpenBook} onReadBook={onReadBook} onAddBook={onAddBook} onImportBook={onImportBook} onOpenAdapt={() => { setNav('adapt') }} />}
+        {nav === 'shelf' && <ShelfView api={api} shelf={shelf} toolbarExtra={shelfNavExtra} onOpenBook={onOpenBook} onReadBook={onReadBook} onAddBook={onAddBook} onImportBook={onImportBook} onOpenAdapt={() => { setNav('adapt') }} />}
         {nav === 'adapt' && <AdaptModeView api={api} onOpenBook={onOpenBook} />}
         {nav === 'assets' && <AuthorAssetsView api={api} />}
         {nav === 'library' && <GlobalAssetLibraryView api={api} />}
         {nav === 'marketRadar' && <MarketRadarView api={api} bookId={shelf?.activeBookId ?? undefined} />}
         {nav === 'ideaInspiration' && <IdeaInspirationView api={api} onUseIdea={onUseIdea} />}
         {nav === 'bookAnalysis' && <BookAnalysisView api={api} />}
-        {nav === 'settings' && <SettingsView api={api} onBackground={onBackground} themeMode={themeMode ?? 'system'} themeDensity={themeDensity ?? 'comfort'} onChangeThemeMode={onChangeThemeMode} onChangeThemeDensity={onChangeThemeDensity} />}
       </div>
+      {/* 设置右滑抽屉（点遮罩/✕ 回书架） */}
+      {settingsOpen && (
+        <div className={css.settingsDrawerOverlay} onClick={e => { if (e.target === e.currentTarget) setSettingsOpen(false) }}>
+          <aside className={css.settingsDrawer} role="dialog" aria-modal="true" aria-label="设置">
+            <div className={css.settingsDrawerHead}>
+              <span className={css.cardTitle}>设置 · 全局</span>
+              <button type="button" className={`${css.button} ${css.buttonSmall}`} title="关闭" onClick={() => { setSettingsOpen(false) }}>✕</button>
+            </div>
+            <div className={css.settingsDrawerBody}>
+              <SettingsView api={api} variant="drawer" onBackground={onBackground} themeMode={themeMode ?? 'system'} themeDensity={themeDensity ?? 'comfort'} onChangeThemeMode={onChangeThemeMode} onChangeThemeDensity={onChangeThemeDensity} />
+            </div>
+          </aside>
+        </div>
+      )}
       {progressOpen && (
         <div className={css.assistantFloat} style={{ left: progressPos.x, top: progressPos.y, width: progressSize.w, height: progressSize.h }}>
           <div

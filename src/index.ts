@@ -18,6 +18,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { ConfigPatch, NovelConfig } from './protocol.ts'
 import { makeRoutes } from './routes.ts'
 import { activeBookOutputDir } from './bookshelf.ts'
+import { loadProject } from './engine.ts'
 
 /** Stable cordis plugin name. */
 export const name = 'novel-forge'
@@ -50,7 +51,7 @@ export interface Config {
   generateModel?: string
   /** 任务级模型路由：审稿模型（留空则跟随 model）。 */
   reviewModel?: string
-  /** 任务级模型路由：AI 复核/质检模型（留空则跟随 model）。 */
+  /** 任务级模型路由：质检模型（留空则跟随 model）。 */
   auditModel?: string
   /** LLM reasoning effort (off/low/high/max). */
   reasoningEffort?: 'off' | 'low' | 'high' | 'max'
@@ -161,10 +162,22 @@ export function apply(ctx: Context, config?: Config): void {
     const resolved = resolveConfig(current())
     // 书架激活的书优先决定输出目录（settings 仍可改默认值）。
     const shelfDir = activeBookOutputDir()
-    if (shelfDir !== undefined) {
-      return { ...resolved, outputDir: shelfDir }
-    }
-    return resolved
+    if (shelfDir === undefined) return resolved
+    // 本书参数覆盖（novel-project.json.bookSettings；未设字段回退全局）。
+    const bs = loadProject(shelfDir)?.bookSettings
+    const book: NovelConfig = { ...resolved, outputDir: shelfDir }
+    if (bs === undefined) return book
+    if (bs.provider !== undefined) book.provider = bs.provider
+    if (bs.model !== undefined) book.model = bs.model
+    if (bs.reasoningEffort !== undefined) book.reasoningEffort = bs.reasoningEffort
+    if (bs.analysisReasoning !== undefined) book.analysisReasoning = bs.analysisReasoning
+    if (bs.chapterChars !== undefined) book.chapterChars = bs.chapterChars
+    if (bs.maxTokens !== undefined) book.maxTokens = bs.maxTokens
+    if (bs.reviewPassScore !== undefined) book.reviewPassScore = bs.reviewPassScore
+    if (bs.autoReview !== undefined) book.autoReview = bs.autoReview
+    if (bs.autoAuthorReview !== undefined) book.autoAuthorReview = bs.autoAuthorReview
+    if (bs.autoReviewAfterRevise !== undefined) book.autoReviewAfterRevise = bs.autoReviewAfterRevise
+    return book
   }
 
   const patchConfig = async (patch: ConfigPatch): Promise<NovelConfig> => {
@@ -221,7 +234,7 @@ export function apply(ctx: Context, config?: Config): void {
         text: NOVEL_GUIDANCE,
       })
     }
-    const routes = makeRoutes({ ctx, getConfig: resolve, patchConfig })
+    const routes = makeRoutes({ ctx, getConfig: resolve, patchConfig, rawConfig: () => current() })
     disposeRoutes = ctx.effect(
       () => {
         const disposers = routes.map(route => ctx.webServer.register(route))

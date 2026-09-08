@@ -43,7 +43,6 @@ export function RunPanel({ api, totalChapters }: { api: NovelApi; totalChapters:
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight })
   }, [run?.log.length])
 
-  const effectiveEnd = mode === 'count' ? startNo + count - 1 : endNo
 
   const handleStart = async (): Promise<void> => {
     setBusy(true)

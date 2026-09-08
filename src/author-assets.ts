@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
-import type { AuthorAssetLibrary, AuthorStyleAsset, GenreNode, AntiAiRule, StyleTemplate, ProgressionMode } from './protocol.ts'
+import type { AuthorAssetLibrary, AuthorStyleAsset } from './protocol.ts'
 
 import { loadBookshelf } from './bookshelf.ts'
 import { loadProject } from './engine.ts'
@@ -34,7 +34,9 @@ export function loadAuthorAssets(): AuthorAssetLibrary {
     const parsed = JSON.parse(raw) as Partial<AuthorAssetLibrary>
     if (!Array.isArray(parsed.items)) return defaultLibrary()
     return { version: 1, items: parsed.items }
-  } catch {
+  } catch (error) {
+    // 资产库损坏回退默认值会遮蔽数据丢失，留痕到服务端日志。
+    console.error(`[novel-forge] author assets file unreadable/corrupt: ${file} — ${(error as Error).message}`)
     return defaultLibrary()
   }
 }

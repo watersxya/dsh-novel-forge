@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import { tt } from './helpers.ts'
-import type { AssistantFrame, AssistantMessage } from '../../protocol.ts'
+import type { AssistantFrame } from '../../protocol.ts'
 import css from './panel.module.css'
 
 /** 工具中文名 + 图标映射（作者看得懂）。 */

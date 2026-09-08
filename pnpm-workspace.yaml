@@ -1,6 +1,16 @@
 # pnpm 11 settings (package.json "pnpm" field is no longer read).
 packages:
   - '.'
+# 对齐 alpha：强制所有 @deepseek-ai/dsh-* 包（含传递依赖）固定到 0.1.2-alpha.3，
+# 避免 caret 范围自动解析到新发布的 rc.1，导致 SDK 与 alpha 运行时不一致。
+overrides:
+  '@deepseek-ai/dsh-*': 0.1.2-alpha.3
+  '@deepseek-ai/dsh-brand': 0.1.2-alpha.3
+  '@deepseek-ai/dsh-credentials': 0.1.2-alpha.3
+  '@deepseek-ai/dsh-timeout': 0.1.2-alpha.3
+  '@deepseek-ai/dsh-typert-protocol': 0.1.2-alpha.3
+  '@deepseek-ai/dsh-util-crypto': 0.1.2-alpha.3
+  '@deepseek-ai/dsh-util-values': 0.1.2-alpha.3
 allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:

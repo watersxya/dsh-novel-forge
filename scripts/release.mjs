@@ -34,9 +34,9 @@ function shLive(cmd) {
 
 // ---- 1) parse CHANGELOG top entry ----------------------------------------
 const changelog = await readFile(changelogPath, 'utf8')
-const m = /^## \[(\d+\.\d+\.\d+)\] - ([\d-]+)\r?\n\r?\n([\s\S]*?)(?=^## \[|$)/m.exec(changelog)
+const m = /^## \[(\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\] - ([\d-]+)\r?\n\r?\n([\s\S]*?)(?=^## \[|$)/m.exec(changelog)
 if (!m) {
-  console.error('✗ 无法从 CHANGELOG.md 顶部解析版本。请在顶部添加 "## [x.y.z] - date" 条目。')
+  console.error('✗ 无法从 CHANGELOG.md 顶部解析版本。请在顶部添加 "## [x.y.z[-prerelease]] - date" 条目。')
   process.exit(1)
 }
 const version = m[1]

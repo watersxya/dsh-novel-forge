@@ -3,7 +3,7 @@
  * 轻量实现，不持久化缓存（对齐上游 useLlmLiveFeed 的核心行为）。
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { NOVEL_API } from '../protocol.ts'
 
 export interface LlmLiveFrame {

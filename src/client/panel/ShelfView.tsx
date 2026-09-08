@@ -2,7 +2,7 @@
  * 书架首页视图：书卡网格（封面/书名/简介/进度）+ 搜索筛选 + 开书入口。
  * 进入小说工坊默认展示；点击书卡进入该书工作台，＋ 进入开书向导页。
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { BookOpen, Download, PenLine, Plus, Search, Wand2 } from 'lucide-react'
 import type { NovelApi } from '../api.ts'
 import type { BookshelfSnapshot } from '../../protocol.ts'
@@ -121,9 +121,12 @@ export function ShelfView({
   onAddBook,
   onImportBook,
   onOpenAdapt,
+  toolbarExtra,
 }: {
   api: NovelApi
   shelf: BookshelfSnapshot
+  /** 书架工具行右端插槽：组入口按钮由 AuthorHome 下放（创作 / 灵感策划 / 资产）。 */
+  toolbarExtra?: ReactNode
   /** 点击书卡：激活该书并进入工作台。 */
   onOpenBook: (id: string) => void
   /** 点击「阅读」：激活该书并进入沉浸式阅读页。 */
@@ -195,24 +198,11 @@ export function ShelfView({
             style={{ paddingLeft: 'var(--nf-space-30, 30px)' }}
           />
         </div>
-        <div className={css.shelfTabs}>
-          {[
-            { id: 'all' as const, label: '全部' },
-            { id: 'active' as const, label: '进行中' },
-            { id: 'done' as const, label: '已完结' },
-            { id: 'none' as const, label: '未开书' },
-          ].map(t => (
-            <button
-              key={t.id}
-              type="button"
-              className={css.shelfTab}
-              data-active={filter === t.id ? '' : undefined}
-              onClick={() => { setFilter(t.id) }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {toolbarExtra !== undefined && (
+          <div className={css.shelfToolbarExtra} role="tablist" aria-label="创作组入口">
+            {toolbarExtra}
+          </div>
+        )}
       </div>
 
       {shelf.books.length > 0 && (
@@ -226,6 +216,7 @@ export function ShelfView({
             <div
               key={s.id}
               className={css.shelfStatCard}
+              data-active={filter === s.id ? '' : undefined}
               title={s.id === 'all' ? '显示全部书籍' : `只看「${s.label}」的书`}
               onClick={() => { setFilter(s.id) }}
             >

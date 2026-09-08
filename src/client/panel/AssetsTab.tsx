@@ -2,10 +2,10 @@
  * 写作资产页签：题材基底库 / 推进模式库 / 反 AI 规则 / 写法引擎。
  * 学习自 AI-Novel-Writing-Assistant 的四大资产模块，注入到生成与审稿提示词中。
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import { tt } from './helpers.ts'
-import type { AntiAiRule, AssetsResponse, GenreNode, ProgressionMode, StyleAsset, StyleTemplate } from '../../protocol.ts'
+import type { AntiAiRule, AssetsResponse, GenreNode, ProgressionMode, StyleAsset } from '../../protocol.ts'
 import css from './panel.module.css'
 
 /** Props. */
@@ -66,10 +66,8 @@ export function AssetsTab({ api, initialTab = 'genre' }: AssetsTabProps) {
   const [sampleText, setSampleText] = useState('')
   const [styleName, setStyleName] = useState('')
   const [newRule, setNewRule] = useState('')
-  const [newProgression, setNewProgression] = useState('')
   /** 正在行内编辑的自定义反 AI 规则（下标 + 草稿字段）。 */
   const [editingRule, setEditingRule] = useState<{ index: number; name: string; avoid: string; fix: string } | null>(null)
-  const loadId = useRef(0)
 
   /** Load assets (or reset from a new call). */
   const refresh = useCallback(async () => {

@@ -27,8 +27,8 @@ export const COMPLIANCE_REDLINES: ReadonlyArray<string> = [
 const REVIEW_DIMENSION_IDS = new Set(['character', 'setting', 'redline', 'writing', 'pacing', 'logic', 'anti-ai', 'presentation', 'compliance'])
 
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, rmSync, renameSync } from 'node:fs'
-import { join, basename, extname, dirname } from 'node:path'
-import { homedir, tmpdir } from 'node:os'
+import { join, basename, extname } from 'node:path'
+import { tmpdir } from 'node:os'
 import { createUserMessage, BlockAssembler, ReasoningEffortId, type GenerateOptions, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
 import { BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, emptyProjectAssets, recommendStylePreset, renderAllAssets, styleEngineSystemPrompt, styleFormulaSystemPrompt } from './assets.ts'
@@ -40,10 +40,8 @@ import type {
   AdaptationDimension,
   AdaptAnalyzeResponse,
   AdaptationMapping,
-  AdaptationProposal,
   AdaptationRules,
   AdaptProposeResponse,
-  AdaptExecuteResponse,
   AuditIssue,
   AuthorReview,
   BreakdownResponse,
@@ -56,7 +54,6 @@ import type {
   PlotlinePlan,
   ProjectState,
   ReviewDimension,
-  ReviewIssue,
   ReviewReport,
   RoleRecord,
   RoleStatusCard,
@@ -64,14 +61,12 @@ import type {
   AddModelRequest,
   AddModelResponse,
   SavedModel,
-  LlmModelOption,
   LlmModelsResponse,
   LlmVendorOption,
   LlmVendorsResponse,
   LlmProvidersResponse,
   RemoveProviderRequest,
   RemoveProviderResponse,
-  LlmTestRequest,
   LlmTestResponse,
   Volume,
   WorldState,
@@ -165,7 +160,9 @@ export function loadProject(outputDir: string): ProjectState | undefined {
     if (!Array.isArray(raw.facts)) raw.facts = []
     if (!Array.isArray(raw.plotlines)) raw.plotlines = []
     return raw
-  } catch {
+  } catch (error) {
+    // 项目文件损坏被静默当"无项目"会遮蔽数据丢失，留痕到服务端日志。
+    console.error(`[novel-forge] project file unreadable/corrupt: ${file} — ${(error as Error).message}`)
     return undefined
   }
 }
@@ -1329,7 +1326,7 @@ export function autoLinkPlotlines(project: ProjectState, chapterNo: number, adva
   }
 }
 
-/** AI 建议剧情线：基于大纲/卷计划/已写章节/编年录，提炼候选线。 */
+/** 建议剧情线：基于大纲/卷计划/已写章节/编年录，提炼候选线。 */
 export async function suggestPlotlines(ctx: Context, config: NovelConfig, project: ProjectState): Promise<Plotline[]> {
   const system = [
     '你是一位网文剧情架构师。根据本书的大纲、卷计划、已写章节标题与编年录，为作者提炼建议的剧情线（主线/支线/人物线/悬念线）。',
@@ -1376,7 +1373,7 @@ export async function suggestPlotlines(ctx: Context, config: NovelConfig, projec
   return lines
 }
 
-/** AI 刷新单条剧情线的进度：结合编年录与各章摘要分析该线推进到哪。 */
+/** 刷新单条剧情线的进度：结合编年录与各章摘要分析该线推进到哪。 */
 export async function refreshPlotlineProgress(
   ctx: Context,
   config: NovelConfig,
@@ -1407,7 +1404,7 @@ export async function refreshPlotlineProgress(
   return typeof raw.progress === 'string' ? raw.progress.trim().slice(0, 300) : ''
 }
 
-/** ✨ AI 从全书提炼角色库：大纲 + 道藏 + 编年录 + 章节摘要 → 结构化角色清单。 */
+/**  AI 从全书提炼角色库：大纲 + 道藏 + 编年录 + 章节摘要 → 结构化角色清单。 */
 export async function extractRoles(
   ctx: Context,
   config: NovelConfig,
@@ -1576,7 +1573,7 @@ export async function extractRoles(
   return roles
 }
 
-/** ✨ AI 从全书提炼场景库：正文/编年录 → 高频重要场景的结构化视觉锚点。 */
+/**  AI 从全书提炼场景库：正文/编年录 → 高频重要场景的结构化视觉锚点。 */
 export function splitBookText(raw: string): Array<{ no: number; title: string; body: string }> {
   const lines = raw.split(/\r?\n/)
   // 拆章：中文「第X章/回/节/卷」、中文数字章节（一、二、三…）、特殊章节（序章/楔子/尾声/番外…）、英文 Chapter N（均可带 # 前缀）。
@@ -1704,53 +1701,6 @@ export function importBookText(
   const raw = decodeTextSmart(readFileSync(filePath))
   const bookName = basename(filePath, extname(filePath)).slice(0, 40) || '导入小说'
   return importBookTextFromText(raw, outputDir, bookName)
-}
-
-/** 常见职业/身份尾缀：角色名如「周野律师」正文可能只写「周野」或「周野的律师」。 */
-const ROLE_NAME_SUFFIXES = ['律师', '辩护律师', '医生', '老师', '教授', '先生', '女士', '小姐', '警官', '警察', '局长', '总经理', '经理', '老板', '师父', '师傅', '道长', '老祖', '长老', '掌门', '少主', '公主', '王子', '王妃', '皇后', '皇帝', '王爷', '公子', '姑娘', '夫人', '太太', '大人', '将军', '丞相', '尚书', '员外']
-
-/**
- * 从角色名/身份拆出正文可能使用的检索词：
- * - specific：具体称谓（含职业尾缀或 3 字以上身份片段），如「周野的律师」「辩护律师」「律师」——优先用，避免误抓到同名主干（周野）的段落；
- * - stems：名字主干（如「周野」），最后兜底。
- */
-function roleFallbackTokens(name: string, identity: string | undefined): { specific: string[]; stems: string[] } {
-  const specific = new Set<string>()
-  const stems = new Set<string>()
-  const addName = (s: string): void => {
-    const t = s.trim()
-    if (t.length < 2) return
-    specific.add(t)
-    for (const q of ['辩护', '助理', '高级', '首席', '御用', '御前', '专职']) {
-      if (t.includes(q)) specific.add(t.replace(q, ''))
-    }
-    for (const suf of ROLE_NAME_SUFFIXES) {
-      if (t.endsWith(suf) && t.length > suf.length + 1) {
-        const stem = t.slice(0, -suf.length)
-        // 「周野律师」→「周野的律师」（正文常见写法）
-        specific.add(stem + '的' + suf)
-        specific.add(suf)
-        if (stem.length >= 2) stems.add(stem)
-      }
-    }
-  }
-  addName(name)
-  for (const part of (identity ?? '').split(/[的，,。\s]+/)) {
-    const p = part.trim()
-    if (p.length < 2) continue
-    if (p.length >= 3 || ROLE_NAME_SUFFIXES.some(s => p.endsWith(s))) {
-      specific.add(p)
-      for (const suf of ROLE_NAME_SUFFIXES) {
-        if (p.endsWith(suf) && p.length > suf.length + 1) {
-          specific.add(suf)
-          stems.add(p.slice(0, -suf.length))
-        }
-      }
-    } else {
-      stems.add(p)
-    }
-  }
-  return { specific: [...specific].filter(t => t.length >= 2), stems: [...stems].filter(t => t.length >= 2) }
 }
 
 /** 保证风格词块已内嵌（LLM 偶发漏嵌时兜底）：zh 段首前缀，en 末尾追加。 */
@@ -2186,7 +2136,7 @@ export async function registerLlmModel(ctx: Context, req: AddModelRequest): Prom
   return { ok: true, saved, provider: route, message }
 }
 
-/** 🩺 剧情健康检查：基于已写章节数/各线状态/编年录，判断是否需要新线及添加时机。 */
+/**  剧情健康检查：基于已写章节数/各线状态/编年录，判断是否需要新线及添加时机。 */
 export async function analyzePlotlineHealth(
   ctx: Context,
   config: NovelConfig,
@@ -2245,7 +2195,7 @@ export async function analyzePlotlineHealth(
   }
 }
 
-/** ✨ AI 剧情方案：基于健康检查结果设计下一阶段方向与建议新线。 */
+/**  剧情方案：基于健康检查结果设计下一阶段方向与建议新线。 */
 export async function designPlotlinePlan(
   ctx: Context,
   config: NovelConfig,
@@ -2735,31 +2685,6 @@ export async function summarizeChapter(
   saveProject(outputDir, project)
   return chapter.summary
 }
-
-/** 确定性兜底：正文中出现的角色库角色名（LLM 漏填 characters 时使用）。 */
-function guessCharactersFromRoles(project: ProjectState, body: string, limit = 12): string[] {
-  const out: string[] = []
-  for (const r of project.roles ?? []) {
-    if (out.length >= limit) break
-    if (r.name !== '' && !out.includes(r.name) && body.includes(r.name)) out.push(r.name)
-  }
-  return out
-}
-
-/** 清洗 LLM 输出的角色名数组：去空 / 去重 / 限长 / 限字数。 */
-function sanitizeCharacters(raw: unknown, limit: number): string[] {
-  if (!Array.isArray(raw)) return []
-  const out: string[] = []
-  for (const v of raw) {
-    if (typeof v !== 'string') continue
-    const name = v.trim().slice(0, 20)
-    if (name === '' || out.includes(name)) continue
-    out.push(name)
-    if (out.length >= limit) break
-  }
-  return out
-}
-
 /**
  * 反向推大纲：从已写章节正文反推出全书总纲（分卷 + 章节要点 + 主线/人物弧线/伏笔清单）。
  * 两阶段：分批提取章节事件摘要 → 汇总生成大纲。不修改章节/设定，只返回大纲文本。
@@ -2941,7 +2866,7 @@ async function reverseOutlineFromAdaptationText(
 export async function proposeAdaptation(
   ctx: Context,
   config: NovelConfig,
-  text: string,
+  _text: string,
   selections: Array<{ key: string; title: string; current: string; target: string; mutability: string }>,
   dimensions?: AdaptationDimension[],
 ): Promise<AdaptProposeResponse> {
@@ -3312,7 +3237,7 @@ export async function summarizeAndExtractFacts(
         .map(v => v.trim().slice(0, 140))
     : []
   if (summary !== '') chapter.summary = summary
-  const added = dedupAndAddFacts(project, chapterNo, factLines)
+  dedupAndAddFacts(project, chapterNo, factLines)
   project.updatedAt = new Date().toISOString()
   saveProject(outputDir, project)
   return { summary, factCount: factLines.length }
@@ -3492,7 +3417,7 @@ export async function auditBook(
   return all.slice(0, 50)
 }
 
-/** 小说简介：AI 生成或按已写开头补全（面向读者的作品门面）。 */
+/** 小说简介：生成或按已写开头补全（面向读者的作品门面）。 */
 export async function generateBlurb(
   ctx: Context,
   config: NovelConfig,
@@ -3687,7 +3612,7 @@ export function renderWorld(world: WorldState | undefined): string {
   return sections.join('\n')
 }
 
-/** AI 提炼大世界：从大纲 + 道藏生成结构化境界体系/区域/势力。 */
+/** 提炼大世界：从大纲 + 道藏生成结构化境界体系/区域/势力。 */
 export async function extractWorld(
   ctx: Context,
   config: NovelConfig,

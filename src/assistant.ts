@@ -216,7 +216,7 @@ function assistantSystemPrompt(project: ProjectState): string {
     '- knowledge_list：无参数。**列出本书全部知识库文档**（标题+内容）。作者说"收集/汇总/列出所有知识库"时调用它。',
     '- breakdown：{"scope": "recent|all|volume:N"(可选，默认 recent), "preset": "quick|standard"(可选)}。书内拆书分析：对本书已写章节做结构/人物/文风/卖点体检。',
     '- audit：无参数。全书一致性质检（分批扫描章节+设定+事实库，聚合矛盾）。',
-    '- blurb：{"partial": "已写开头(可选)"}。AI 生成/补全小说简介并保存到本书。',
+    '- blurb：{"partial": "已写开头(可选)"}。生成/补全小说简介并保存到本书。',
     '',
     '回答质量要求（非常重要）：',
     '- 具体：回答必须引用项目里的真实内容（人名、境界、章节、暗线、设定），禁止空泛套话。快照里没有的信息，先调用工具获取（chapter_text / outline_text）再回答。',
@@ -608,7 +608,7 @@ export async function* executeAction(
       return `全书质检发现 ${issues.length} 处问题：\n` + issues.map(it => `- [${it.severity}] 第${it.chapterNo}章：${it.item}${it.suggestion !== '' ? ` → ${it.suggestion}` : ''}`).join('\n')
     }
     case 'blurb': {
-      // 小说简介：AI 生成/补全并保存到项目。
+      // 小说简介：生成/补全并保存到项目。
       const partial = str(args.partial)
       const text = await generateBlurb(ctx, config, project, partial)
       project.blurb = text
@@ -780,7 +780,7 @@ export async function* runAssistantTurn(
   }
   /** 本轮已放行过写操作：后续写操作（生成→审稿→修订闭环）不再逐个拦截。 */
   let writeUnlocked = false
-  const guardWrite = (name: string, userMessage: string): boolean => {
+  const guardWrite = (name: string, _userMessage: string): boolean => {
     if (writeUnlocked) return true
     const key = WRITE_TOOL_KEYS[name]
     if (key === undefined) return true // 只读工具 / 未登记工具一律放行

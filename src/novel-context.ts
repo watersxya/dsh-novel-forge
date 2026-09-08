@@ -164,7 +164,6 @@ export function buildChapterContext(
   options: ContextBuildOptions = {},
 ): ChapterContext {
   const {
-    stage = 'writing',
     fullRoleCards = true,
     relatedFactsLimit = 15,
     recentFactsLimit = 20,

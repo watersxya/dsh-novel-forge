@@ -82,13 +82,13 @@ export const NOVEL_API = {
   blurb: '/api/dsh-novel-forge/blurb',
   /** 重命名当前书（同步项目与书架条目）。 */
   rename: '/api/dsh-novel-forge/rename',
-  /** 大世界：AI 提炼 / 保存结构化数据（境界/区域/势力）。 */
+  /** 大世界：提炼 / 保存结构化数据（境界/区域/势力）。 */
   world: '/api/dsh-novel-forge/world',
   /** 封面：GET 读取（dataUrl）/ POST 上传或移除。 */
   cover: '/api/dsh-novel-forge/blurb/cover',
   /** 剧情线管理：增删改 + 关联章节。 */
   plotlines: '/api/dsh-novel-forge/plotlines',
-  /** 角色库：AI 提炼 / 采纳 / 更新 / 删除。 */
+  /** 角色库：提炼 / 采纳 / 更新 / 删除。 */
   roles: '/api/dsh-novel-forge/roles',
   /** 作者复盘补跑：对已写章节补齐 authorReview（全书流式 / 单章 JSON）。 */
   reviewBackfill: '/api/dsh-novel-forge/review/backfill',
@@ -98,7 +98,7 @@ export const NOVEL_API = {
   chapterApprove: '/api/dsh-novel-forge/chapter/approve',
   /** 敏感词检查：全书已写章节或指定文本。 */
   sensitiveCheck: '/api/dsh-novel-forge/sensitive-check',
-  /** 开书想法 → AI 补全大纲：输入一句话想法，生成 2-3 个可选大纲方案。 */
+  /** 开书想法 → 补全大纲：输入一句话想法，生成 2-3 个可选大纲方案。 */
   outlineSuggest: '/api/dsh-novel-forge/outline/suggest',
   /** 反推大纲：从已写章节正文反向生成全书总纲（NDJSON 流）。 */
   outlineReverse: '/api/dsh-novel-forge/outline/reverse',
@@ -111,6 +111,10 @@ export const NOVEL_API = {
   /** 生产单状态（含进度统计与日志）。 */
   runStatus: '/api/dsh-novel-forge/run/status',
   config: '/api/dsh-novel-forge/config',
+  /** 输出目录迁移：dryRun 预览 / 确认后搬文件并联动配置与书架。 */
+  moveOutputDir: '/api/dsh-novel-forge/move-output-dir',
+  /** 本书参数：POST {} 读取；POST {patch} 合并保存（存 novel-project.json）。 */
+  bookSettings: '/api/dsh-novel-forge/book-settings',
   openFolder: '/api/dsh-novel-forge/open-folder',
   /** 插件自更新：在 DSH profile 目录拉取最新 npm 版（下载后需重启 DSH 生效）。 */
   pluginUpdate: '/api/dsh-novel-forge/plugin/update',
@@ -667,7 +671,7 @@ export interface PlotlineHealthReport {
   }>
 }
 
-/** AI 剧情方案：下一阶段目标 + 建议新线。 */
+/** 剧情方案：下一阶段目标 + 建议新线。 */
 export interface PlotlinePlan {
   /** 下一阶段（未来 5-10 章）剧情方向。 */
   direction: string
@@ -678,7 +682,7 @@ export interface PlotlinePlan {
 /** POST /plotlines 响应。 */
 export interface PlotlinesResponse {
   plotlines: Plotline[]
-  /** op=suggest 时的 AI 建议候选线。 */
+  /** op=suggest 时的 建议候选线。 */
   suggestions?: Plotline[]
   /** op=health 时的健康检查报告。 */
   health?: PlotlineHealthReport
@@ -799,7 +803,7 @@ export interface RoleStatusCard {
   appearances: number
 }
 
-/** 角色库条目（主表：作者维护 + AI 提炼 + 编年录自动聚合）。 */
+/** 角色库条目（主表：作者维护 + 提炼 + 编年录自动聚合）。 */
 export interface RoleRecord {
   /** 角色名（唯一键）。 */
   name: string
@@ -821,7 +825,7 @@ export interface RoleRecord {
   firstChapter?: number
 }
 
-/** POST /roles 请求：角色库增删改 + AI 提炼 + 参考图上传。 */
+/** POST /roles 请求：角色库增删改 + 提炼 + 参考图上传。 */
 export interface RolesRequest {
   op: 'extract' | 'adopt' | 'update' | 'remove'
   /** adopt / update 时传入的角色（adopt 可修改后采纳）。 */
@@ -864,10 +868,10 @@ export interface BiblePatchRequest {
   characters?: CharacterCard[]
 }
 
-/** POST /blurb 请求：AI 生成/补全或手动保存小说简介。 */
+/** POST /blurb 请求：生成/补全或手动保存小说简介。 */
 export interface BlurbRequest {
   action: 'generate' | 'save'
-  /** 已写好的开头（AI 补全时使用；留空 = 全量生成）。 */
+  /** 已写好的开头（补全时使用；留空 = 全量生成）。 */
   partial?: string
   /** 手动保存的完整简介（action=save 时）。 */
   text?: string
@@ -939,7 +943,7 @@ export interface WorldState {
   factions: WorldFaction[]
 }
 
-/** POST /world 请求：AI 提炼或手动保存。 */
+/** POST /world 请求：提炼或手动保存。 */
 export interface WorldRequest {
   action: 'generate' | 'save'
   /** action=save 时的完整世界数据。 */
@@ -975,7 +979,7 @@ export interface ProjectState {
   knowledgeDocs?: KnowledgeDoc[]
   /** 自动导演待办：风险/修复「采纳」后生成的随手清单。 */
   todos?: DirectorTodo[]
-  /** 小说简介（面向读者的作品门面，AI 生成或手动保存）。 */
+  /** 小说简介（面向读者的作品门面，生成或手动保存）。 */
   blurb?: string
   /** 开书定盘：书籍级承诺与流派定位（前30章承诺/主副模式/文风/平台）。 */
   bookContract?: BookContract
@@ -985,13 +989,39 @@ export interface ProjectState {
   world?: WorldState
   /** 剧情线（主线/支线/人物线/悬念线）。 */
   plotlines?: Plotline[]
-  /** 角色库（作者维护 + AI 提炼的主表）。 */
+  /** 角色库（作者维护 + 提炼的主表）。 */
   roles?: RoleRecord[]
   /** 人物志：角色当前状态聚合结果（从编年录刷新后存档，打开页面直接显示）。 */
   roleStatus?: RoleStatusCard[]
+  /** 本书参数（写作/审稿/推理/模型快切；未设字段回退全局 config）。 */
+  bookSettings?: BookSettings
   /** ISO timestamps. */
   createdAt: string
   updatedAt: string
+}
+
+/** 本书参数（存 novel-project.json.bookSettings；未设字段回退全局 config）。 */
+export interface BookSettings {
+  /** 本书使用的提供方路由（快切器写入）。 */
+  provider?: string
+  /** 本书使用的主模型 id。 */
+  model?: string
+  /** 本书写作推理档位。 */
+  reasoningEffort?: 'off' | 'low' | 'high' | 'max'
+  /** 本书分析类任务推理档位。 */
+  analysisReasoning?: 'off' | 'low' | 'high' | 'max'
+  /** 本书每章目标字数。 */
+  chapterChars?: number
+  /** 本书单章最大输出 tokens。 */
+  maxTokens?: number
+  /** 本书审稿通过分。 */
+  reviewPassScore?: number
+  /** 本书是否写完自动审稿。 */
+  autoReview?: boolean
+  /** 本书是否自动作者复盘。 */
+  autoAuthorReview?: boolean
+  /** 本书是否修稿后自动复审。 */
+  autoReviewAfterRevise?: boolean
 }
 
 /** 手动添加的模型库条目（只存插件内，不改 DSH 全局）。 */
@@ -1055,24 +1085,6 @@ export interface LlmModelOption { id: string; name: string }
 /** GET /llm-models?provider=x 响应。 */
 export interface LlmModelsResponse {
   models: LlmModelOption[]
-}
-
-/** GET /llm-providers 响应：当前已注册的提供方路由。 */
-export interface LlmProvidersResponse {
-  providers: { id: string; name: string }[]
-}
-
-/** POST /llm-remove 请求：移除一个提供方（unset key + 移除 llm-pi-ai 路由）。 */
-export interface RemoveProviderRequest {
-  provider: string
-  /** 该提供方对应的 DSH 凭据引用名（用于 unset）。 */
-  apiKeyEnv?: string
-}
-
-/** POST /llm-remove 响应。 */
-export interface RemoveProviderResponse {
-  ok: boolean
-  message?: string
 }
 
 /** GET /llm-providers 响应：当前已注册的提供方路由。 */
@@ -1162,6 +1174,42 @@ export interface NovelConfig {
   enableAdaptMode?: boolean
   /** 手动添加的模型库（「我的模型」条目；只存插件内）。 */
   savedModels?: SavedModel[]
+}
+
+/** POST /move-output-dir request：dryRun=true 仅预览；确认时须带 to。 */
+export interface MoveOutputDirRequest {
+  /** 新输出目录（绝对路径）。 */
+  to?: string
+  /** 只列出当前目录内容，不搬移。 */
+  dryRun?: boolean
+}
+
+/** POST /move-output-dir response。 */
+export interface MoveOutputDirResponse {
+  from: string
+  to?: string
+  /** 当前（或迁移后）目录内容清单。 */
+  files: string[]
+  bytes: number
+  /** 联动重指向的书架条目数。 */
+  movedBooks: number
+  /** settings 默认输出目录是否同步更新。 */
+  defaultUpdated: boolean
+}
+
+/** POST /book-settings request：patch 省略 = 读取；字段传 null = 删除本书覆盖（回退全局）。 */
+export interface BookSettingsRequest {
+  patch?: { [K in keyof BookSettings]?: BookSettings[K] | null }
+}
+
+/** POST /book-settings response。 */
+export interface BookSettingsResponse {
+  /** 本书已设置的参数（未设字段缺省 = 回退全局）。 */
+  settings: BookSettings
+  /** 应用回退链后的生效配置（全局 + 本书覆盖）。 */
+  effective: NovelConfig
+  /** 当前是否有打开的书。 */
+  hasBook: boolean
 }
 
 /** GET /status response. */
@@ -1777,7 +1825,7 @@ export interface AdaptationDimension {
   current: string
   /** 该值在正文中的出现证据（章节/频次，可空）。 */
   evidence?: string
-  /** AI 建议的候选新值（可空，每套含名称与一句话说明）。 */
+  /** 建议的候选新值（可空，每套含名称与一句话说明）。 */
   candidates?: Array<{ name: string; desc?: string }>
   /** 联动影响说明（改了会影响哪些章节/角色/伏笔/术语）。 */
   impact: string

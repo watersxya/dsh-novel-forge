@@ -3,7 +3,7 @@
  * ① 导入全文 → ② 设定卡片/可改范围 → ③ 确认改编维度 → ④ 编辑改编方案 → ⑤ 提炼新书资料 → ⑥ 保存并开始写书。
  */
 import { useRef, useState } from 'react'
-import { FileText, Wand2, Upload, Download, ListChecks, Play, ArrowLeft, ArrowRight, FileDown, Save, Plus, Trash2, BookOpen } from 'lucide-react'
+import { Wand2, Upload, Download, ListChecks, Play, ArrowLeft, ArrowRight, FileDown, Save, Plus, Trash2, BookOpen } from 'lucide-react'
 import type { NovelApi } from '../api.ts'
 import type {
   AdaptAnalyzeResponse,
@@ -181,9 +181,6 @@ export function AdaptModeView({ api, onOpenBook }: { api: NovelApi; onOpenBook?:
 
   const patchMaterial = (patch: Partial<AdaptMaterializeResponse>): void => {
     setMaterialized(prev => prev === null ? prev : ({ ...prev, ...patch }));
-  };
-  const patchBible = (patch: Partial<AdaptMaterializeResponse['bible']>): void => {
-    setMaterialized(prev => prev === null ? prev : ({ ...prev, bible: { ...prev.bible, ...patch } }));
   };
   const patchBibleList = (key: 'worldRules' | 'redLines' | 'style', idx: number, value: string): void => {
     setMaterialized(prev => prev === null ? prev : ({ ...prev, bible: { ...prev.bible, [key]: prev.bible[key].map((s, i) => i === idx ? value : s) } }));

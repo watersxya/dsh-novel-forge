@@ -4,9 +4,9 @@
  * ② 当前写作模型：提供商/模型下拉 + 测试连通 + 推理强度。
  */
 import { useCallback, useEffect, useState } from 'react'
-import { PlugZap, Plus, Trash2, RefreshCw, X } from 'lucide-react'
+import { PlugZap, Plus, RefreshCw, X } from 'lucide-react'
 import type { NovelApi } from '../api.ts'
-import type { SavedModel, AddModelRequest, LlmModelOption, LlmVendorOption } from '../../protocol.ts'
+import type { SavedModel, LlmModelOption, LlmVendorOption } from '../../protocol.ts'
 import { LLM_VENDORS } from '../../protocol.ts'
 import { tt } from './helpers.ts'
 import css from './panel.module.css'

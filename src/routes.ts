@@ -45,11 +45,8 @@ import {
   type BookActivateRequest,
   type BookCreateRequest,
   type BookImportDirRequest,
-  type BookImportDirResponse,
   type BookImportTextRequest,
-  type BookImportTextResponse,
   type BookImportTextPreviewRequest,
-  type BookImportTextPreviewResponse,
   type BookRemoveRequest,
   type BookshelfSnapshot,
   type ChapterResponse,
@@ -57,6 +54,11 @@ import {
   type ChapterSaveResponse,
   type ChapterTextRequest,
   type ConfigPatch,
+  type MoveOutputDirRequest,
+  type MoveOutputDirResponse,
+  type BookSettings,
+  type BookSettingsRequest,
+  type BookSettingsResponse,
   type DraftDecisionRequest,
   type ExportRequest,
   type ExportResponse,
@@ -118,7 +120,6 @@ import {
   type ProductionFoundation,
   type ProgressionMode,
   type GenreNode,
-  type KnowledgeDoc,
   type KnowledgeRequest,
   type BookAnalysisRequest,
   type IdeaInspirationRequest,
@@ -127,7 +128,8 @@ import {
 } from './protocol.ts'
 import { readOutlineFromDocx } from './docx.ts'
 import { clearAssistantHistory, loadAssistantHistory, runAssistantTurn } from './assistant.ts'
-import { activateBook, bookshelfSnapshot, createBook, defaultOutputDirFor, importDir, loadBookshelf, removeBook, renameBook, seedBookshelfFromOutputDir } from './bookshelf.ts'
+import { activateBook, bookshelfSnapshot, createBook, defaultOutputDirFor, importDir, loadBookshelf, removeBook, renameBook, repointBookDirs, seedBookshelfFromOutputDir } from './bookshelf.ts'
+import { copyDirContents, listDirContents, normalizeDir, removeDir } from './migrate-output.ts'
 import { loadAuthorAssets, upsertAuthorAsset, removeAuthorAsset, importDefaultAuthorAssets } from './author-assets.ts'
 import { BUILTIN_ANTI_AI_RULES, BUILTIN_GENRE_LIBRARY, BUILTIN_PLOT_BEATS, BUILTIN_PROGRESSION_MODES, BUILTIN_STARTER_STYLE_PROFILES, BUILTIN_STYLE_TEMPLATES, emptyProjectAssets, ensureBuiltinAssets } from './assets.ts'
 import { scanAiFlavor } from './ai-scan.ts'
@@ -265,6 +267,8 @@ export interface NovelRoutesDeps {
   getConfig: () => NovelConfig
   /** Persist a config patch through the settings seam. */
   patchConfig: (patch: ConfigPatch) => Promise<NovelConfig>
+  /** Raw settings config（未与激活书合并）——目录迁移判断默认目录是否需同步用。 */
+  rawConfig?: () => { outputDir?: string }
 }
 
 /** Default chapter count for planning when the request omits it. */
@@ -1997,7 +2001,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
   }
 
   // ---------------------------------------------------------------- blurb
-  /** 小说简介：AI 生成/补全，或手动保存。 */
+  /** 小说简介：生成/补全，或手动保存。 */
   const blurbRoute: WebRoute = {
     kind: 'exact',
     path: NOVEL_API.blurb,
@@ -2111,7 +2115,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
   }
 
   // ---------------------------------------------------------------- world
-  /** 大世界：AI 提炼或手动保存（境界体系/区域/势力）。 */
+  /** 大世界：提炼或手动保存（境界体系/区域/势力）。 */
   const worldRoute: WebRoute = {
     kind: 'exact',
     path: NOVEL_API.world,
@@ -2223,7 +2227,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           writeJson(res, 200, { plotlines: project.plotlines, suggestions } satisfies PlotlinesResponse)
           return
         } catch (error) {
-          writeJson(res, 500, { error: `AI 建议失败：${(error as Error).message}` })
+          writeJson(res, 500, { error: `建议失败：${(error as Error).message}` })
           return
         }
       } else if (op === 'refresh' && body?.id !== undefined) {
@@ -2318,7 +2322,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
   }
 
   // ---------------------------------------------------------------- roles
-  /** 角色库：AI 提炼 / 采纳 / 更新 / 删除。 */
+  /** 角色库：提炼 / 采纳 / 更新 / 删除。 */
   const rolesRoute: WebRoute = {
     kind: 'exact',
     path: NOVEL_API.roles,
@@ -2778,6 +2782,114 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
   /** 生产单执行器（单例）：计划补足 → 逐章生成 → 被拒分级处理 → 断点续跑。 */
   const runner = new ProductionRunner({ ctx, getConfig })
 
+  // --------------------------------------------------------- move-output-dir
+  /**
+   * 输出目录迁移：dryRun 预览；确认后 copy 全部内容 → 书架重指向 → settings
+   * 默认目录同步（仅当默认目录就是被搬目录）→ 最后删源目录（数据零丢失排序）。
+   */
+  const moveOutputDirRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.moveOutputDir,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const from = getConfig().outputDir
+      const body = await readJsonBody<MoveOutputDirRequest>(req)
+      // 预览：只列内容，不搬移。
+      if (body?.dryRun === true) {
+        try {
+          const contents = listDirContents(from)
+          writeJson(res, 200, { from, files: contents.files.slice(0, 300), bytes: contents.bytes, movedBooks: 0, defaultUpdated: false } satisfies MoveOutputDirResponse)
+        } catch (error) {
+          writeJson(res, 400, { error: (error as Error).message })
+        }
+        return
+      }
+      if (runner.isWorking()) {
+        writeJson(res, 409, { error: '生产单正在运行中，请先停止后再迁移目录' })
+        return
+      }
+      const to = body?.to?.trim() ?? ''
+      if (to === '') {
+        writeJson(res, 400, { error: '新目录路径不能为空' })
+        return
+      }
+      if (normalizeDir(to) === normalizeDir(from)) {
+        writeJson(res, 400, { error: '新目录与当前目录相同' })
+        return
+      }
+      try {
+        // 1. copy 全部内容（源目录保留；失败即中止，源数据无损）。
+        copyDirContents(from, to)
+      } catch (error) {
+        writeJson(res, 400, { error: `迁移中止：${(error as Error).message}` })
+        return
+      }
+      // 2. 书架重指向（outputDir === from 的条目全部改到 to）。
+      let movedBooks = 0
+      let repointError = ''
+      try { movedBooks = repointBookDirs(from, to) } catch (error) { repointError = (error as Error).message }
+      // 3. settings 默认目录同步（仅当默认目录就是被搬的这个）。
+      let defaultUpdated = false
+      let defaultError = ''
+      const raw = deps.rawConfig?.()
+      if (raw !== undefined && raw.outputDir !== undefined && raw.outputDir !== '' && normalizeDir(raw.outputDir) === normalizeDir(from)) {
+        try {
+          await patchConfig({ outputDir: to })
+          defaultUpdated = true
+        } catch (error) { defaultError = (error as Error).message }
+      }
+      // 4. 收尾：重指向全部成功才删源目录；否则保留源目录兜底并如实上报。
+      if (repointError === '' && defaultError === '') {
+        removeDir(from)
+        const contents = listDirContents(to)
+        writeJson(res, 200, { from, to, files: contents.files.slice(0, 300), bytes: contents.bytes, movedBooks, defaultUpdated } satisfies MoveOutputDirResponse)
+        return
+      }
+      writeJson(res, 500, {
+        error: `文件已复制到 ${to}，但收尾未完成${repointError !== '' ? `（书架重指向失败：${repointError}）` : ''}${defaultError !== '' ? `（默认目录更新失败：${defaultError}）` : ''}。源目录已保留，请检查后重试或手动处理。`,
+        from,
+        to,
+        movedBooks,
+        defaultUpdated,
+      })
+    },
+  }
+
+  // ----------------------------------------------------------- book-settings
+  /**
+   * 本书参数：POST {} 读取当前书的 settings + 生效配置（全局+本书回退链）；
+   * POST {patch} 白名单合并保存到 novel-project.json.bookSettings。
+   */
+  const bookSettingsRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.bookSettings,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const outputDir = getConfig().outputDir
+      const body = await readJsonBody<BookSettingsRequest>(req)
+      if (body?.patch !== undefined) {
+        const project = loadProject(outputDir)
+        if (project === undefined) {
+          writeJson(res, 400, { error: '当前没有打开的书（未找到 novel-project.json）' })
+          return
+        }
+        const cur: BookSettings = project.bookSettings ?? {}
+        const p = body.patch
+        const next: Record<string, unknown> = { ...cur }
+        for (const key of ['provider', 'model', 'reasoningEffort', 'analysisReasoning', 'chapterChars', 'maxTokens', 'reviewPassScore', 'autoReview', 'autoAuthorReview', 'autoReviewAfterRevise'] as const) {
+          const v = (p as Record<string, unknown>)[key]
+          if (v === null) delete next[key]
+          else if (v !== undefined) next[key] = v
+        }
+        project.bookSettings = next as BookSettings
+        project.updatedAt = new Date().toISOString()
+        saveProject(outputDir, project)
+      }
+      const project = loadProject(outputDir)
+      writeJson(res, 200, { settings: project?.bookSettings ?? {}, effective: getConfig(), hasBook: project !== undefined } satisfies BookSettingsResponse)
+    },
+  }
+
   const runStartRoute: WebRoute = {
     kind: 'exact',
     path: NOVEL_API.runStart,
@@ -3233,6 +3345,8 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     chapterResetRoute,
     chapterApproveRoute,
     configRoute,
+    moveOutputDirRoute,
+    bookSettingsRoute,
     openFolderRoute,
     pluginUpdateRoute,
     outlineSuggestRoute,

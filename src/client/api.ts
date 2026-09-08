@@ -24,7 +24,6 @@ import {
   type JobFrame,
   type LoadOutlineResponse,
   type AdaptExecuteRequest,
-  type AdaptExecuteResponse,
   type AdaptRewriteFrame,
   type AdaptMaterializeSaveRequest,
   type AdaptMaterializeSaveResponse,
@@ -166,6 +165,16 @@ export class NovelApi {
 
   async patchConfig(patch: ConfigPatch): Promise<{ config: NovelConfig }> {
     return postJson<{ config: NovelConfig }>(NOVEL_API.config, patch)
+  }
+
+  /** 输出目录迁移：dryRun=true 仅预览目录内容；确认时传 to 搬迁。 */
+  async moveOutputDir(to?: string, dryRun?: boolean): Promise<import('../protocol.ts').MoveOutputDirResponse> {
+    return postJson<import('../protocol.ts').MoveOutputDirResponse>(NOVEL_API.moveOutputDir, { to, dryRun })
+  }
+
+  /** 本书参数：不带 patch 读取；带 patch 合并保存（字段传 null = 回退全局）。 */
+  async bookSettings(patch?: Record<string, unknown>): Promise<import('../protocol.ts').BookSettingsResponse> {
+    return postJson<import('../protocol.ts').BookSettingsResponse>(NOVEL_API.bookSettings, patch === undefined ? {} : { patch })
   }
 
   async openFolder(): Promise<void> {
@@ -362,7 +371,7 @@ export class NovelApi {
     return postJson<import('../protocol.ts').RolesResponse>(NOVEL_API.roles, req)
   }
 
-  /** 小说简介：AI 生成/补全（partial 留空 = 全量），或手动保存。 */
+  /** 小说简介：生成/补全（partial 留空 = 全量），或手动保存。 */
   async blurb(action: 'generate' | 'save', text?: string, partial?: string): Promise<{ blurb: string }> {
     return postJson<{ blurb: string }>(NOVEL_API.blurb, { action, text, partial })
   }
@@ -384,7 +393,7 @@ export class NovelApi {
     return postJson<{ bookName: string }>(NOVEL_API.rename, { bookName })
   }
 
-  /** 大世界：AI 提炼（generate）或手动保存（save）。 */
+  /** 大世界：提炼（generate）或手动保存（save）。 */
   async world(action: 'generate' | 'save', world?: import('../protocol.ts').WorldState): Promise<{ world: import('../protocol.ts').WorldState }> {
     return postJson<{ world: import('../protocol.ts').WorldState }>(NOVEL_API.world, { action, world })
   }

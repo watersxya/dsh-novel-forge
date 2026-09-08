@@ -1,7 +1,7 @@
 # dsh-novel-forge — AI 编译小说工作台 / AI Novel Writing Workbench
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.0--alpha-blue" />
+  <img alt="version" src="https://img.shields.io/badge/version-1.1.0--alpha-blue" />
   <img alt="DSH" src="https://img.shields.io/badge/DSH-%E2%89%A50.1.3--alpha.1-blue" />
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue" />
   <a href="https://github.com/watersxya/dsh-novel-forge/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/watersxya/dsh-novel-forge/actions/workflows/ci.yml/badge.svg?branch=main" /></a>
@@ -20,7 +20,7 @@
 
 你的专属 AI 小说写作插件：把一份大纲"编译"成一本完整的小说。
 
-**版本：`1.0.0-alpha`** · 定位：**纯文本小说创作**。所有环节（写作、设定、规划、审校、质检、导出）均在侧边栏「小说工坊」面板内完成。
+**版本：`1.1.0-alpha`** · 定位：**纯文本小说创作**。所有环节（写作、设定、规划、审校、质检、导出）均在侧边栏「小说工坊」面板内完成。
 
 ---
 

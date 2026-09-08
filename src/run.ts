@@ -133,6 +133,9 @@ export class ProductionRunner {
   }
   stop(): void { this.stopRequested = true }
 
+  /** 是否有生产单正在执行（目录迁移等磁盘级操作前须为 false）。 */
+  isWorking(): boolean { return this.working }
+
   /** 主循环：从 currentNo 扫描到 endNo，逐章处理；支持暂停/停止。 */
   private async loop(): Promise<void> {
     // 全部读写固定使用生产单绑定目录（bookDir），绝不跟随当前激活书。
@@ -218,13 +221,13 @@ export class ProductionRunner {
     saveProject(outputDir, project)
     this.log(`${wasError ? '重新生成' : '生成'} 第${no}章《${chapter.title}》…（模型 ${config.generateModel || config.model}）`)
     try {
-      for await (const step of generateChapterStream(ctx, config, project, outputDir, no)) { /* drain */ }
+      for await (const _step of generateChapterStream(ctx, config, project, outputDir, no)) { /* drain */ }
       try { await summarizeAndExtractFacts(ctx, config, project, outputDir, no) } catch (e) { console.warn('[dsh-novel-forge] run summary/facts:', (e as Error).message) }
       try { markForeshadowPlanted(project, outputDir, no) } catch (e) { console.warn('[dsh-novel-forge] run foreshadow:', (e as Error).message) }
       if (config.autoReview ?? true) {
         const report = await reviewChapter(ctx, config, project, outputDir, no)
         if (this.state !== null) this.state.stats[wasError ? 'regenerated' : 'generated']++
-        this.log(`第${no}章 审稿 ${report.score}分 ${report.passed ? '✅ 通过' : '⚠️ 被拒'}（模型 ${config.reviewModel || config.model}）`)
+        this.log(`第${no}章 审稿 ${report.score}分 ${report.passed ? ' 通过' : ' 被拒'}（模型 ${config.reviewModel || config.model}）`)
       } else {
         chapter.status = 'approved'
         mergeVolatileFromDisk(outputDir, project)
@@ -283,7 +286,7 @@ export class ProductionRunner {
     for (let round = 1; round <= 2; round++) {
       const instr = '按审稿意见修订（优先处理）：\n' + highs.map(h => `[${h.severity}] ${h.item}${h.suggestion !== '' ? `\n建议：${h.suggestion}` : ''}`).join('\n\n')
       try {
-        for await (const step of rewriteChapterStream(ctx, config, project, outputDir, no, instr, undefined)) { /* drain */ }
+        for await (const _step of rewriteChapterStream(ctx, config, project, outputDir, no, instr, undefined)) { /* drain */ }
       } catch (error) {
         this.log(`第${no}章 第${round}轮修订出错：${(error as Error).message}`)
         continue
@@ -308,7 +311,7 @@ export class ProductionRunner {
       this.log(`第${no}章 第${round}轮仍不过（${highs2.length} high）`)
     }
     if (this.state !== null) this.state.pendingManual.push(no)
-    this.log(`第${no}章 ⚠️ 两轮修订仍不过 → 保留草稿待人工`)
+    this.log(`第${no}章  两轮修订仍不过 → 保留草稿待人工`)
   }
 
   private applyDraft(project: ProjectState, chapter: ChapterPlan, draft: string, report: ReviewReport): void {
