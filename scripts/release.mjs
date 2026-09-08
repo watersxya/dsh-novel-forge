@@ -40,6 +40,9 @@ if (!m) {
   process.exit(1)
 }
 const version = m[1]
+// 预发布版本（如 1.1.0-alpha / 1.1.0-beta.1）发布时必须显式指定 dist-tag；
+// tag 取预发布标识符（alpha / beta 等），正式版本用 latest。
+const npmTag = version.includes('-') ? version.slice(version.indexOf('-') + 1).split('.')[0] : 'latest'
 let body = m[3].trim()
 body = body.replace(/^-{4,}\s*$/gm, '').trim()
 const title = (body.split(NL)[0] || '').replace(/^#+\s*/, '').trim()
@@ -96,10 +99,10 @@ console.log('  · push 完成')
 // ---- 6) npm publish ------------------------------------------------------
 console.log(NL + '▶ npm publish')
 if (DRY_RUN) {
-  console.log('  [dry] npm publish')
+  console.log('  [dry] npm publish --tag ' + npmTag)
 } else {
   try {
-    shLive('npm publish')
+    shLive('npm publish --tag ' + npmTag)
   } catch (e) {
     const err = String(e)
     if (/already published|You cannot publish over the previously published version/.test(err)) {
