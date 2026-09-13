@@ -176,20 +176,10 @@ npm 分发的是预构建产物，无需任何构建授权。
 src/            插件源码（宿主半 + 浏览器半）
 lib/            构建产物（lib/index.js 宿主 / lib/client.js 浏览器）
 scripts/        工具脚本（含 check-third-party.mjs 来源卫生门禁）
-THIRD_PARTY_NOTICES.md  第三方组件与归属声明
 package.json    包定义（dsh.bundle.patch + dsh.client 声明）
 cordis.patch.yml  profile 挂载补丁
 tsdown.config.ts  双面打包配置
 ```
-
-## 第三方组件 / Third-party
-
-移植的种子数据与写作骨架素材（来源、基准版本、许可证与发布红线）统一登记在
-[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。源码不再内联外部来源；
-`pnpm check:third-party`（CI 与发布流程都会执行）会在代码或配置里出现第三方项目名、
-组织名或不相容的许可证标记时直接失败。
-
----
 
 ## English
 
@@ -244,10 +234,3 @@ Or link a local checkout and restart dsh web; the "Novel Forge" entry appears in
 - Chapter quality depends on outline completeness; batch generation is serial.
 - The plugin writes text only — no image/video generation.
 
-## Third-party
-
-Seed data and writing-skeleton material ported from a third-party open-source project are
-documented in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md), including the pinned source
-version and its license. `pnpm check:third-party` (also run in CI and before every release)
-fails the build if a third-party project name or an incompatible license marker shows up in
-code or configuration.

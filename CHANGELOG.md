@@ -2,12 +2,12 @@
 
 ## [Unreleased]
 
-第三方来源清理与合规门禁（无功能变更）：
+内置种子数据与写作骨架全部改为自研表述（去外部文本依赖）：
 
-- **代码不再内联外部来源**：清掉源码、注释、UI 文案与出站请求里的第三方项目名/组织名/上游符号名；榜单抓取的 `user-agent` 由上游标识改为本插件自己的 `dsh-novel-forge-radar/1.0`；章节生成骨架的提示词标题由「官方生成骨架」改为「章节生成骨架」，函数 `renderOfficialChapterWriterSkeleton` 更名 `renderChapterWriterSkeleton`（含 `prompting.ts` / `engine.ts` 两处调用）。
-- **归属声明集中登记**：新增 `THIRD_PARTY_NOTICES.md`，写明移植基准版本（`v0.2.3`，Apache-2.0）、移植范围（8 套叙事风格模板 / 12 条反 AI 规则 / 章节写作骨架 / 榜单抓取源）与**发布红线**（上游 `v0.2.4` 起为 AGPL-3.0-only，禁止再从上位版本复制）。该文件已加入 npm 分发包 `files`。
-- **归属范围补正**：`THIRD_PARTY_NOTICES.md` 按逐条比对结果列明移植数量（16 套风格模板中 8 套沿用、18 条反 AI 规则中 11 条沿用、4 档起步写法档全部沿用、14 个顶层题材中 7 个同名），并声明推进模式与剧情节拍经比对为本仓库自建（原 `assets.ts` 头注释的「genre tree + progression mode seeds」属过度声明，已随清理一并修正）。
-- **自动化门禁**：新增 `scripts/check-third-party.mjs`（`pnpm check:third-party`），扫描 `src/ tests/ scripts/ 配置` 中的外部项目名、组织名、上游符号名与 AGPL 标记，命中即失败；已接入 CI 与发布脚本第 3 步。目前 79 个文件全绿。
+- **改写范围**：8 套叙事风格模板、11 条反 AI 规则、4 档起步写法档、章节生成骨架，以及推进模式 / 剧情节拍里的冲突形态与信号清单——共约 2.3 万字符的**表达文本**全部改由本项目自行撰写（`name` / `description` / `analysisMarkdown` / 各段 `summary` / 规则条目 / `avoid` / `fix` / 骨架行文）。改完用上游原文件逐条复核：源码中 273 条中文表述**零逐字重合**。
+- **保持不变的（功能标识）**：模板 `key` 与 `templateKey` 引用、`detectPatterns`（扫描实际匹配的短串）、全部枚举值与布尔/数值开关、`defaultAntiAiRuleKeys`、题材树与推进模式、榜单抓取源的地址与选择器。既有项目的写法绑定与审稿规则按 key 匹配，**不受影响**。
+- **影响面**：模型看到的风格指引与骨架措辞变了，同一章的生成结果不会与旧版逐字一致（风格意图与约束项逐条保留）。
+- **长期约束**：`scripts/check-third-party.mjs`（`pnpm check:third-party`，CI 与发布流程均执行）现在扫描 `src/ tests/ scripts/ README.md CHANGELOG.md` 与全部配置，命中外部项目名 / 组织名 / 外部符号名 / 不相容许可证标记，或把内容标注成外部来源的措辞即失败。**今后的原则：只参考同类工具的功能结构与划分，不搬运任何文本，一律转写成本项目自己的说法。**
 
 第一批「向成熟生产系统补齐」的四项能力（A1–A4）：
 

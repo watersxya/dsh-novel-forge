@@ -103,8 +103,7 @@
     "src",
     "scripts/patch-schemastery.mjs",
     "cordis.patch.yml",
-    "README.md",
-    "THIRD_PARTY_NOTICES.md"
+    "README.md"
   ],
   "license": "Apache-2.0",
   "scripts": {

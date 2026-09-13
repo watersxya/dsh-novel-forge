@@ -63,7 +63,7 @@ console.log(NL + '▶ 校验与构建')
 shLive('pnpm typecheck')
 shLive('node scripts/check-theme-sizes.mjs')
 shLive('node scripts/check-fallback-tiers.mjs')
-// 第三方来源卫生：防止把外部来源的代码/文案带进本产物（细则见 THIRD_PARTY_NOTICES.md）。
+// 来源卫生：防止把外部来源的代码/文案带进本产物（细则见 scripts/check-third-party.mjs 头部说明）。
 shLive('node scripts/check-third-party.mjs')
 shLive('pnpm build')
 // 测试与 CI 对齐：带着失败用例发布过一次就很难收回（npm 版本号不可复用）。

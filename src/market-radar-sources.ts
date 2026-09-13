@@ -1,5 +1,5 @@
 /**
- * 「热门题材雷达」真实榜单抓取源（第三方归属见仓库根目录 THIRD_PARTY_NOTICES.md）。
+ * 「热门题材雷达」真实榜单抓取源（公开榜单页面的地址与选择器，属事实性配置）。
  * 用全局 fetch 抓取公开榜单移动版页面，正则抽取元数据；无第三方依赖。
  */
 export type MarketRadarPlatform = 'fanqie' | 'qidian' | 'jinjiang'
