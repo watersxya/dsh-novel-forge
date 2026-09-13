@@ -34,6 +34,30 @@ function runStateFile(outputDir: string): string {
   return join(outputDir, 'run-state.json')
 }
 
+/**
+ * 解析某个输出目录的书名（用于旧 run-state.json 的兜底）。
+ * 优先项目文件里的 bookName，其次目录名——两者都没有时返回空串。
+ * @param outputDir - 该书输出目录。
+ */
+export function resolveRunBookName(outputDir: string): string {
+  const fromProject = loadProject(outputDir)?.bookName
+  if (typeof fromProject === 'string' && fromProject.trim() !== '') return fromProject.trim()
+  const base = outputDir.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? ''
+  return base.trim()
+}
+
+/**
+ * 一句话描述"正在跑的是哪本书的哪一章"。
+ * 面板状态行与 409 报错共用，避免两处各写各的（也便于单测覆盖）。
+ * @param state - 运行中的生产单状态。
+ */
+export function describeRunningBatch(state: RunState): string {
+  const name = typeof state.bookName === 'string' && state.bookName.trim() !== ''
+    ? `《${state.bookName.trim()}》`
+    : '未标注书目'
+  return `${name}第${state.currentNo}章`
+}
+
 export class ProductionRunner {
   private state: RunState | null = null
   private working = false
@@ -60,6 +84,11 @@ export class ProductionRunner {
         if (parsed?.runId === undefined) continue
         // 重启恢复：若之前 running，则视为可续跑（loop 未在跑）。
         if (parsed.status === 'running') parsed.status = 'paused'
+        // 旧 run-state.json 没有 bookName：用该目录的项目名兜底，再退回目录名，
+        // 保证"这是哪本书"永远有答案（否则芯片/面板会显示一个无法归属的状态）。
+        if (parsed.bookName === undefined || parsed.bookName === '') {
+          parsed.bookName = resolveRunBookName(outputDir)
+        }
         this.state = parsed
         this.bookDir = outputDir
         return this.state
@@ -85,7 +114,13 @@ export class ProductionRunner {
   /** 启动/续跑生产单：startNo..endNo 区间，endNo 超出计划时先自动补计划。 */
   async start(startNo: number, endNo: number, runDir?: string): Promise<RunState> {
     const config = this.deps.getConfig()
-    if (this.working) throw new Error('生产单正在运行中，请先暂停或停止')
+    if (this.working) {
+      // 报错要说清"在跑哪本书的哪一章"：全局单实例，含糊的提示会让多书用户无从下手。
+      const running = this.state
+      throw new Error(running === null
+        ? '生产单正在运行中，请先暂停或停止'
+        : `生产单正在运行中（${describeRunningBatch(running)}），请先暂停或停止`)
+    }
     const outputDir = runDir ?? config.outputDir
     let project = loadProject(outputDir)
     if (project === undefined) throw new Error('输出目录中没有项目')
@@ -104,6 +139,7 @@ export class ProductionRunner {
 
     this.state = {
       runId: `run-${Date.now().toString(36)}`,
+      bookName: project.bookName,
       startNo,
       endNo,
       status: 'running',

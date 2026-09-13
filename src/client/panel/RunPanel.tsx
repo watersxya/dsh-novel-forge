@@ -98,7 +98,20 @@ export function RunPanel({ api, totalChapters }: { api: NovelApi; totalChapters:
         )}
       />
       {run === null || run.status !== 'running' ? (
+        <>
         <span className={css.meta}>标准流水线：计划 → 生成 → 审稿 → 分级处理。一键下单，自动补计划，逐章过质量门（生成→摘要+事实→审稿→作者复盘），被拒章分级处理，中断可断点续跑。</span>
+        {/* 运行约束说明：并发/绑定/暂停语义/同章冲突，都是操作上会踩的点，放在下单区之前 */}
+        <details className={css.meta} style={{ fontSize: 'var(--nf-fs-12)' }}>
+          <summary style={{ cursor: 'pointer' }}>运行说明（并发 · 绑定书目 · 暂停续跑）</summary>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4, lineHeight: 1.6 }}>
+            <span>· <b>一次一本</b>：生产单是全局单实例，逐章串行；换书不会打断，也不会切换到别的批次。</span>
+            <span>· <b>绑定下单时的书</b>：本批次只读写下单时那本书的目录，与当前激活书无关。</span>
+            <span>· 起点默认 = 最后一章 +1；区间内<b>已通过审稿</b>的章会自动快进跳过。</span>
+            <span>· <b>暂停</b>可随时续跑（从断点章继续）；<b>停止</b>会终结本批次，再次下单即新建批次。</span>
+            <span>· ⚠️ 批次运行中仍可手动生成/修订<b>其它章</b>，但请勿对正在处理的<b>同一章</b>同时手动操作——两个写入会互相覆盖。</span>
+          </div>
+        </details>
+        </>
       ) : null}
 
       {/* v4 B4 控制台折叠：生产中下单区收起为一行状态摘要，进度与日志成为主体。 */}
@@ -187,7 +200,7 @@ export function RunPanel({ api, totalChapters }: { api: NovelApi; totalChapters:
       {run !== null && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)' }}>
           <div className={css.row} style={{ flexWrap: 'wrap', gap: 'var(--nf-space-8)' }}>
-            <span className={css.meta}>范围：第 {run.startNo} - {run.endNo} 章 · 当前：第 {run.currentNo} 章</span>
+            <span className={css.meta}>{run.bookName !== undefined && run.bookName !== '' ? `本书：《${run.bookName}》 · ` : ''}范围：第 {run.startNo} - {run.endNo} 章 · 当前：第 {run.currentNo} 章</span>
             <span className={css.meta}>新生成 {run.stats?.generated ?? 0} · 修订通过 {run.stats?.revised ?? 0} · 豁免 {run.stats?.exempted ?? 0} · 重生成 {run.stats?.regenerated ?? 0} · 失败 {run.stats?.error ?? 0}</span>
           </div>
           <div className={css.bigProgressBar}>

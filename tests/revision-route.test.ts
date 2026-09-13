@@ -8,7 +8,7 @@
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createProject, saveProject } from '../src/engine.ts'
@@ -227,5 +227,37 @@ describe('POST /revision/plan', () => {
     await callPlan({ op: 'plan', chapterNo: 1, includeTimeline: false, includeTension: false })
     expect(homedir()).toBe(dir)
     expect(readShelfAt(REAL_HOME)).toBe(realShelfBefore)
+  })
+})
+
+// ---------------------------------------------------------------- 生产单归属
+import { describeRunningBatch, resolveRunBookName } from '../src/run.ts'
+
+describe('生产单的书目归属（芯片/面板/409 都要能说清是哪本书）', () => {
+  it('resolveRunBookName 优先项目文件名，其次目录名', () => {
+    const project = createProject('第一章 少年入城'.repeat(20))
+    project.bookName = '剑归尘'
+    saveProject(dir, project)
+    expect(resolveRunBookName(dir)).toBe('剑归尘')
+
+    // 目录里没有项目文件时退回目录名（旧 run-state.json 只有目录可用）
+    const empty = mkdtempSync(join(tmpdir(), 'nf-nobook-'))
+    try {
+      expect(resolveRunBookName(empty)).toBe(basename(empty))
+    } finally {
+      rmSync(empty, { recursive: true, force: true })
+    }
+  })
+
+  it('describeRunningBatch 带书名与当前章', () => {
+    const state = { bookName: '剑归尘', currentNo: 7 } as unknown as Parameters<typeof describeRunningBatch>[0]
+    expect(describeRunningBatch(state)).toBe('《剑归尘》第7章')
+  })
+
+  it('旧状态没有书名时明确写"未标注书目"，不静默变成空串', () => {
+    const state = { currentNo: 3 } as unknown as Parameters<typeof describeRunningBatch>[0]
+    expect(describeRunningBatch(state)).toBe('未标注书目第3章')
+    const blank = { bookName: '   ', currentNo: 3 } as unknown as Parameters<typeof describeRunningBatch>[0]
+    expect(describeRunningBatch(blank)).toBe('未标注书目第3章')
   })
 })

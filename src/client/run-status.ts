@@ -26,13 +26,16 @@ const REFRESH_MS = 4000
 /** 状态文案。状态语义由左侧色点承载，这里不再放 emoji（避免与色点重复表意）。 */
 function label(s: RunState): string {
   const no = s.currentNo
+  // 带书名的原因：状态是"全局单实例 + 恢复时会扫书架"，不带书名根本不知道是谁的批次。
+  const book = typeof s.bookName === 'string' && s.bookName.trim() !== '' ? `《${s.bookName.trim()}》` : ''
+  const head = book === '' ? '小说工坊' : book
   switch (s.status) {
-    case 'running': return `小说工坊 生成中 · 第${no}章`
-    case 'paused': return `小说工坊 已暂停 · 第${no}章`
-    case 'done': return `小说工坊 批完成 ${s.startNo}–${s.endNo}`
-    case 'stopped': return `小说工坊 已停止 · 第${no}章`
-    case 'error': return `小说工坊 出错 · 第${no}章`
-    default: return '小说工坊'
+    case 'running': return `${head} 生成中 · 第${no}章`
+    case 'paused': return `${head} 已暂停 · 第${no}章`
+    case 'done': return `${head} 批完成 ${s.startNo}–${s.endNo}`
+    case 'stopped': return `${head} 已停止 · 第${no}章`
+    case 'error': return `${head} 出错 · 第${no}章`
+    default: return book === '' ? '小说工坊' : book
   }
 }
 
@@ -128,7 +131,10 @@ export function mountRunStatus(controller: PanelController, api: NovelApi): () =
     text.textContent = body
     chip.dataset.status = s!.status
     chip.dataset.visible = 'true'
-    chip.setAttribute('aria-label', body)
+    // 芯片单行且限宽：书名过长会省略号截断，全名与归属目录放进 title / aria-label。
+    const full = `${body}（第 ${s!.startNo}-${s!.endNo} 章）`
+    chip.setAttribute('aria-label', full)
+    chip.setAttribute('title', full + ' · 点击打开小说工坊')
   }
 
   const tick = async (): Promise<void> => {

@@ -1579,6 +1579,12 @@ export interface StatusResponse {
 /** 生产单状态（生产单 = 区间批量生产执行器：计划补足 + 逐章生成 + 被拒分级处理）。 */
 export interface RunState {
   runId: string
+  /**
+   * 本批次归属的书名（可选，兼容旧 run-state.json）。
+   * 生产单是全局单实例，而 /run/status 恢复时会扫书架取第一个有 run-state 的目录，
+   * 因此"这是哪本书的批次"必须显式带上，否则芯片/面板只能显示一个无法归属的状态。
+   */
+  bookName?: string
   /** 区间起点（含）。 */
   startNo: number
   /** 区间终点（含）。 */

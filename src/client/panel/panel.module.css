@@ -3765,7 +3765,7 @@ body[data-ds-dark-theme] {
   display: none;
   align-items: center;
   gap: var(--nf-space-6, 6px);
-  max-width: 320px;
+  max-width: 360px;
   padding: 5px var(--nf-space-12, 12px);
   border: 1px solid var(--nf-chip-border);
   border-radius: var(--nf-radius-999, 999px);
@@ -3797,6 +3797,9 @@ body[data-ds-dark-theme] {
 
 
 .runChipText {
+  /* 需要 min-width:0 才能在 flex 里被压缩：否则长书名会把芯片撑过限宽、省略号不生效。
+   * 全名与归属信息由 title / aria-label 承载（见 run-status.ts）。 */
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
