@@ -45,6 +45,7 @@ import type {
   ReviewReport,
   RoleRecord,
   SensitiveHit,
+  StageInfo,
   StoryBible,
   Volume,
 } from '../../protocol.ts'
@@ -729,6 +730,13 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const [generatedFiles, setGeneratedFiles] = useState<string[]>([])
   const [outlineText, setOutlineText] = useState('')
   const [shelf, setShelf] = useState<BookshelfSnapshot | null>(null)
+  /**
+   * 当前绑定书 id（与 api.setCurrentBook 同步）。
+   * 用途：给助手面板做 key —— 助手对话是**按书存档**的（每本书目录下各存
+   * 一份 novel-assistant.jsonl），切书时必须重建面板，否则屏幕上还留着上一本
+   * 的聊天记录，而新消息已经发到另一本书里。
+   */
+  const [bookKey, setBookKey] = useState('')
   const [dragActive, setDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [planCount, setPlanCount] = useState(30)
@@ -835,6 +843,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const [auditIssues, setAuditIssues] = useState<import('../../protocol.ts').AuditIssue[] | null>(null)
   /** 全书质检实时状态（来自 /status，用于显示进度）。 */
   const [auditStatus, setAuditStatus] = useState<AuditStatus | null>(null)
+  /** 宿主算出的创作阶段（/status.stage）：面板角标与「等待中」提示的唯一来源。 */
+  const [stage, setStage] = useState<StageInfo | null>(null)
   /** 总编台首页「资料侧柜」是否展开（默认收起：资产/剧情/复盘/质检/待办折叠为一条抽屉拉手）。 */
   const [showSideCabinet, setShowSideCabinet] = useState(true)
   /** 全书质检开始 / 出错 / 出结果时自动展开资料侧柜，避免结果埋在折叠区。 */
@@ -1251,6 +1261,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         bookBoundRef.current = true
         const initialId = snapshot.activeBookId ?? snapshot.books[0]?.id ?? null
         setCurrentBook(initialId)
+        setBookKey(initialId ?? '')
       }
     } catch { /* shelf is best-effort */ }
   }, [api])
@@ -1290,6 +1301,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       setConfig(status.config)
       setConfigDraft(status.config)
       setAuditStatus(status.audit ?? null)
+      setStage(status.stage ?? null)
       setProject(status.project ?? null)
       // 人物志存档同步：有 roleStatus 存档直接显示，无需重新刷新计算。
       if (status.project?.roleStatus !== undefined) {
@@ -1320,6 +1332,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       await api.bookActivate(id)
       // 显式切书：重绑当前书（之后所有书级请求明确带 bookId，不再被全局 active 串书）。
       setCurrentBook(id)
+      // 换 key 重建助手面板：清掉上一本的对话，并按新书重新拉取历史。
+      setBookKey(id)
       // 切换书后重置本地编辑状态，重新拉取目标书。
       setOutlineText('')
       setProject(null)
@@ -2837,6 +2851,16 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         onClick: () => { openDrawer('overview') },
       }
     }
+    // 阶段契约（宿主计算）：有章节正在生成时，一切别的推荐都会让作者重复下单。
+    if (stage?.id === 'wait') {
+      return {
+        eyebrow: `阶段：${stage.label}`,
+        title: '正在生成中…',
+        reason: stage.reason,
+        actionLabel: '查看进度',
+        onClick: () => { setActiveTab('plan') },
+      }
+    }
     if (bible === undefined) {
       return {
         eyebrow: '推荐下一步',
@@ -2910,7 +2934,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       actionLabel: '导出全本',
       onClick: () => { void handleExport('txt') },
     }
-  }, [project, bible, volumes, chapters, pendingCount, reviewPendingCount, openWorkspace, gotoChapter])
+  }, [project, bible, volumes, chapters, pendingCount, reviewPendingCount, openWorkspace, gotoChapter, stage])
 
   /**
    * 资料侧柜条目（总编台内嵌格 + 顶部导航滑出侧柜 共用同一数据源，防两处漂移）。
@@ -4538,6 +4562,11 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                     <div className={css.wfQt}>
                       <span className={css.wfQtTone}>{nextAction.eyebrow}</span>
                       <b>{nextAction.title}</b>
+                      {stage !== null && (
+                        <span className={css.meta} title={`阶段判定：${stage.reason}`} style={{ marginLeft: 'auto' }}>
+                          阶段 · {stage.label}
+                        </span>
+                      )}
                     </div>
                     <span className={css.wfCmdReason}>{nextAction.reason}</span>
                     <button type="button" className={css.wfCmdBtn} disabled={busy} onClick={() => { nextAction.onClick() }}>
@@ -5148,7 +5177,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
             <button type="button" className={css.iconButton} title="关闭" aria-label="关闭 AI 编辑 Agent" onClick={() => { setAssistantOpen(false) }}>×</button>
           </div>
           <div className={css.assistantFloatBody}>
-            <AssistantTab api={api} />
+            <AssistantTab key={bookKey} api={api} stage={stage} />
           </div>
           <div
             className={css.assistantResize}

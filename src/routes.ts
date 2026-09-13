@@ -198,6 +198,8 @@ import {
   summarizeChapter,
   syncProjectWithDisk,
 } from './engine.ts'
+import { countHanzi } from './engine.ts'
+import { computeBookStage } from './stage-contract.ts'
 
 /** Cap on JSON request bodies (generous: cover images travel as base64). */
 const MAX_JSON_BODY_BYTES = 64 * 1024 * 1024
@@ -341,10 +343,14 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         saveProject(outputDir, project)
       }
       const slim = new URL(req.url ?? '/', 'http://localhost').searchParams.get('slim') === '1'
+      // 截断显式化：任何被裁掉的字段都要在响应里声明，客户端/模型不能
+      // 把"看到的"当成"全部"。静默截断会让一致性判断建立在不完整事实上。
+      const truncations: string[] = []
       let projectPayload: StatusResponse['project']
       if (project === undefined) {
         projectPayload = undefined
       } else if (slim) {
+        truncations.push('slim=1：正文/beats/图集/道藏/大世界/资产等重字段未返回，大纲仅返回前 200 字')
         // slim 瘦身：轮询/角标只需章节状态与分数 + 轻量元数据，
         // 去掉正文、beats、图集（base64）、道藏/大世界/资产等重字段，避免长书轮询反复传输大体积。
         projectPayload = {
@@ -365,13 +371,21 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
       } else {
         // 瘦身：facts 只回最近 80 条（客户端最多展示 60），避免长篇后
         // status 响应体随编年录无限膨胀。
-        projectPayload = { ...project, facts: (project.facts ?? []).slice(-80) }
+        const allFacts = project.facts ?? []
+        const shownFacts = allFacts.slice(-80)
+        if (allFacts.length > shownFacts.length) {
+          truncations.push(`编年录：共 ${allFacts.length} 条，仅返回最近 ${shownFacts.length} 条（较早 ${allFacts.length - shownFacts.length} 条未返回）`)
+        }
+        projectPayload = { ...project, facts: shownFacts }
       }
       const response: StatusResponse = {
         config,
         project: projectPayload,
         generatedFiles: listChapterFiles(config.outputDir),
         audit: auditState,
+        // 阶段契约：宿主算一次，面板角标、助手提示词、外部自动化共用同一结论。
+        stage: computeBookStage(project),
+        ...(truncations.length > 0 ? { truncations } : {}),
       }
       writeJson(res, 200, response)
     },
@@ -821,7 +835,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
       }
       writeFileSync(targetPath, `# 第${chapter.no}章 ${chapter.title}\n\n${draft}\n`, 'utf8')
       chapter.pendingDraft = undefined
-      chapter.chars = draft.length
+      chapter.chars = countHanzi(draft)
       chapter.file = fileName
       // 携带审查报告则沿用结论定状态（修订后审查通过 → approved）；否则置 written 待审。
       const carried = body?.report
@@ -1070,7 +1084,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
       }
       writeFileSync(targetPath, `# 第${chapter.no}章 ${chapter.title}\n\n${text}\n`, 'utf8')
       chapter.status = 'written'
-      chapter.chars = text.length
+      chapter.chars = countHanzi(text)
       chapter.file = fileName
       chapter.pendingDraft = undefined
       // 保存即审稿：携带工作区审查报告则沿用（不重复审）；否则自动正式审稿一次。

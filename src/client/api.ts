@@ -76,16 +76,24 @@ function withBookId(path: string): string {
   return `${path}${sep}bookId=${encodeURIComponent(currentBookId)}`
 }
 
+/**
+ * 给 POST 请求体注入当前书 bookId（与 withBookId 对称）。
+ *
+ * 这是本模块的不变量：**每一个书级请求都必须显式带上 bookId**，否则宿主会退回
+ * 「全局 active 书」——切书与请求并发时就会串书。
+ */
+function withBookIdBody(payload: unknown): unknown {
+  if (currentBookId === null) return payload
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return payload
+  return { ...(payload as Record<string, unknown>), bookId: currentBookId }
+}
+
 /** POST JSON, return parsed JSON. 若已绑定当前书，自动把 bookId 注入请求体。 */
 async function postJson<T>(path: string, payload: unknown): Promise<T> {
-  let body = payload
-  if (currentBookId !== null && payload !== null && typeof payload === 'object' && !Array.isArray(payload)) {
-    body = { ...(payload as Record<string, unknown>), bookId: currentBookId }
-  }
   const response = await fetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(withBookIdBody(payload)),
   })
   return readJson<T>(response)
 }
@@ -540,7 +548,8 @@ export class NovelApi {
     const response = await fetch(NOVEL_API.assistant, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message }),
+      // 与其它书级请求一致：显式带 bookId，避免切书后被宿主的全局 active 串书。
+      body: JSON.stringify(withBookIdBody({ message })),
     })
     if (!response.ok) {
       await readJson<{ error?: string }>(response)

@@ -24,6 +24,7 @@ import {
   rewriteChapterStream,
   chapterFileName,
 } from './engine.ts'
+import { countHanzi } from './engine.ts'
 import { loadBookshelf } from './bookshelf.ts'
 
 /** 生产单 checkpoint 文件名（放在书目录下）。 */
@@ -325,7 +326,7 @@ export class ProductionRunner {
     }
     writeFileSync(targetPath, `# 第${chapter.no}章 ${chapter.title}\n\n${draft}\n`, 'utf8')
     chapter.pendingDraft = undefined
-    chapter.chars = draft.length
+    chapter.chars = countHanzi(draft)
     chapter.file = fileName
     if (typeof report.score === 'number') {
       chapter.review = report

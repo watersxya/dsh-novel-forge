@@ -85,7 +85,7 @@ export const Config: z<Config> = z.object({
   outlinePath: z.string().default(''),
   outputDir: z.string().default(join(homedir(), '.dsh', 'novels')),
   provider: z.string().default('deepseek-official'),
-  model: z.string().default('deepseek-v4-flash'),
+  model: z.string().default('deepseek-flash'),
   generateModel: z.string().default(''),
   reviewModel: z.string().default(''),
   auditModel: z.string().default(''),
@@ -108,7 +108,7 @@ const DEFAULT_ANNOUNCE = true
 const DEFAULT_OUTLINE_PATH = ''
 const DEFAULT_OUTPUT_DIR = join(homedir(), '.dsh', 'novels')
 const DEFAULT_PROVIDER = 'deepseek-official'
-const DEFAULT_MODEL = 'deepseek-v4-flash'
+const DEFAULT_MODEL = 'deepseek-flash'
 const DEFAULT_REASONING_EFFORT = 'off' as const
 const DEFAULT_ANALYSIS_REASONING = 'low' as const
 const DEFAULT_CHAPTER_CHARS = 3500

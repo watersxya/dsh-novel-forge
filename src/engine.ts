@@ -35,6 +35,7 @@ import { BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, emptyProjectAssets, r
 import { scanAiFlavor } from './ai-scan.ts'
 import { emitLive, nextSessionId } from './llm-live.ts'
 import { renderOfficialChapterWriterSkeleton } from './prompting.ts'
+import { NovelActionError } from './action-guard.ts'
 import { buildChapterContext, renderContextBlocks } from './novel-context.ts'
 import type {
   AdaptationDimension,
@@ -833,8 +834,14 @@ export async function planChapters(
   const startNo = existing.length === 0 ? 1 : Math.max(...existing.map(c => c.no)) + 1
   const NL = String.fromCharCode(10)
   const continuation = existing.length > 0
-  const latestFacts = continuation && Array.isArray(project.facts)
-    ? project.facts.slice(-15).map(f => `[第${f.chapterNo}章] ${f.text.slice(0, 150)}`).join('\n')
+  // 截断显式化：注入给模型的编年录必须自带条数声明，否则模型会把"注入的 15 条"
+  // 当成"全部事实"，从而在续写规划时漏掉更早的设定锚点。
+  const allFacts = Array.isArray(project.facts) ? project.facts : []
+  const latestFacts = continuation && allFacts.length > 0
+    ? (allFacts.length > 15
+        ? `（本书编年录共 ${allFacts.length} 条，此处只注入最近 15 条，较早 ${allFacts.length - 15} 条未注入）\n`
+        : '')
+      + allFacts.slice(-15).map(f => `[第${f.chapterNo}章] ${f.text.slice(0, 150)}`).join('\n')
     : ''
   // 上一章（已写章节中章号最大者）结尾原文，作为续写剧情起点。
   let prevTail = ''
@@ -895,10 +902,33 @@ export async function planChapters(
           const eventLines = recentChapters
             .filter(c => c.summary !== undefined && c.summary.trim() !== '')
             .map(c => '第' + c.no + '章《' + c.title + '》：' + c.summary!.slice(0, 80))
+          // 截断显式化：只列最近 20 章时说明全书规模，避免模型据此认为"前面没有内容"。
+          const scopeNote = existing.length > recentChapters.length
+            ? `（全书已规划 ${existing.length} 章，此处只列最近 ${recentChapters.length} 章）`
+            : ''
           const eventsText = eventLines.length > 0
-            ? '以下情节已在已有章节中发生过（最近 ' + eventLines.length + ' 章摘要），后续章节**绝对不得重写或重复**：\n' + eventLines.join('\n')
+            ? '以下情节已在已有章节中发生过（最近 ' + eventLines.length + ' 章摘要）' + scopeNote + '，后续章节**绝对不得重写或重复**：\n' + eventLines.join('\n')
             : '已有章节的剧情不得重写或重复（无章节摘要时以编年录为准）。'
-          return '【续写硬性要求】已有章节的剧情不得重写或重复，章节标题也不得与已有章节重复。' + NL + eventsText + NL + '若本次规划已进入大纲的收尾区间（接近全书规划总章数），最后 5-10 章必须按大纲推进到大结局（终极抉择/清算/双结局等），**禁止以悬念、逃离、未解之谜收尾**——收尾区间按大纲卷定位判断，不以当前剧情是否"感觉像结尾"为准。'
+          // 位置感知：把「全书总章数 / 当前所处卷 / 距收尾还有多远」算清楚直接喂给模型。
+          // 原先只模糊地说「接近全书规划总章数」，模型看到近期剧情是高光就自己收尾了
+          // （实测：600 章规划的书在第 81-100 章被规划成大结局）。
+          const vols = (project.volumes ?? []).slice().sort((a, b) => a.no - b.no)
+          const totalCh = vols.length > 0 ? Math.max(...vols.map(v => v.chapterEnd ?? 0)) : 0
+          const curVol = vols.find(v => startNo >= (v.chapterStart ?? 0) && startNo <= (v.chapterEnd ?? 0))
+          const lastVol = vols[vols.length - 1]
+          const remaining = totalCh > 0 ? totalCh - startNo + 1 : 0
+          const inEndgame = totalCh > 0 && lastVol !== undefined &&
+            startNo >= (lastVol.chapterStart ?? 0) + Math.floor(((lastVol.chapterEnd ?? 0) - (lastVol.chapterStart ?? 0)) * 0.8)
+          const posText = totalCh > 0 && curVol !== undefined
+            ? '【全书体量与当前进度（硬约束，优先级高于一切"感觉像结尾"的判断）】' + NL
+              + `全书规划共 ${totalCh} 章、${vols.length} 卷（` + vols.map(v => `第${v.no}卷《${v.title}》${v.chapterStart}-${v.chapterEnd}章`).join('；') + '）。' + NL
+              + `本次从第 ${startNo} 章开始规划，目前处于第${curVol.no}卷《${curVol.title}》（第${curVol.chapterStart}-${curVol.chapterEnd}章）。` + NL
+              + `距全书收尾尚余约 ${remaining} 章。` + NL
+              + (inEndgame
+                ? '当前已进入最后一卷末段，可以按大纲推进大结局。'
+                : `**当前处于全书前段，距离收尾还有约 ${remaining} 章——本次规划绝对禁止出现大结局、系统消失、真相揭开后完结、主角退隐、"全剧终"式收束。** 必须按第${curVol.no}卷的卷战略正常推进剧情，只完成本卷内的一段推进，并为后续留下足够的上升空间。近期章节即使处于高潮（打斗/揭秘/对抗），也只是本卷的中段高潮，不是全书高潮。`)
+            : ''
+          return '【续写硬性要求】已有章节的剧情不得重写或重复，章节标题也不得与已有章节重复。' + NL + eventsText + NL + posText
         })()
       : '',
     prevTail !== ''
@@ -990,9 +1020,14 @@ function retrieveKnowledge(project: ProjectState, query: string, topN = 3): stri
       if (d.content.includes(t)) score += 1
     }
     return { d, score }
-  }).filter(x => x.score > 0).sort((a, b) => b.score - a.score).slice(0, topN)
-  if (scored.length === 0) return ''
-  return '【书内知识库参考（与本章相关，写作时须遵守/可引用）】\n' + scored.map(x => `- 《${x.d.title}》：${x.d.content.slice(0, 300)}`).join('\n')
+  })
+  const hits = scored.filter(x => x.score > 0).sort((a, b) => b.score - a.score)
+  const top = hits.slice(0, topN)
+  if (top.length === 0) return ''
+  // 截断显式化：命中多于注入条数时说明总量，避免模型以为知识库只有这几条。
+  const scopeNote = hits.length > top.length ? `（命中 ${hits.length} 条，此处只注入最相关的 ${top.length} 条）` : ''
+  return '【书内知识库参考（与本章相关，写作时须遵守/可引用）】' + scopeNote + '\n'
+    + top.map(x => `- 《${x.d.title}》：${x.d.content.slice(0, 300)}`).join('\n')
 }
 
 // ------------------------------------------------------------------ writing
@@ -1051,9 +1086,9 @@ export async function reviewChapter(
   chapterNo: number,
 ): Promise<ReviewReport> {
   const chapter = project.chapters.find(c => c.no === chapterNo)
-  if (chapter === undefined) throw new Error(`章节 ${chapterNo} 不在计划中`)
+  if (chapter === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 不在计划中`)
   const body = readChapterFile(outputDir, chapter)
-  if (body === undefined) throw new Error(`章节 ${chapterNo} 的正文文件不存在`)
+  if (body === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 的正文文件不存在`)
   const bodyText = body.replace(/^#\s+.*$/m, '').trim()
   // 本地 AI 味扫描（事实锚点，让 LLM 复核判断而非逐字统计）
   const aiScan = scanAiFlavor(bodyText)
@@ -1069,7 +1104,7 @@ export async function reviewChapter(
     '==================== 章节正文 ====================',
     bodyText,
   ].filter(line => line !== '').join('\n')
-  const text = await complete(ctx, config, { system: reviewSystemPrompt(project), user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 8000), model: config.reviewModel, liveLabel: '审稿' })
+  const text = await complete(ctx, config, { system: reviewSystemPrompt(project), user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 8000), reasoning: config.analysisReasoning ?? 'low', model: config.reviewModel, liveLabel: '审稿' })
   const raw = parseJsonObject<{ score?: unknown; riskScore?: unknown; verdict?: unknown; issues?: unknown; resolvedIds?: unknown; unresolvedIds?: unknown }>(text)
   const issues = Array.isArray(raw.issues)
     ? raw.issues
@@ -1685,7 +1720,7 @@ export function importBookTextFromText(
     }
     chapter.file = chapterFileName(chapter)
     writeFileSync(join(outputDir, chapter.file), '# 第' + c.no + '章 ' + chapter.title + '\n\n' + body + '\n', 'utf8')
-    chapter.chars = body.length
+    chapter.chars = countHanzi(body)
     project.chapters.push(chapter)
   }
   project.updatedAt = new Date().toISOString()
@@ -1787,7 +1822,7 @@ export async function breakdownBook(
     const v = Number(scope.slice(7))
     selected = written.filter(c => c.volume === v)
   }
-  if (selected.length === 0) throw new Error('没有可分析的已写章节（需要已生成并带摘要）')
+  if (selected.length === 0) throw new NovelActionError('contract', '没有可分析的已写章节（需要已生成并带摘要）')
 
   // 2. token 预算：估算每章正文+摘要成本，超预算则只取最近的章节。
   let budget = budgetTokens
@@ -2021,11 +2056,22 @@ export async function listLlmVendors(ctx: Context): Promise<LlmVendorsResponse> 
       }
     }
   } catch { /* 单个目录读取失败跳过 */ }
-  // 已注册的适配器路由（如 deepseek-official）
+  // 已注册的适配器路由（如 deepseek-official）：以 DSH 运行时目录为准刷新模型列表，
+  // 否则 LLM_VENDORS 里的预置模型一旦过期（模型改名/下线），下拉里就会挂着不存在的模型。
   try {
     for (const p of ctx.llm.listProviders()) {
-      if (!map.has(p.id)) {
-        map.set(p.id, { id: p.id, name: p.name !== '' && p.name !== p.id ? p.name : p.id, models: [], builtin: true })
+      const name = p.name !== '' && p.name !== p.id ? p.name : p.id
+      let models: string[] = []
+      try {
+        models = (await ctx.llm.listModels(p.id)).map(m => m.id).filter(id => id !== '')
+      } catch { /* 该 provider 目录不可用 → 保留预置兜底 */ }
+      const existing = map.get(p.id)
+      if (existing === undefined) {
+        map.set(p.id, { id: p.id, name, models, builtin: true })
+      } else if (models.length > 0) {
+        // 运行时目录优先：预置列表只作为目录不可用时的兜底
+        existing.models = models
+        if (existing.name === '' || existing.name === p.id) existing.name = name
       }
     }
   } catch { /* ignore */ }
@@ -2277,9 +2323,9 @@ export async function* rewriteChapterStream(
   target?: string,
 ): AsyncGenerator<{ frame: 'start' } | { frame: 'delta'; text: string } | { frame: 'drafted'; chars: number; draft: string }, void, unknown> {
   const chapter = project.chapters.find(c => c.no === chapterNo)
-  if (chapter === undefined) throw new Error(`章节 ${chapterNo} 不在计划中`)
+  if (chapter === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 不在计划中`)
   const body = readChapterFile(outputDir, chapter)
-  if (body === undefined) throw new Error(`章节 ${chapterNo} 的正文文件不存在`)
+  if (body === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 的正文文件不存在`)
 
   const reviewBlock = chapter.review !== undefined
     ? '审稿意见：\n' + chapter.review.issues.map(i => `[${i.severity}] ${i.item} → ${i.suggestion}`).join('\n')
@@ -2298,7 +2344,7 @@ export async function* rewriteChapterStream(
     const paragraphs = bodyText.split(/\n{2,}/)
     const idx = paragraphs.findIndex(p => normalize(p).includes(wantedFlat))
     if (idx === -1) {
-      throw new Error(`在正文中未找到要修改的片段：「${wanted.slice(0, 40)}…」。请从正文中复制原文片段（无需整段，取片段即可）。`)
+      throw new NovelActionError('contract', `在正文中未找到要修改的片段：「${wanted.slice(0, 40)}…」。请从正文中复制原文片段（无需整段，取片段即可）。`)
     }
     localTarget = {
       paragraph: paragraphs[idx]!,
@@ -2446,9 +2492,9 @@ export async function* polishChapterStream(
   chapterNo: number,
 ): AsyncGenerator<{ frame: 'start' } | { frame: 'delta'; text: string } | { frame: 'drafted'; chars: number; draft: string }, void, unknown> {
   const chapter = project.chapters.find(c => c.no === chapterNo)
-  if (chapter === undefined) throw new Error(`章节 ${chapterNo} 不在计划中`)
+  if (chapter === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 不在计划中`)
   const body = readChapterFile(outputDir, chapter)
-  if (body === undefined) throw new Error(`章节 ${chapterNo} 的正文文件不存在`)
+  if (body === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 的正文文件不存在`)
   const messages: Message[] = [createUserMessage({
     content: [{ type: 'text', text: body.replace(/^#\s+.*$/m, '').trim() }],
     source: { kind: 'plugin', plugin: 'dsh-novel-forge' },
@@ -2493,6 +2539,12 @@ export async function* polishChapterStream(
   yield { frame: 'drafted', chars: newBody.length, draft: newBody }
 }
 
+/** 统计中文字符数（汉字），与「每章字数」红线口径一致（不含标点/换行）。 */
+export function countHanzi(text: string): number {
+  const m = text.match(/[\u4e00-\u9fff]/g)
+  return m === null ? 0 : m.length
+}
+
 /** Generate one chapter (streaming). Yields progress frames; persists when done. */
 export async function* generateChapterStream(
   ctx: Context,
@@ -2502,7 +2554,7 @@ export async function* generateChapterStream(
   chapterNo: number,
 ): AsyncGenerator<{ frame: 'start' } | { frame: 'delta'; text: string } | { frame: 'done'; file: string; chars: number; warn?: string }, void, unknown> {
   const chapter = project.chapters.find(c => c.no === chapterNo)
-  if (chapter === undefined) throw new Error(`章节 ${chapterNo} 不在计划中`)
+  if (chapter === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 不在计划中`)
   // Note: the route layer owns the 'generating' status + concurrency guard;
   // this function must not refuse when status is 'generating' (the route sets
   // it before calling us).
@@ -2629,7 +2681,7 @@ export async function* generateChapterStream(
   } else if (finish.kind === 'max-tokens') {
     streamError = new Error('达到 maxTokens 上限，正文可能不完整，请增大 maxTokens 后重试')
   }
-  const body = assembler
+  let body = assembler
     .blocks()
     .filter((block): block is Extract<StreamChunk, { type: 'block-end' }>['block'] & { type: 'text' } => block.type === 'text')
     .map(block => block.text)
@@ -2638,27 +2690,51 @@ export async function* generateChapterStream(
   if (streamError !== undefined) throw streamError
   if (body.length < 100) throw new Error('生成内容过短，可能失败，请重试')
 
+  // 字数口径统一为「汉字数」（与每章字数红线一致）。不足目标 90% 时自动续写补齐（最多 2 轮）。
+  const target = chapter.targetChars > 0 ? chapter.targetChars : config.chapterChars
+  let hanzi = countHanzi(body)
+  for (let round = 0; round < 2 && target > 0 && hanzi < target * 0.9; round++) {
+    const need = Math.max(400, Math.round(target * 0.95) - hanzi)
+    const contUser = [
+      `第 ${chapter.no} 章《${chapter.title}》已写正文末尾如下：`,
+      body.slice(-2500),
+      '',
+      `请承接上文继续写约 ${need} 字，不要重复已有内容，不要重写开头，不要总结前文，直接续写新情节，结尾留一个章末钩子。只输出续写的正文，不要输出标题或任何说明。`,
+    ].join('\n')
+    const cont = await complete(ctx, config, {
+      system: writeSystemPrompt(project, target) + '\n\n【续写任务】严格承接已有正文往下写，不要重复已有内容、不要重写开头、不要总结前文，直接续写新情节，并在结尾留一个章末钩子。',
+      user: contUser,
+      temperature: 0.85,
+      maxTokens: Math.max(config.maxTokens, 12000),
+      model: config.generateModel || config.model,
+      liveLabel: '续写补齐',
+    })
+    const add = cont.trim()
+    if (add.length < 100) break
+    body = `${body}\n\n${add}`
+    hanzi = countHanzi(body)
+  }
+
   // Write the chapter file.
   const fileName = chapterFileName(chapter)
   mkdirSync(outputDir, { recursive: true })
   writeFileSync(join(outputDir, fileName), `# 第${chapter.no}章 ${chapter.title}\n\n${body}\n`, 'utf8')
 
   chapter.status = 'written'
-  chapter.chars = body.length
+  chapter.chars = hanzi
   chapter.file = fileName
   chapter.error = undefined
   project.updatedAt = new Date().toISOString()
   saveProject(outputDir, project)
 
-  const target = chapter.targetChars > 0 ? chapter.targetChars : config.chapterChars
   const warn = target > 0
-    ? (body.length < target * 0.8
-        ? `第${chapter.no}章实际 ${body.length} 字，明显少于目标 ${target} 字`
-        : body.length > target * 1.25
-          ? `第${chapter.no}章实际 ${body.length} 字，明显多于目标 ${target} 字`
+    ? (hanzi < target * 0.85
+        ? `第${chapter.no}章实际 ${hanzi} 汉字，少于目标 ${target} 汉字`
+        : hanzi > target * 1.25
+          ? `第${chapter.no}章实际 ${hanzi} 汉字，多于目标 ${target} 汉字`
           : undefined)
     : undefined
-  yield { frame: 'done', file: fileName, chars: body.length, warn }
+  yield { frame: 'done', file: fileName, chars: hanzi, warn }
 }
 
 /** Generate a chapter summary (narrative memory). */
@@ -2670,9 +2746,9 @@ export async function summarizeChapter(
   chapterNo: number,
 ): Promise<string> {
   const chapter = project.chapters.find(c => c.no === chapterNo)
-  if (chapter === undefined) throw new Error(`章节 ${chapterNo} 不在计划中`)
+  if (chapter === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 不在计划中`)
   const body = readChapterFile(outputDir, chapter)
-  if (body === undefined) throw new Error(`章节 ${chapterNo} 的正文文件不存在`)
+  if (body === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 的正文文件不存在`)
   const system = [
     '你是一位网文编辑。请为下面一章写一段 120-200 字的摘要，供后续章节写作时保持连贯性。',
     '摘要必须包含：本章发生的关键事件、主角状态变化（境界/资源/伤势/心境）、新增的伏笔或线索、角色关系变化。',
@@ -2700,7 +2776,7 @@ export async function reverseOutlineFromChapters(
     .filter(c => c.status !== 'pending' && c.status !== 'generating' && c.status !== 'error')
     .filter(c => readChapterFile(outputDir, c) !== undefined)
     .sort((a, b) => a.no - b.no)
-  if (written.length === 0) throw new Error('本书还没有已写章节，无法反推大纲')
+  if (written.length === 0) throw new NovelActionError('contract', '本书还没有已写章节，无法反推大纲')
 
   // 阶段 1：分批提取章节事件摘要（每批 10 章，正文各取前 1000 字控制成本）。
   const BATCH = 10
@@ -3059,7 +3135,7 @@ export async function materializeAdaptedBook(
 ): Promise<Omit<AdaptMaterializeResponse, 'book'>> {
   const bookName = (args.bookName ?? '').trim().slice(0, 40) || '改编新书'
   const outDir = (args.outputDir ?? '').trim()
-  if (outDir === '') throw new Error('未指定新书输出目录')
+  if (outDir === '') throw new NovelActionError('contract', '未指定新书输出目录')
   const mappings = args.proposal?.mappings ?? []
   // 源文导入临时项目（复用角色/道藏/世界提炼：这些函数读取 config.outputDir 下的章节文件）。
   const tmpDir = join(tmpdir(), 'dsh-novel-forge-adapt-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8))
@@ -3372,7 +3448,7 @@ async function auditBatch(
     `正文节选（每章前 700 字）：\n${chapterBlocks}`,
     '只输出 JSON 数组。',
   ].filter(s => s !== '').join('\n\n')
-  const text = await complete(ctx, config, { system, user, temperature: 0.2, maxTokens: Math.max(config.maxTokens, 12000), model: config.auditModel, liveLabel: '质检查询' })
+  const text = await complete(ctx, config, { system, user, temperature: 0.2, maxTokens: Math.max(config.maxTokens, 12000), reasoning: config.analysisReasoning ?? 'low', model: config.auditModel, liveLabel: '质检查询' })
   const parsed = parseJsonArray<Record<string, unknown>>(text)
   const issues: AuditIssue[] = []
   for (const entry of parsed) {

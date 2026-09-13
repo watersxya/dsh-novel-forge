@@ -35,7 +35,9 @@ import {
   auditBook,
   generateBlurb,
 } from './engine.ts'
-import { rewriteChapterStream } from './engine.ts'
+import { rewriteChapterStream, countHanzi } from './engine.ts'
+import { computeBookStage, isGenericContinue, renderStageContract, splitByStage, stageAllows, type BookStage } from './stage-contract.ts'
+import { NovelActionError, classifyActionError, FailureLedger } from './action-guard.ts'
 
 /** History file name inside the output dir. */
 export const ASSISTANT_HISTORY_FILE = 'novel-assistant.jsonl'
@@ -45,6 +47,133 @@ const MAX_TOOL_ROUNDS = 4
 
 /** Max history messages kept in context (older ones summarized away). */
 const MAX_HISTORY_MESSAGES = 18
+
+// ------------------------------------------------------------ action registry
+
+/**
+ * 写操作登记表：助手动作里会改动项目数据/正文文件的那些，以及判定「作者是否
+ * 明确点了这件事」的意图正则。只读工具不在此表内，任何时候都放行。
+ */
+const WRITE_TOOL_KEYS: Record<string, RegExp> = {
+  chapter_generate: /(生成|写第\s*\d+\s*章|写一[章篇]|新写|续写|接着写|继续写|开始写|写正文|写书|创作)/,
+  chapter_rewrite: /(重写|改写|修订|修改|改一下|调整|替换|润色|优化|修正|完善|回炉|换一种|从头)/,
+  chapter_review: /(审|检查|校验|点评|评估|把关|质量|怎么样|如何)/,
+  outline_replace: /(大纲|总纲|简介)/,
+  bible_set_rule: /(道藏|设定|规则|红线|世界|金手指)/,
+  bible_set_redline: /(道藏|设定|红线)/,
+  foreshadow_add: /(暗线|伏笔|埋)/,
+  foreshadow_update: /(暗线|伏笔)/,
+  export_txt: /(导出|打包|下载|txt)/,
+  assets_set_genre: /(题材)/,
+  assets_set_progression: /(推进)/,
+  assets_add_rule: /(规则|文戒|反AI)/,
+  knowledge_add: /(知识库|记住|补充|收进|参考|资料)/,
+  plotline_add: /(剧情线|长线|加入剧情线|线名)/,
+  director_todo_add: /(待办|风险|修复|记一下|记一条)/,
+  blurb: /(简介|封面|小说简介)/,
+}
+
+/** 只读工具：任何时候都可用，不受阶段白名单限制。 */
+const READ_TOOLS: readonly string[] = [
+  'book_overview', 'facts_query', 'impact_analysis', 'outline_text',
+  'chapter_text', 'assets_status', 'knowledge_search', 'knowledge_list',
+  'plotline_list', 'director_todo_list',
+]
+
+/**
+ * 助手动作说明书（原文照旧，只是从提示词字面量里提出来，便于按阶段裁剪）。
+ * 每行以 `- 工具名：` 开头，renderToolDocs 依赖这个约定识别工具归属。
+ */
+const ASSISTANT_TOOL_DOCS: readonly string[] = [
+    '- book_overview：{"scope": "recent|full|volume:2"(可选，默认 recent)}。返回全书上下文包（总纲/道藏/大世界/章节要点/编年录/暗线/卷首语）。recent=最近30章；full=全部章节（书很长时慎用）；volume:N=只看第N卷。',
+    '- facts_query：{"keyword": "关键词"}。从编年录按关键词检索相关事实（如灵石、境界名、人物名）。',
+    '- impact_analysis：{"change": "要做的修改描述"}。分析这次改动会波及哪些位置，返回影响清单（定位到章节/设定/编年录）。',
+    '- outline_text：无参数。返回当前总纲全文。',
+    '- outline_replace：{"old": "要替换的原文片段", "new": "新文本"}。在总纲中替换一段文字（old 必须能在总纲中找到）。',
+    '- bible_set_rule：{"index": 序号(0起), "text": "新规则文本"} 或 {"append": "追加的规则"}。修改道藏的世界规则。',
+    '- bible_set_redline：同上，修改写作红线。',
+    '- chapter_text：{"no": 章节号}。返回该章正文。',
+    '- chapter_rewrite：{"no": 章节号, "instructions": "修改要求", "target": "原文片段(可选，留空整章)"}。按讨论结果修订章节；给了 target 只改该自然段。',
+    '- chapter_generate：{"no": 章节号}。重新生成该章。',
+    '- chapter_review：{"no": 章节号}。对该章执行 AI 审稿。',
+    '- foreshadow_add：{"description": "暗线描述", "targetChapter": 预计回收章(可选)}。新增暗线。',
+    '- foreshadow_update：{"id": "暗线id", "status": "planned|planted|progressing|resolved|abandoned"}。更新暗线状态。',
+    '- export_txt：无参数。导出全本 TXT。',
+    '- assets_status：无参数。查看本书当前写作资产（题材/推进模式/反AI规则/写法）。',
+    '- assets_set_genre：{"name": "题材名", "description": "题材说明(可选)"}。设置本书题材基底。',
+    '- assets_set_progression：{"name": "模式名", "driver": "驱动力", "primary": true/false}。设置主/辅助推进模式。',
+    '- assets_add_rule：{"name": "规则名(可选)", "avoid": "要避免的表达问题", "fix": "修正方向(可选)}。新增反 AI 规则。',
+    '- book_analysis：{"scope": "recent|full|volume:N"(可选)}。拆书：提炼本书卖点/结构/可借鉴/风险（分析当前书，不照搬外部作品）。',
+    '- director_advice：{"focus": "聚焦方向(可选)"}。自动编辑：基于全书给出下一阶段剧情节点/节奏板/风险/修复建议。',
+    '- knowledge_add：{"title": "标题", "content": "内容"}。往本书知识库加一条自由参考文档（生成时会被检索注入）。',
+    '- knowledge_search：{"query": "关键词"}。在本书知识库检索相关内容。',
+    '- plotline_list：无参数。查看本书当前剧情线。',
+    '- plotline_add：{"name": "线名", "goal": "目标", "kind": "main|branch|character|mystery(可选)"}。新增一条剧情线。',
+    '- director_todo_add：{"text": "待办内容", "source": "risk|fix(可选)"}。把一条风险/修复记成编辑待办。',
+    '- director_todo_list：无参数。查看本书编辑待办。',
+    '- knowledge_list：无参数。**列出本书全部知识库文档**（标题+内容）。作者说"收集/汇总/列出所有知识库"时调用它。',
+    '- breakdown：{"scope": "recent|all|volume:N"(可选，默认 recent), "preset": "quick|standard"(可选)}。书内拆书分析：对本书已写章节做结构/人物/文风/卖点体检。',
+    '- audit：无参数。全书一致性质检（分批扫描章节+设定+事实库，聚合矛盾）。',
+    '- blurb：{"partial": "已写开头(可选)"}。生成/补全小说简介并保存到本书。',
+]
+
+/** 工具说明书行首约定：`- <tool>：...`。 */
+const TOOL_DOC_PATTERN = /^-\s*([a-z][a-z_]*)\s*[：:]/
+
+/**
+ * 按阶段渲染动作说明书。
+ *
+ * - `strict=false`（作者点明了要做什么）：全量说明书照给，只靠动作可见性段提示
+ *   哪些属于阶段外——作者有权指定任意动作。
+ * - `strict=true`（作者只说「继续/下一步」）：阶段外的写操作说明书直接**从提示词里移除**，
+ *   和执行层的阶段白名单完全一致，模型不再有机会去试错撞守卫。
+ *
+ * @param docs 动作说明书行。
+ * @param stage 阶段契约。
+ * @param strict 是否为「阶段即唯一命令」模式。
+ * @returns 裁剪后的说明书行。
+ */
+export function renderToolDocs(docs: readonly string[], stage: BookStage, strict: boolean): string[] {
+  if (!strict) return [...docs]
+  const kept: string[] = []
+  const hidden: string[] = []
+  for (const line of docs) {
+    const tool = TOOL_DOC_PATTERN.exec(line)?.[1]
+    if (tool !== undefined && WRITE_TOOL_KEYS[tool] !== undefined && !stageAllows(stage, tool)) {
+      hidden.push(tool)
+      continue
+    }
+    kept.push(line)
+  }
+  if (hidden.length > 0) {
+    kept.push(`- （本轮不可用：${hidden.join('、')}——当前阶段是「${stage.label}」，作者只说了「继续」；作者明确点名时才可执行。）`)
+  }
+  return kept
+}
+
+/**
+ * 渲染「动作可见性」：把写操作分成「本阶段可用」与「阶段外（仅作者点名时执行）」，
+ * 让模型不必靠试错去发现哪些动作会被拒绝。
+ *
+ * @param stage 阶段契约。
+ * @returns 多行文本。
+ */
+export function renderActionVisibility(stage: BookStage): string {
+  const { available, outside } = splitByStage(stage, Object.keys(WRITE_TOOL_KEYS))
+  return [
+    '==================== 动作可见性（宿主按当前阶段计算） ====================',
+    `- 本阶段可直接执行：${available.length > 0 ? available.join('、') : '无'}`,
+    `- 本阶段外（只有作者明确点名时才允许，否则会被宿主拒绝）：${outside.length > 0 ? outside.join('、') : '无'}`,
+    `- 只读工具任何时候都可用：${READ_TOOLS.join('、')}`,
+  ].join('\n')
+}
+
+// ------------------------------------------------------------- failure class
+// 失败分级规则本体在 ./action-guard.ts（纯逻辑、可离线单测）；这里只做再导出，
+// 保持既有调用方与测试的导入路径不变。
+
+export { classifyActionError, actionRetryLimit, safeArgsKey, NovelActionError, FailureLedger } from './action-guard.ts'
+export type { ActionErrorKind } from './action-guard.ts'
 
 // ------------------------------------------------------------------ history
 
@@ -151,9 +280,15 @@ function renderProjectSnapshot(project: ProjectState): string {
       sections.push(`- [${f.status}] ${f.description}${f.targetChapter !== undefined ? `（预计 ${f.targetChapter} 章回收）` : ''}`)
     }
   }
-  if ((project.facts ?? []).length > 0) {
-    sections.push('【已确立编年录（最近 40 条，回答设定问题必须遵守）】')
-    for (const f of (project.facts ?? []).slice(-40)) {
+  const allFacts = project.facts ?? []
+  if (allFacts.length > 0) {
+    // 截断显式化：必须让模型知道"看到的不是全部"，否则一致性判断会建立在不完整事实上。
+    const shown = allFacts.slice(-40)
+    const omitted = allFacts.length - shown.length
+    sections.push(omitted > 0
+      ? `【已确立编年录（回答设定问题必须遵守）：共 ${allFacts.length} 条，此处只显示最近 ${shown.length} 条，较早 ${omitted} 条未显示；需要更早的事实请用 facts_query 关键词检索】`
+      : `【已确立编年录（共 ${shown.length} 条，回答设定问题必须遵守）】`)
+    for (const f of shown) {
       sections.push(`- [第${f.chapterNo}章] ${f.text}`)
     }
   }
@@ -164,7 +299,8 @@ function renderProjectSnapshot(project: ProjectState): string {
 }
 
 /** The assistant system prompt. */
-function assistantSystemPrompt(project: ProjectState): string {
+function assistantSystemPrompt(project: ProjectState, strictStage = false): string {
+  const stage = computeBookStage(project)
   return [
     '你是「编辑老师」——服务这本书作者的资深中文网文编辑。',
     '人设：二十年网文老编辑，懂套路、懂市场、懂节奏，说话直接但句句有用。',
@@ -187,37 +323,12 @@ function assistantSystemPrompt(project: ProjectState): string {
     '8. 中文回复，简洁有干货。',
     '',
     '可用工具：',
-    '- book_overview：{"scope": "recent|full|volume:2"(可选，默认 recent)}。返回全书上下文包（总纲/道藏/大世界/章节要点/编年录/暗线/卷首语）。recent=最近30章；full=全部章节（书很长时慎用）；volume:N=只看第N卷。',
-    '- facts_query：{"keyword": "关键词"}。从编年录按关键词检索相关事实（如灵石、境界名、人物名）。',
-    '- impact_analysis：{"change": "要做的修改描述"}。分析这次改动会波及哪些位置，返回影响清单（定位到章节/设定/编年录）。',
-    '- outline_text：无参数。返回当前总纲全文。',
-    '- outline_replace：{"old": "要替换的原文片段", "new": "新文本"}。在总纲中替换一段文字（old 必须能在总纲中找到）。',
-    '- bible_set_rule：{"index": 序号(0起), "text": "新规则文本"} 或 {"append": "追加的规则"}。修改道藏的世界规则。',
-    '- bible_set_redline：同上，修改写作红线。',
-    '- chapter_text：{"no": 章节号}。返回该章正文。',
-    '- chapter_rewrite：{"no": 章节号, "instructions": "修改要求", "target": "原文片段(可选，留空整章)"}。按讨论结果修订章节；给了 target 只改该自然段。',
-    '- chapter_generate：{"no": 章节号}。重新生成该章。',
-    '- chapter_review：{"no": 章节号}。对该章执行 AI 审稿。',
-    '- foreshadow_add：{"description": "暗线描述", "targetChapter": 预计回收章(可选)}。新增暗线。',
-    '- foreshadow_update：{"id": "暗线id", "status": "planned|planted|progressing|resolved|abandoned"}。更新暗线状态。',
-    '- export_txt：无参数。导出全本 TXT。',
-    '- assets_status：无参数。查看本书当前写作资产（题材/推进模式/反AI规则/写法）。',
-    '- assets_set_genre：{"name": "题材名", "description": "题材说明(可选)"}。设置本书题材基底。',
-    '- assets_set_progression：{"name": "模式名", "driver": "驱动力", "primary": true/false}。设置主/辅助推进模式。',
-    '- assets_add_rule：{"name": "规则名(可选)", "avoid": "要避免的表达问题", "fix": "修正方向(可选)}。新增反 AI 规则。',
-    '- book_analysis：{"scope": "recent|full|volume:N"(可选)}。拆书：提炼本书卖点/结构/可借鉴/风险（分析当前书，不照搬外部作品）。',
-    '- director_advice：{"focus": "聚焦方向(可选)"}。自动编辑：基于全书给出下一阶段剧情节点/节奏板/风险/修复建议。',
-    '- knowledge_add：{"title": "标题", "content": "内容"}。往本书知识库加一条自由参考文档（生成时会被检索注入）。',
-    '- knowledge_search：{"query": "关键词"}。在本书知识库检索相关内容。',
-    '- plotline_list：无参数。查看本书当前剧情线。',
-    '- plotline_add：{"name": "线名", "goal": "目标", "kind": "main|branch|character|mystery(可选)"}。新增一条剧情线。',
-    '- director_todo_add：{"text": "待办内容", "source": "risk|fix(可选)"}。把一条风险/修复记成编辑待办。',
-    '- director_todo_list：无参数。查看本书编辑待办。',
-    '- knowledge_list：无参数。**列出本书全部知识库文档**（标题+内容）。作者说"收集/汇总/列出所有知识库"时调用它。',
-    '- breakdown：{"scope": "recent|all|volume:N"(可选，默认 recent), "preset": "quick|standard"(可选)}。书内拆书分析：对本书已写章节做结构/人物/文风/卖点体检。',
-    '- audit：无参数。全书一致性质检（分批扫描章节+设定+事实库，聚合矛盾）。',
-    '- blurb：{"partial": "已写开头(可选)"}。生成/补全小说简介并保存到本书。',
+    ...renderToolDocs(ASSISTANT_TOOL_DOCS, stage, strictStage),
+    ...(strictStage
+      ? ['（注意：作者本轮只说了「继续/下一步」，因此上面只列出**本阶段可执行**的动作。阶段外动作本轮不可用，发出会被宿主拒绝；作者明确点名时才可执行。）']
+      : []),
     '',
+
     '回答质量要求（非常重要）：',
     '- 具体：回答必须引用项目里的真实内容（人名、境界、章节、暗线、设定），禁止空泛套话。快照里没有的信息，先调用工具获取（chapter_text / outline_text）再回答。',
     '- 专业：给建议时说明理由，指出问题所在章节/段落，给出可直接落地的修改方案（改什么、怎么改）。',
@@ -239,11 +350,15 @@ function assistantSystemPrompt(project: ProjectState): string {
     '- 每次回复最多调用 1 个动作；**完成用户本轮要求后立即用一句话汇报并停止，不要继续追加工具调用**（除非用户在下一轮明确要求）。',
     '- 需要先看总纲/章节再决定怎么改？那就先输出一个 outline_text / chapter_text 的标签，等结果回来。',
     '- chapter_rewrite 的 target 参数：从章节正文中复制一小段（一句话或几句话即可），不要带换行、不要带引号，取连续文本片段。',
-    '- 如果工具执行失败（例如片段未找到），根据错误信息修正参数后自动重试一次，不要直接放弃或让作者手动操作。',
+    '- 失败即停（重要）：参数/契约类错误（参数缺失、片段未找到、章节不存在、非法取值）只允许**修正一次**，禁止原样重复同一个调用；同一调用第二次以同样参数失败时，宿主会直接停止本轮，不要再试探性重发。瞬时故障（网络/模型中断/磁盘占用）可重试一次，同样禁止无限重试。',
+    '- 状态诚实（重要）：只有工具返回成功结果时才能说"已修改/已生成/已保存/已导出"；工具报错时必须如实说明失败原因与当前真实状态，禁止声称操作已完成，也禁止把"草稿"说成"已定稿"。',
     '- 修改前先向作者说明你要改什么、为什么；动作执行后简要汇报结果。',
     '- 涉及删除类操作（删除章节、清空设定）必须等作者明确同意。',
     '- 严格忠于道藏与总纲；不得自行发明与既有设定冲突的内容。',
     '- 用中文回复。',
+    '',
+    renderStageContract(stage),
+    renderActionVisibility(stage),
   ].join('\n')
 }
 
@@ -287,14 +402,14 @@ export async function* executeAction(
     case 'facts_query': {
       // 从编年录按关键词检索相关事实。
       const keyword = str(args.keyword).trim()
-      if (keyword === '') throw new Error('facts_query 需要 keyword')
+      if (keyword === '') throw new NovelActionError('contract', 'facts_query 需要 keyword')
       const hits = (project.facts ?? []).filter(f => f.text.includes(keyword)).slice(-30)
       if (hits.length === 0) return `编年录中未找到与「${keyword}」相关的事实记录。`
       return `编年录中与「${keyword}」相关的事实（${hits.length} 条）：\n` + hits.map(f => `- [第${f.chapterNo}章] ${f.text}`).join('\n')
     }
     case 'impact_analysis': {
       const change = str(args.change)
-      if (change === '') throw new Error('impact_analysis 需要 change（要做的修改描述）')
+      if (change === '') throw new NovelActionError('contract', 'impact_analysis 需要 change（要做的修改描述）')
       const items = await analyzeImpact(ctx, config, project, outputDir, change)
       if (items.length === 0) return '影响分析：未发现需要同步修改的位置。'
       const lines = items.map((it, i) => `${i + 1}. [${it.location}]「${it.quote}」${it.suggestion !== '' ? ` → ${it.suggestion}` : ''}（${it.kind === 'must' ? '必须同步' : it.kind === 'optional' ? '建议' : '备注'}）`)
@@ -307,7 +422,7 @@ export async function* executeAction(
       const old = str(args.old)
       const next = str(args.new)
       if (old === '' || !project.outline.includes(old)) {
-        throw new Error(`总纲中未找到片段「${old.slice(0, 40)}…」`)
+        throw new NovelActionError('contract', `总纲中未找到片段「${old.slice(0, 40)}…」`)
       }
       project.outline = project.outline.replace(old, next)
       project.updatedAt = new Date().toISOString()
@@ -315,28 +430,28 @@ export async function* executeAction(
       return `总纲已修改：替换了 ${old.length} 字符的片段。`
     }
     case 'bible_set_rule': {
-      if (project.bible === undefined) throw new Error('尚无道藏，请先提炼')
+      if (project.bible === undefined) throw new NovelActionError('contract', '尚无道藏，请先提炼')
       const index = num(args.index)
       if (index !== undefined) {
         project.bible.worldRules[index] = str(args.text)
       } else if (str(args.append) !== '') {
         project.bible.worldRules.push(str(args.append))
       } else {
-        throw new Error('bible_set_rule 需要 index+text 或 append')
+        throw new NovelActionError('contract', 'bible_set_rule 需要 index+text 或 append')
       }
       project.updatedAt = new Date().toISOString()
       saveProject(outputDir, project)
       return `世界规则已更新（当前 ${project.bible.worldRules.length} 条）。`
     }
     case 'bible_set_redline': {
-      if (project.bible === undefined) throw new Error('尚无道藏，请先提炼')
+      if (project.bible === undefined) throw new NovelActionError('contract', '尚无道藏，请先提炼')
       const index = num(args.index)
       if (index !== undefined) {
         project.bible.redLines[index] = str(args.text)
       } else if (str(args.append) !== '') {
         project.bible.redLines.push(str(args.append))
       } else {
-        throw new Error('bible_set_redline 需要 index+text 或 append')
+        throw new NovelActionError('contract', 'bible_set_redline 需要 index+text 或 append')
       }
       project.updatedAt = new Date().toISOString()
       saveProject(outputDir, project)
@@ -344,16 +459,16 @@ export async function* executeAction(
     }
     case 'chapter_text': {
       const no = num(args.no)
-      if (no === undefined) throw new Error('chapter_text 需要 no')
+      if (no === undefined) throw new NovelActionError('contract', 'chapter_text 需要 no')
       const chapter = project.chapters.find(c => c.no === no)
-      if (chapter === undefined) throw new Error(`章节 ${no} 不存在`)
+      if (chapter === undefined) throw new NovelActionError('contract', `章节 ${no} 不存在`)
       const body = readChapterFile(outputDir, chapter)
-      if (body === undefined) throw new Error(`章节 ${no} 尚未生成`)
+      if (body === undefined) throw new NovelActionError('contract', `章节 ${no} 尚未生成`)
       return body
     }
     case 'chapter_rewrite': {
       const no = num(args.no)
-      if (no === undefined) throw new Error('chapter_rewrite 需要 no')
+      if (no === undefined) throw new NovelActionError('contract', 'chapter_rewrite 需要 no')
       const instructions = str(args.instructions)
       const target = str(args.target)
       for await (const chunk of forward(rewriteChapterStream(ctx, config, project, outputDir, no, instructions, target === '' ? undefined : target))) {
@@ -364,14 +479,14 @@ export async function* executeAction(
       const chapter = project.chapters.find(c => c.no === no)
       const draft = chapter?.pendingDraft
       if (chapter === undefined || draft === undefined || draft === '') {
-        throw new Error(`章节 ${no} 修订后没有产出草稿`)
+        throw new NovelActionError('contract', `章节 ${no} 修订后没有产出草稿`)
       }
       const fileName = chapterFileName(chapter)
       mkdirSync(outputDir, { recursive: true })
       writeFileSync(join(outputDir, fileName), `# 第${chapter.no}章 ${chapter.title}\n\n${draft}\n`, 'utf8')
       chapter.pendingDraft = undefined
       chapter.status = 'written'
-      chapter.chars = draft.length
+      chapter.chars = countHanzi(draft)
       chapter.file = fileName
       chapter.review = undefined
       chapter.error = undefined
@@ -387,7 +502,7 @@ export async function* executeAction(
     }
     case 'chapter_generate': {
       const no = num(args.no)
-      if (no === undefined) throw new Error('chapter_generate 需要 no')
+      if (no === undefined) throw new NovelActionError('contract', 'chapter_generate 需要 no')
       for await (const chunk of forward(generateChapterStream(ctx, config, project, outputDir, no))) {
         yield chunk
       }
@@ -401,14 +516,14 @@ export async function* executeAction(
     }
     case 'chapter_review': {
       const no = num(args.no)
-      if (no === undefined) throw new Error('chapter_review 需要 no')
+      if (no === undefined) throw new NovelActionError('contract', 'chapter_review 需要 no')
       const report = await reviewChapter(ctx, config, project, outputDir, no)
       const issues = report.issues.map(i => `[${i.severity}] ${i.item} → ${i.suggestion}`).join('\n')
       return `章节 ${no} 审稿：${report.score} 分 — ${report.verdict}\n${issues}`
     }
     case 'foreshadow_add': {
       const description = str(args.description)
-      if (description === '') throw new Error('foreshadow_add 需要 description')
+      if (description === '') throw new NovelActionError('contract', 'foreshadow_add 需要 description')
       const targetChapter = num(args.targetChapter)
       project.foreshadows.push({
         id: `fs-${Date.now().toString(36)}`,
@@ -424,9 +539,9 @@ export async function* executeAction(
       const id = str(args.id)
       const status = str(args.status) as 'planned' | 'planted' | 'progressing' | 'resolved' | 'abandoned'
       const target = project.foreshadows.find(f => f.id === id)
-      if (target === undefined) throw new Error(`暗线 ${id} 不存在`)
+      if (target === undefined) throw new NovelActionError('contract', `暗线 ${id} 不存在`)
       if (!['planned', 'planted', 'progressing', 'resolved', 'abandoned'].includes(status)) {
-        throw new Error(`非法状态 ${status}`)
+        throw new NovelActionError('contract', `非法状态 ${status}`)
       }
       target.status = status
       project.updatedAt = new Date().toISOString()
@@ -451,7 +566,7 @@ export async function* executeAction(
     case 'assets_set_genre': {
       const name = str(args.name)
       const description = str(args.description)
-      if (name === '') throw new Error('assets_set_genre 需要 name')
+      if (name === '') throw new NovelActionError('contract', 'assets_set_genre 需要 name')
       if (project.assets === undefined) project.assets = emptyProjectAssets()
       project.assets.genre = { name, description, children: [] }
       project.assets.updatedAt = new Date().toISOString()
@@ -463,7 +578,7 @@ export async function* executeAction(
       const name = str(args.name)
       const driver = str(args.driver)
       const primary = args.primary !== false
-      if (name === '') throw new Error('assets_set_progression 需要 name')
+      if (name === '') throw new NovelActionError('contract', 'assets_set_progression 需要 name')
       if (project.assets === undefined) project.assets = emptyProjectAssets()
       const mode = {
         name,
@@ -486,7 +601,7 @@ export async function* executeAction(
     case 'assets_add_rule': {
       const name = str(args.name)
       const avoid = str(args.avoid)
-      if (avoid === '') throw new Error('assets_add_rule 需要 avoid（要避免的表达问题）')
+      if (avoid === '') throw new NovelActionError('contract', 'assets_add_rule 需要 avoid（要避免的表达问题）')
       if (project.assets === undefined) project.assets = emptyProjectAssets()
       if (project.assets.antiAiRules === undefined) project.assets.antiAiRules = []
       project.assets.antiAiRules.push({
@@ -536,7 +651,7 @@ export async function* executeAction(
     case 'knowledge_add': {
       const title = str(args.title).trim()
       const content = str(args.content).trim()
-      if (title === '' || content === '') throw new Error('knowledge_add 需要 title 和 content')
+      if (title === '' || content === '') throw new NovelActionError('contract', 'knowledge_add 需要 title 和 content')
       project.knowledgeDocs ??= []
       project.knowledgeDocs.push({ id: `kd-${Date.now().toString(36)}`, title, content, updatedAt: new Date().toISOString() })
       project.updatedAt = new Date().toISOString()
@@ -545,7 +660,7 @@ export async function* executeAction(
     }
     case 'knowledge_search': {
       const q = str(args.query).trim()
-      if (q === '') throw new Error('knowledge_search 需要 query')
+      if (q === '') throw new NovelActionError('contract', 'knowledge_search 需要 query')
       const ql = q.toLowerCase()
       const hits = (project.knowledgeDocs ?? []).filter(d => d.title.toLowerCase().includes(ql) || d.content.toLowerCase().includes(ql)).slice(-5)
       if (hits.length === 0) return '知识库中未找到相关内容。'
@@ -559,7 +674,7 @@ export async function* executeAction(
     case 'plotline_add': {
       const name = str(args.name).trim()
       const goal = str(args.goal).trim()
-      if (name === '' || goal === '') throw new Error('plotline_add 需要 name 和 goal')
+      if (name === '' || goal === '') throw new NovelActionError('contract', 'plotline_add 需要 name 和 goal')
       const kindArg = str(args.kind)
       const kind = (['main', 'branch', 'character', 'mystery'].includes(kindArg) ? kindArg : 'branch') as 'main' | 'branch' | 'character' | 'mystery'
       const statusArg = str(args.status)
@@ -572,7 +687,7 @@ export async function* executeAction(
     }
     case 'director_todo_add': {
       const text = str(args.text).trim()
-      if (text === '') throw new Error('director_todo_add 需要 text')
+      if (text === '') throw new NovelActionError('contract', 'director_todo_add 需要 text')
       const source = args.source === 'fix' ? 'fix' as const : 'risk' as const
       project.todos ??= []
       project.todos.unshift({ id: `td-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, text, source, done: false, createdAt: new Date().toISOString() })
@@ -617,7 +732,7 @@ export async function* executeAction(
       return `简介已生成/更新：\n${text}`
     }
     default:
-      throw new Error(`未知工具 ${name}`)
+      throw new NovelActionError('contract', `未知工具 ${name}`)
   }
 }
 
@@ -651,7 +766,7 @@ function historyToMessages(history: AssistantMessage[]): Message[] {
     } else if (entry.role === 'assistant') {
       messages.push(createAssistantMessage({
         content: [{ type: 'text', text: entry.content }],
-        source: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        source: { provider: 'deepseek-official', model: 'deepseek-flash' },
       }))
     } else if (entry.role === 'tool') {
       // 工具结果（book_overview/总纲全文等可能很大）截断后进上下文，
@@ -740,7 +855,10 @@ export async function* runAssistantTurn(
   unknown
 > {
   const history = loadAssistantHistory(outputDir)
-  const system = assistantSystemPrompt(project)
+  // 阶段契约先算：它同时决定提示词（阶段外动作是否可见）与执行守卫。
+  const stage: BookStage = computeBookStage(project)
+  const strictStage = isGenericContinue(userMessage)
+  const system = assistantSystemPrompt(project, strictStage)
 
   // Persist the user message.
   const userEntry: AssistantMessage = { role: 'user', content: userMessage, ts: new Date().toISOString() }
@@ -756,45 +874,59 @@ export async function* runAssistantTurn(
   /** 连续收到 hex 乱码回复的次数（≥2 次判定 LLM 侧异常，放弃本轮避免死循环）。 */
   let garbleCount = 0
 
-  // ---- 写操作意图守卫 ------------------------------------------------
-  // 写类工具会改动项目数据/正文文件：仅当用户消息（含最近一轮上下文）里
-  // 出现与该工具对应的明确修改动词时才放行；否则拒绝执行，防止"随口一问"
-  // 被模型误判成创作指令（如问角色是否登场 → 自主生成整章）。
-  const WRITE_TOOL_KEYS: Record<string, RegExp> = {
-    chapter_generate: /(生成|写第\s*\d+\s*章|写一[章篇]|新写|续写|接着写|继续写|开始写|写正文|写书|创作)/,
-    chapter_rewrite: /(重写|改写|修订|修改|改一下|调整|替换|润色|优化|修正|完善|回炉|换一种|从头)/,
-    chapter_review: /(审|检查|校验|点评|评估|把关|质量|怎么样|如何)/,
-    outline_replace: /(大纲|总纲|简介)/,
-    bible_set_rule: /(道藏|设定|规则|红线|世界|金手指)/,
-    bible_set_redline: /(道藏|设定|红线)/,
-    foreshadow_add: /(暗线|伏笔|埋)/,
-    foreshadow_update: /(暗线|伏笔)/,
-    export_txt: /(导出|打包|下载|txt)/,
-    assets_set_genre: /(题材)/,
-    assets_set_progression: /(推进)/,
-    assets_add_rule: /(规则|文戒|反AI)/,
-    knowledge_add: /(知识库|记住|补充|收进|参考|资料)/,
-    plotline_add: /(剧情线|长线|加入剧情线|线名)/,
-    director_todo_add: /(待办|风险|修复|记一下|记一条)/,
-    blurb: /(简介|封面|小说简介)/,
-  }
+  // ---- 写操作意图守卫（规则表在模块级 WRITE_TOOL_KEYS）----------------
+  // ---- 阶段契约 ------------------------------------------------------
+  // 宿主根据项目真实状态算出「当前阶段 → 本轮允许的动作」。作者只说了
+  // 「继续/下一步」这类没有具体对象的指令时，阶段白名单成为唯一命令；
+  // 作者显式点名某个操作时以作者指令为准（作者终审权）。
+
   /** 本轮已放行过写操作：后续写操作（生成→审稿→修订闭环）不再逐个拦截。 */
   let writeUnlocked = false
-  const guardWrite = (name: string, _userMessage: string): boolean => {
-    if (writeUnlocked) return true
+  /** 守卫判定结果：拒绝时必须给出可执行的、阶段相关的理由。 */
+  const guardWrite = (name: string): { allowed: true } | { allowed: false; reason: string } => {
+    if (writeUnlocked) return { allowed: true }
     const key = WRITE_TOOL_KEYS[name]
-    if (key === undefined) return true // 只读工具 / 未登记工具一律放行
+    if (key === undefined) return { allowed: true } // 只读工具 / 未登记工具一律放行
     // 近两轮用户消息合并判断（支持"继续"类延续指令）。
     const recentUsers = history
       .filter(m => m.role === 'user')
       .slice(-2)
       .map(m => m.content)
       .join('\n')
-    if (key.test(recentUsers)) {
-      writeUnlocked = true
-      return true
+    if (strictStage) {
+      // 通用续写指令（「继续/下一步」）：宿主算出的阶段就是唯一命令。
+      if (stageAllows(stage, name)) {
+        writeUnlocked = true
+        return { allowed: true }
+      }
+      return {
+        allowed: false,
+        reason: `当前阶段是「${stage.label}」——${stage.reason}。本轮只说了「继续」，因此只允许：${stage.allow.length > 0 ? stage.allow.join('、') : '无写操作'}；${name} 属于本阶段之外的写操作。若要强制执行，请明确点名该操作。`,
+      }
     }
-    return false
+    if (!key.test(recentUsers)) {
+      return { allowed: false, reason: `当前消息里没有明确要求执行「${name}」这类写操作` }
+    }
+    writeUnlocked = true
+    return { allowed: true }
+  }
+
+  /** 同一调用签名（工具名 + 规范化参数）的失败记账：达到上限即 fail-stop。 */
+  const failures = new FailureLedger()
+  /** 动作标签本身不是合法 JSON 的次数：第一次喂回修正提示，第二次直接停止。 */
+  let malformedActionCount = 0
+
+  /**
+   * 组装并落盘一条结束语（调用方负责 yield + return）。
+   *
+   * @param text 结束语正文。
+   * @returns 已落盘的历史条目。
+   */
+  const makeStopEntry = (text: string): AssistantMessage => {
+    const entry: AssistantMessage = { role: 'assistant', content: text, ts: new Date().toISOString() }
+    history.push(entry)
+    appendHistory(outputDir, entry)
+    return entry
   }
   for (;;) {
     if (iterations++ > 20) break
@@ -814,7 +946,26 @@ export async function* runAssistantTurn(
       continue
     }
 
-    const action = extractAction(reply)
+    // 动作标签本身不是合法 JSON：第一次给模型一次修正机会，第二次直接停止
+    // （fail-stop：禁止反复用非法参数试探，白耗额度）。
+    let action: { name: string; args: Record<string, unknown>; index: number } | undefined
+    try {
+      action = extractAction(reply)
+    } catch (error) {
+      malformedActionCount++
+      const message = (error as Error).message
+      if (malformedActionCount >= 2) {
+        const stopped = makeStopEntry(`【已停止】动作参数连续两次不是合法 JSON，本轮不再重试。\n错误：${message}\n请把参数写成一段合法 JSON（字符串内不要有真实换行符），再重新发出指令。`)
+        yield { frame: 'tool', name: 'format-hint', status: 'error', detail: message }
+        yield { frame: 'delta', text: stopped.content }
+        return
+      }
+      const hint = `【参数错误】${message}\n修正要求：动作参数必须是一段合法 JSON，例如 <dsh-action name="chapter_text">{"no":1}</dsh-action>；字符串值内不得有真实换行符。这是唯一一次修正机会，请勿原样重复同一调用。`
+      history.push({ role: 'tool', content: hint, tool: 'format-hint', ts: new Date().toISOString() })
+      appendHistory(outputDir, { role: 'tool', content: hint, tool: 'format-hint', ts: new Date().toISOString() })
+      yield { frame: 'tool', name: 'format-hint', status: 'error', detail: message }
+      continue
+    }
 
     if (action === undefined) {
       // No parseable action tag. If the reply clearly intends to modify
@@ -854,17 +1005,17 @@ export async function* runAssistantTurn(
     // Execute the action, then feed the result back and continue.
     const { name, args, index } = action
     const prose = reply.slice(0, index).trim()
-    // 写操作意图守卫：用户没明确要求修改时，拒绝执行并提示（不写盘、不消耗生成额度）。
-    if (!guardWrite(name, userMessage)) {
-      const denied = `【操作被拒绝】${name} 是写操作（会修改正文/项目数据），但你当前的消息里没有明确要求执行该修改。如果需要，请明确说明（如「生成第 120 章」「把第 105 章结尾改一下」）。我不会擅自修改你的作品。`
+    // 写操作守卫 + 阶段契约：授权不足、或阶段外的写操作一律拒绝并提示
+    // （不写盘、不消耗生成额度）。
+    const gate = guardWrite(name)
+    if (!gate.allowed) {
+      const denied = `【操作被拒绝】${name} 是写操作（会修改正文/项目数据），${gate.reason}。请作者明确说明要做什么（如「生成第 120 章」「把第 105 章结尾改一下」），我不会擅自修改你的作品。`
       history.push({ role: 'tool', content: denied, tool: name, ts: new Date().toISOString() })
       appendHistory(outputDir, { role: 'tool', content: denied, tool: name, ts: new Date().toISOString() })
       yield { frame: 'tool', name, status: 'error', detail: denied }
       // 拒绝后结束本轮：等作者重新明确指令。
-      const assistantEntry: AssistantMessage = { role: 'assistant', content: denied, ts: new Date().toISOString() }
-      history.push(assistantEntry)
-      appendHistory(outputDir, assistantEntry)
-      yield { frame: 'delta', text: denied }
+      const assistantEntry = makeStopEntry(denied)
+      yield { frame: 'delta', text: assistantEntry.content }
       return
     }
     yield { frame: 'tool', name, status: 'start' }
@@ -889,8 +1040,24 @@ export async function* runAssistantTurn(
       yield { frame: 'tool', name, status: 'done', detail: result.slice(0, 200) }
       yield { frame: 'toolResult', name, text: result.slice(0, 4000) }
     } catch (error) {
-      result = `执行失败：${(error as Error).message}`
-      yield { frame: 'tool', name, status: 'error', detail: (error as Error).message }
+      // fail-stop：错误分级 + 同一调用签名去重。
+      // - contract（参数/契约类）：总尝试次数上限 1，即禁止原样重复同一调用；
+      // - transient（瞬时故障）：上限 2，即自动允许一次重试。
+      const kind = classifyActionError(error)
+      const message = (error as Error).message
+      const { attempts, stop } = failures.record(name, args, kind)
+      yield { frame: 'tool', name, status: 'error', detail: message }
+      if (stop) {
+        const reason = kind === 'contract'
+          ? `同一调用（${name}，相同参数）已失败 ${attempts} 次，属于参数/契约类错误，宿主不再重试`
+          : `${name} 连续失败 ${attempts} 次（瞬时故障），本轮不再重试`
+        const stopped = makeStopEntry(`【已停止】${reason}。\n最后一次错误：${message}\n请修正参数或改用其它方式；需要继续时请重新明确说明你的要求。`)
+        yield { frame: 'delta', text: stopped.content }
+        return
+      }
+      result = kind === 'contract'
+        ? `执行失败（参数/契约类错误，宿主不会重试同一调用）：${message}\n注意：这是唯一一次修正机会，请调整参数后重试，禁止原样重复本次调用。`
+        : `执行失败（瞬时故障，可再重试一次）：${message}`
     }
 
     // Persist assistant prose + tool result as history entries.

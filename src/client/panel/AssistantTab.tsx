@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import { tt } from './helpers.ts'
-import type { AssistantFrame } from '../../protocol.ts'
+import type { AssistantFrame, StageInfo } from '../../protocol.ts'
 import css from './panel.module.css'
 
 /** 工具中文名 + 图标映射（作者看得懂）。 */
@@ -62,10 +62,12 @@ interface ChatLine {
 /** Props. */
 export interface AssistantTabProps {
   api: NovelApi
+  /** 宿主算出的创作阶段（/status.stage）：让作者在同一屏看到「现在该做什么」。 */
+  stage?: StageInfo | null
 }
 
 /** The assistant conversation tab. */
-export function AssistantTab({ api }: AssistantTabProps) {
+export function AssistantTab({ api, stage }: AssistantTabProps) {
   const [lines, setLines] = useState<ChatLine[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -264,6 +266,20 @@ export function AssistantTab({ api }: AssistantTabProps) {
           ? ` 编辑老师 · ${activeTool !== null ? `正在「${TOOL_LABELS[activeTool.name]?.label ?? activeTool.name}」` : `正在思考…（已 ${thinkSeconds}s）`}`
           : ' 编辑老师 · 等你开口'}
       </div>
+      {/* 阶段条：宿主根据项目真实状态算出的当前阶段与建议下一步（与工作台角标同源）。 */}
+      {stage != null && (
+        <div
+          className={css.meta}
+          title={`阶段判定：${stage.reason}`}
+          style={{ display: 'flex', alignItems: 'center', gap: 'var(--nf-space-8)', flexWrap: 'wrap', fontSize: 'var(--nf-fs-12)' }}
+        >
+          <span>当前阶段 · {stage.label}</span>
+          {stage.recommend.length > 0 && (
+            <span>建议下一步：{stage.recommend.map(t => TOOL_LABELS[t]?.label ?? t).join(' / ')}</span>
+          )}
+          {stage.allow.length === 0 && <span>（本阶段由面板操作推进）</span>}
+        </div>
+      )}
       <div
         ref={scrollRef}
         className={css.chatScroll}

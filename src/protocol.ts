@@ -1054,7 +1054,9 @@ export interface LlmVendor {
 
 /** 预置的常见厂商（id=provider 路由；添加模型下拉兜底用，其余厂商由运行时目录动态补充）。 */
 export const LLM_VENDORS: LlmVendor[] = [
-  { id: 'deepseek-official', name: 'DeepSeek', route: 'deepseek-official', apiKeyEnv: 'DEEPSEEK_API_KEY', defaultModel: 'deepseek-v4-flash', models: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'], builtin: true },
+  // 注意：本列表只是「运行时目录不可用」时的兜底建议值；实际以 ctx.llm.listModels() 为准
+  // （见 engine.ts listLlmVendors），避免 DSH 侧模型改名后这里的条目过期。
+  { id: 'deepseek-official', name: 'DeepSeek', route: 'deepseek-official', apiKeyEnv: 'DEEPSEEK_API_KEY', defaultModel: 'deepseek-flash', models: ['deepseek-flash', 'deepseek-v4-pro'], builtin: true },
   { id: 'zai-coding-cn', name: '智谱 GLM', route: 'zai-coding-cn', apiKeyEnv: 'ZAI_CODING_CN_API_KEY', defaultModel: 'glm-5.3-flash', models: ['glm-4.5-air', 'glm-4.7', 'glm-5-turbo', 'glm-5.1', 'glm-5.2', 'glm-5.3', 'glm-5.3-flash', 'glm-5v-turbo'] },
   { id: 'qwen-token-plan-cn', name: '千问百炼', route: 'qwen-token-plan-cn', apiKeyEnv: 'QWEN_TOKEN_PLAN_CN_API_KEY', defaultModel: 'qwen3.7-max', models: ['qwen3.6-flash', 'qwen3.6-plus', 'qwen3.7-max', 'qwen3.7-plus', 'qwen3.8-max', 'qwen3.8-max-preview'] },
   { id: 'openrouter', name: 'OpenRouter', route: 'openrouter', apiKeyEnv: 'OPENROUTER_API_KEY', defaultModel: 'z-ai/glm-5.3-flash', models: ['z-ai/glm-4.6', 'z-ai/glm-4.7', 'z-ai/glm-5', 'z-ai/glm-5-turbo', 'z-ai/glm-5.1', 'z-ai/glm-5.2', 'z-ai/glm-5.3-flash', 'auto', 'deepseek/deepseek-v4-flash', 'anthropic/claude-sonnet-4.6'] },
@@ -1140,7 +1142,7 @@ export interface NovelConfig {
   outputDir: string
   /** LLM provider route (e.g. deepseek-official). */
   provider: string
-  /** LLM model id (e.g. deepseek-v4-flash). */
+  /** LLM model id (e.g. deepseek-flash). */
   model: string
   /** 生成正文用模型（缺省用 model）。 */
   generateModel?: string
@@ -1213,6 +1215,23 @@ export interface BookSettingsResponse {
 }
 
 /** GET /status response. */
+/**
+ * 创作阶段契约（宿主计算的「当前阶段 → 本轮允许的动作」）。
+ * 计算逻辑在 stage-contract.ts；这里是宿主与面板/助手共享的线上形状。
+ */
+export interface StageInfo {
+  /** 阶段标识。 */
+  id: 'outline' | 'bible' | 'plan' | 'write' | 'wait' | 'review' | 'revise' | 'export'
+  /** 中文阶段名。 */
+  label: string
+  /** 建议的下一步动作（助手工具名；无对应工具时为空数组）。 */
+  recommend: string[]
+  /** 本阶段允许的写操作（作者只说了「继续」时的唯一命令集）。 */
+  allow: string[]
+  /** 为什么处于该阶段。 */
+  reason: string
+}
+
 export interface StatusResponse {
   config: NovelConfig
   /** The persisted project, when one exists in the output dir. */
@@ -1221,6 +1240,13 @@ export interface StatusResponse {
   generatedFiles: string[]
   /** 全书质检实时状态（用于面板/外部读取进度）。 */
   audit?: AuditStatus
+  /** 宿主按项目真实状态算出的创作阶段（面板角标 / 外部自动化共用）。 */
+  stage?: StageInfo
+  /**
+   * 截断声明：本次响应中被裁掉的字段说明（如「编年录：共 320 条，仅返回最近 80 条」）。
+   * 消费方不得把缺失字段当作"不存在"，需要完整数据时走专用接口。
+   */
+  truncations?: string[]
 }
 
 /** 生产单状态（生产单 = 区间批量生产执行器：计划补足 + 逐章生成 + 被拒分级处理）。 */
