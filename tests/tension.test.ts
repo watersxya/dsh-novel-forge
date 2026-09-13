@@ -153,3 +153,19 @@ describe('buildCurveData', () => {
     expect(curve.points[0]?.reference).toBeUndefined()
   })
 })
+
+describe('run 型问题的受影响章号', () => {
+  it('平台期返回完整区间，中间章也能被定位（面板/合并层据此给建议）', () => {
+    const p = project([1, 2, 3, 4, 5, 6].map(no => chapter(no, { tension: 55 })))
+    const issue = detectTensionIssues(p).find(i => i.item.includes('几乎无变化'))
+    expect(issue?.chapters).toEqual([1, 2, 3, 4])
+  })
+
+  it('高位不回落与长期低位同样返回完整区间', () => {
+    const high = project([1, 2, 3].map(no => chapter(no, { tension: 85 })))
+    expect(detectTensionIssues(high).find(i => i.item.includes('缺少呼吸口'))?.chapters).toEqual([1, 2, 3])
+    const low = project([1, 2, 3, 4, 5, 6].map(no => chapter(no, { tension: 30 })))
+    // 第 5 章凑满连续 5 章低位 → 受影响区间为 1-5（规则在恰好第 5 章触发）
+    expect(detectTensionIssues(low).find(i => i.item.includes('推进可能偏慢'))?.chapters).toEqual([1, 2, 3, 4, 5])
+  })
+})

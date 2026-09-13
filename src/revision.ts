@@ -50,6 +50,20 @@ export function revisionPriority(source: RevisionSource, severity: Severity): nu
   return severity === 'high' ? 2 : 2
 }
 
+/** 同优先级的来源次序：审稿 > 时间线 > 张力（同级时先改让本章"判不过"的那一类）。 */
+const SOURCE_RANK: Record<RevisionSource, number> = { review: 0, timeline: 1, tension: 2 }
+
+/**
+ * 条目在**来源内部**的原始序号（id 末段）。
+ * 必须按数值比较：字符串比较会得到 0,1,10,11,2… 的顺序，
+ * 于是截断时先丢「第 3 条意见」却留下「第 11 条」——等于把靠前的意见丢了。
+ */
+function sequenceOf(item: RevisionItem): number {
+  const tail = item.id.slice(item.id.lastIndexOf(':') + 1)
+  const n = Number.parseInt(tail, 10)
+  return Number.isFinite(n) ? n : 0
+}
+
 /** 去重键：同源 + 归一化问题描述（忽略空白与标点差异）。 */
 function dedupeKey(item: RevisionItem): string {
   return `${item.source}|${item.item.replace(/[\s，。、；：,.!?！？"'"'（）()【】\[\]]/g, '').slice(0, 60)}`
@@ -64,6 +78,9 @@ export function mergeRevisionItems(
     const byPriority = revisionPriority(a.source, a.severity) - revisionPriority(b.source, b.severity)
     if (byPriority !== 0) return byPriority
     if (a.chapterNo !== b.chapterNo) return a.chapterNo - b.chapterNo
+    if (a.source !== b.source) return SOURCE_RANK[a.source] - SOURCE_RANK[b.source]
+    const bySequence = sequenceOf(a) - sequenceOf(b)
+    if (bySequence !== 0) return bySequence
     return a.id.localeCompare(b.id)
   })
   const seen = new Map<string, RevisionItem>()

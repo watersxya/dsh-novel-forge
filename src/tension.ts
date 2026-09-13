@@ -126,6 +126,17 @@ export function renderTensionBlock(project: ProjectState, chapterNo: number): st
  * @param project 项目状态。
  * @returns 问题清单（可能为空）。
  */
+/**
+ * run 型问题（连续同值 / 连续高位 / 连续低位）的受影响章号。
+ * 返回**完整区间**而不是首尾两点：中间章同样受这条曲线问题影响，
+ * 面板要能在每一章上给出「一键按建议修订」，合并层也要能把建议落到中间章。
+ */
+function runChapters(from: number, to: number): number[] {
+  const out: number[] = []
+  for (let no = from; no <= to; no++) out.push(no)
+  return out
+}
+
 export function detectTensionIssues(project: ProjectState): TensionIssue[] {
   const chapters = [...(project.chapters ?? [])].sort((a, b) => a.no - b.no)
   const values = chapters.map(c => ({ no: c.no, target: targetTension(c), actual: actualTension(c) }))
@@ -158,7 +169,7 @@ export function detectTensionIssues(project: ProjectState): TensionIssue[] {
         const from = values[i - run + 1]!.no
         issues.push({
           severity: 'medium',
-          chapters: [from, values[i]!.no],
+          chapters: runChapters(from, values[i]!.no),
           item: `第${from}-${values[i]!.no}章张力几乎无变化（连续 ${run} 章）`,
           suggestion: '安排一次明显抬升或一次释放，让曲线有起伏，避免读者疲劳。',
         })
@@ -177,7 +188,7 @@ export function detectTensionIssues(project: ProjectState): TensionIssue[] {
       if (highRun === 3) {
         issues.push({
           severity: 'medium',
-          chapters: [v.no - 2, v.no],
+          chapters: runChapters(v.no - 2, v.no),
           item: `连续 ${highRun} 章处在高位（≥80），缺少呼吸口`,
           suggestion: '高潮之后补一章缓冲（关系推进、信息消化或日常），再进入下一轮对抗。',
         })
@@ -196,7 +207,7 @@ export function detectTensionIssues(project: ProjectState): TensionIssue[] {
       if (lowRun === 5) {
         issues.push({
           severity: 'high',
-          chapters: [v.no - 4, v.no],
+          chapters: runChapters(v.no - 4, v.no),
           item: `连续 ${lowRun} 章张力低于 40，推进可能偏慢`,
           suggestion: '提前兑现一个目标、抛出一个新风险，或让配角线产生冲撞。',
         })

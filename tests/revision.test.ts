@@ -206,3 +206,30 @@ describe('常量与待办文案', () => {
       .toBe('[时间线] 全书：全书时间线缺锚点')
   })
 })
+
+describe('同优先级内的次序（影响截断保留谁）', () => {
+  it('同源按原始序号数值排序，而不是 id 字符串序', () => {
+    const items: RevisionItem[] = [0, 1, 10, 11, 2].map(i =>
+      item({ id: `review:2:${i}`, source: 'review', severity: 'medium', chapterNo: 2, item: `意见${i}` }))
+    const merged = mergeRevisionItems(items)
+    expect(merged.items.map(i => i.item)).toEqual(['意见0', '意见1', '意见2', '意见10', '意见11'])
+  })
+
+  it('同优先级跨来源时审稿优先于时间线', () => {
+    const merged = mergeRevisionItems([
+      item({ id: 'timeline:0:2', source: 'timeline', severity: 'medium', chapterNo: 2, item: '地点衔接存疑' }),
+      item({ id: 'review:2:0', source: 'review', severity: 'medium', chapterNo: 2, item: '环境描写过长' }),
+    ])
+    expect(merged.items.map(i => i.source)).toEqual(['review', 'timeline'])
+  })
+
+  it('截断保留靠前的意见（不因字符串序留下第 11 条）', () => {
+    const items: RevisionItem[] = []
+    for (let i = 0; i < 12; i++) {
+      items.push(item({ id: `review:2:${i}`, source: 'review', severity: 'medium', chapterNo: 2, item: `意见${i}` }))
+    }
+    const merged = mergeRevisionItems(items, 8)
+    expect(merged.items.map(i => i.item)).toEqual(['意见0', '意见1', '意见2', '意见3', '意见4', '意见5', '意见6', '意见7'])
+    expect(merged.omitted).toBe(4)
+  })
+})
