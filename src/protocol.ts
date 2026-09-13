@@ -30,6 +30,8 @@ export const NOVEL_API = {
   usageReset: '/api/dsh-novel-forge/usage/reset',
   /** 章节历史版本（快照）。 */
   snapshot: '/api/dsh-novel-forge/snapshot',
+  /** 修订指令合并（POST：汇总审稿/时间线/张力为一轮）。 */
+  revisionPlan: '/api/dsh-novel-forge/revision/plan',
   /** 张力曲线（GET 数据 / POST 设置）。 */
   tension: '/api/dsh-novel-forge/tension',
   /** 提示词槽位（GET 列表 / POST 写入）。 */
@@ -352,9 +354,12 @@ export interface AuthorReview {
 export type ReviewDimension = 'character' | 'setting' | 'redline' | 'writing' | 'pacing' | 'logic' | 'anti-ai' | 'presentation' | 'compliance'
 
 /** One review finding. */
+/** 问题严重度（审稿 / 时间线 / 张力共用）。 */
+export type Severity = 'high' | 'medium' | 'low'
+
 export interface ReviewIssue {
   /** Severity: high = must fix, medium = should fix, low = suggestion. */
-  severity: 'high' | 'medium' | 'low'
+  severity: Severity
   /** 问题维度（可选；缺省由前端按 item 推断）。 */
   dimension?: ReviewDimension
   /** What the problem is. */
@@ -575,6 +580,49 @@ export interface StoryBible {
 }
 
 /** A planted/active/resolved foreshadowing thread. */
+/** 修订建议来源：审稿 / 时间线 / 张力。 */
+export type RevisionSource = 'review' | 'timeline' | 'tension'
+
+/** 一条待修订条目（合并层排序后的最小单位）。 */
+export interface RevisionItem {
+  /** 稳定 id（source:chapter:index）。 */
+  id: string
+  source: RevisionSource
+  severity: Severity
+  /** 归属章节号（0 = 全书级）。 */
+  chapterNo: number
+  item: string
+  suggestion: string
+  /** 去重时合并掉的同类条数（>=2 时展示）。 */
+  count?: number
+}
+
+/** POST /revision/plan 请求：把该章三类建议合并成一份修订指令。 */
+export interface RevisionPlanRequest {
+  op: 'plan'
+  chapterNo?: number
+  /** 显式指定的审稿意见（面板勾选后传入；缺省取已落盘报告）。 */
+  reviewIssues?: ReviewIssue[]
+  includeTimeline?: boolean
+  includeTension?: boolean
+  bookId?: string
+}
+
+/** POST /revision/plan 响应。 */
+export interface RevisionPlanResponse {
+  chapterNo: number
+  items: RevisionItem[]
+  /** 唯一修订指令（面板直接把它交给 /rewrite）。 */
+  instruction: string
+  counts: Record<RevisionSource, number>
+  /** 因上限被截断的条数。 */
+  omitted: number
+  /** 验证基准（复核时逐条核对本轮下发的全部条目）。 */
+  baseline: ReviewReport
+  /** 一行摘要。 */
+  summary: string
+}
+
 /**
  * 张力曲线形状预设：
  * `escalation` 递进爬升 / `suspense` 悬疑加压 / `wave` 波浪呼吸 /

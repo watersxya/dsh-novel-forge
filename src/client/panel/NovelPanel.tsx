@@ -806,6 +806,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const progressId = useRef(0)
   /** 面板已绑定的书（打开即锁，不随全局 active 漂移，避免串书）。 */
   const bookBoundRef = useRef(false)
+  /** 本次修订的验证基准（合并后的全部条目）；复核时逐条核对，避免多源判定互相打架。 */
+  const revisionBaselineRef = useRef<{ no: number; report: ReviewReport } | null>(null)
   /** id of the single live progress row (generation counter), if any. */
   const liveProgressId = useRef<number | null>(null)
   /** last chars value rendered into the live row (throttle for streaming). */
@@ -2362,10 +2364,45 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       // 核对原意见解决情况 + 只挑新增 high，防止"越修 high 越多"。
       if (config?.autoReviewAfterRevise !== false) {
         setBusy(true)
-        await autoCheckDraft(no, wsCheckReport)
+        // 复核基准优先用合并后的全部条目（审稿 + 时间线 + 张力），否则退回原审稿报告。
+        await autoCheckDraft(no, takeRevisionBaseline(no) ?? wsCheckReport)
         setBusy(false)
       }
     }
+  }
+
+  /**
+   * 修订指令合并（唯一入口）：审稿意见 + 时间线矛盾 + 张力偏差 → 一份指令 + 验证基准。
+   * 面板上所有「按意见修订 / 按建议修订」都走这里，保证同一章只改一轮、复核基准一致。
+   * 合并服务不可用时退回纯审稿指令（保持旧行为，不阻断修订）。
+   */
+  const mergeRevisionPlan = async (
+    no: number,
+    reviewIssues?: ReviewReport['issues'],
+  ): Promise<{ instruction: string; baseline?: ReviewReport; count: number }> => {
+    try {
+      const plan = await api.revisionPlan(no, reviewIssues)
+      pushProgress(`第 ${no} 章合并修订建议：${plan.summary}`, 'info')
+      revisionBaselineRef.current = { no, report: plan.baseline }
+      return { instruction: plan.instruction, baseline: plan.baseline, count: plan.items.length }
+    } catch (err) {
+      pushProgress(`第 ${no} 章合并建议失败，退回审稿意见：${(err as Error).message}`, 'error')
+      const top = (reviewIssues ?? []).slice(0, 5)
+      return {
+        instruction: '按审稿意见修订（优先处理）：\n' + top.map(i => `[${i.severity}] ${i.item} → ${i.suggestion}`).join('\n'),
+        count: top.length,
+      }
+    }
+  }
+
+  /** 取（并消费）本次修订的验证基准：只有章的编号一致才用，避免串章。 */
+  const takeRevisionBaseline = (no: number): ReviewReport | undefined => {
+    const cur = revisionBaselineRef.current
+    if (cur !== null && cur.no === no) {
+      revisionBaselineRef.current = null
+      return cur.report
+    }
+    return undefined
   }
 
   /** 工作区：按审查报告中勾选的问题一键修订（按勾选意见整章修订到草稿，不污染指令框）。 */
@@ -2376,7 +2413,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       .filter((it): it is ReviewReport['issues'][number] => it !== undefined)
       .slice(0, 5)
     if (picked.length === 0) return
-    const instruction = '按审稿意见修订（优先处理）：\n' + picked.map(i => `[${i.severity}] ${i.item} → ${i.suggestion}`).join('\n')
+    const { instruction } = await mergeRevisionPlan(workspace.no, picked)
     await handleWsRewrite(true, instruction)
   }
 
@@ -2385,17 +2422,18 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const handleReviseNow = async (no: number, pickedIssues?: ReviewReport['issues']): Promise<void> => {
     const chapter = chapters.find(c => c.no === no)
     // 未显式指定意见时沿用自动挑选（high → medium → 全部）；指定了就完全按作者勾选的来。
-    if (pickedIssues === undefined && (chapter?.review === undefined || chapter.review.issues.length === 0)) {
-      openWorkspace(no)
-      return
-    }
     const issues = pickedIssues ?? chapter?.review?.issues ?? []
-    if (issues.length === 0) return
     const high = issues.filter(i => i.severity === 'high')
     const medium = issues.filter(i => i.severity === 'medium')
     const picked = pickedIssues !== undefined ? issues : (high.length > 0 ? high : medium.length > 0 ? medium : issues)
-    const top = picked.slice(0, 5)
-    const instruction = '按审稿意见修订（优先处理）：\n' + top.map(i => `[${i.severity}] ${i.item} → ${i.suggestion}`).join('\n')
+    // 合并审稿 + 时间线 + 张力：任一来源有条目就发起修订（这也是时间线/张力面板「一键按建议修订」的入口）。
+    const merged = await mergeRevisionPlan(no, picked)
+    if (merged.count === 0) {
+      pushProgress(`第 ${no} 章没有可修订的建议`, 'info')
+      openWorkspace(no)
+      return
+    }
+    const instruction = merged.instruction
     setBusy(true)
     setBusyLabel(`${tt('plan.rewrite')} 第${no}章`)
     setError('')
@@ -2407,7 +2445,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       await openWorkspace(no, undefined, 'result')
       if (config?.autoReviewAfterRevise !== false) {
         setBusy(true)
-        await autoCheckDraft(no, chapter?.review)
+        await autoCheckDraft(no, takeRevisionBaseline(no) ?? chapter?.review)
       }
     } catch (err) {
       setError((err as Error).message)
@@ -2751,9 +2789,9 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   /** 工作台内修订闭环：按作者勾选的意见修订 → 产出草稿 → 原地切「对比」页 → 自动审查草稿。
    *  与 handleReviseNow 的区别：不再跳工作区，闭环留在工作台内。 */
   const handleWbRevise = async (no: number, issues: ReviewReport['issues']): Promise<void> => {
-    if (issues.length === 0) return
-    const top = issues.slice(0, 5)
-    const instruction = '按审稿意见修订（优先处理）：\n' + top.map(i => `[${i.severity}] ${i.item} → ${i.suggestion}`).join('\n')
+    const merged = await mergeRevisionPlan(no, issues)
+    if (merged.count === 0) return
+    const instruction = merged.instruction
     setBusy(true)
     setBusyLabel(`${tt('plan.rewrite')} 第${no}章`)
     setError('')
@@ -2765,7 +2803,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       setWbTab('diff')
       if (config?.autoReviewAfterRevise !== false) {
         setBusy(true)
-        const report = await checkDraftReport(no, previous)
+        const report = await checkDraftReport(no, takeRevisionBaseline(no) ?? previous)
         if (report !== null) setWbDraftReport(report)
       }
     } catch (err) {
@@ -4244,8 +4282,12 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           )}
           {rightDrawer === 'director' && <DirectorView api={api} todos={project?.todos ?? []} onTodosChange={(todos) => setProject(prev => prev === null ? prev : { ...prev, todos, updatedAt: new Date().toISOString() })} />}
           {rightDrawer === 'knowledge' && <KnowledgeBaseView api={api} />}
-          {rightDrawer === 'timeline' && <TimelineView api={api} chapters={chapters.map(c => c.no)} />}
-          {rightDrawer === 'tension' && <TensionView api={api} />}
+          {rightDrawer === 'timeline' && (
+            <TimelineView api={api} chapters={chapters.map(c => c.no)} onRevise={no => { void handleReviseNow(no) }} busy={busy} />
+          )}
+          {rightDrawer === 'tension' && (
+            <TensionView api={api} onRevise={no => { void handleReviseNow(no) }} busy={busy} />
+          )}
           {rightDrawer === 'promptSlots' && <PromptSlotsView api={api} />}
           {rightDrawer === 'run' && (
           <RunPanel api={api} totalChapters={chapters.length} />

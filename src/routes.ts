@@ -73,6 +73,8 @@ import {
   type PromptSlotsResponse,
   type SnapshotRequest,
   type SnapshotResponse,
+  type RevisionPlanRequest,
+  type RevisionPlanResponse,
   type TensionRequest,
   type TensionResponse,
   type TimelineRequest,
@@ -216,6 +218,7 @@ import { createSnapshot, loadSnapshots, pruneSnapshots, removeSnapshot, restoreS
 import { detectTimelineIssues } from './timeline.ts'
 import { buildCurveData, detectTensionIssues, TENSION_MAX, TENSION_MIN, TENSION_PRESETS, clampTension } from './tension.ts'
 import { PROMPT_SLOTS, normalizeSlotValue, readPromptSlots } from './prompt-slots.ts'
+import { buildRevisionPlan, describeRevisionPlan, REVISION_ITEM_CAP } from './revision.ts'
 
 /** Cap on JSON request bodies (generous: cover images travel as base64). */
 const MAX_JSON_BODY_BYTES = 64 * 1024 * 1024
@@ -1812,6 +1815,50 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           return
         }
         writeJson(res, 400, { error: `未知 op：${String(body?.op)}` })
+      } catch (error) {
+        writeJson(res, 500, { error: (error as Error).message })
+      }
+    },
+  }
+
+  // ------------------------------------------------------------ revision plan
+  /** 修订指令合并：POST { op: 'plan', chapterNo, reviewIssues? } → 一份合并指令 + 验证基准。
+   *  面板与生产单共用，保证「同一章只改一轮」；张力/时间线问题默认只是建议（advisory）。 */
+  const revisionPlanRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.revisionPlan,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const config = getConfig()
+      const body = await readJsonBody<RevisionPlanRequest>(req)
+      const outputDir = resolveOutputDir(config, body?.bookId)
+      const project = loadProject(outputDir)
+      if (project === undefined) { writeJson(res, 400, { error: '输出目录中没有项目' }); return }
+      const chapterNo = body?.chapterNo
+      if (chapterNo !== undefined && !project.chapters.some(c => c.no === chapterNo)) {
+        writeJson(res, 404, { error: `章节 ${String(chapterNo)} 不在计划中` })
+        return
+      }
+      const chapter = chapterNo === undefined ? undefined : project.chapters.find(c => c.no === chapterNo)
+      try {
+        const plan = buildRevisionPlan(project, {
+          chapterNo,
+          reviewIssues: body?.reviewIssues,
+          includeTimeline: body?.includeTimeline,
+          includeTension: body?.includeTension,
+          baseReport: chapter?.review,
+          cap: REVISION_ITEM_CAP,
+        })
+        const response: RevisionPlanResponse = {
+          chapterNo: chapterNo ?? 0,
+          items: plan.items,
+          instruction: plan.instruction,
+          counts: plan.counts,
+          omitted: plan.omitted,
+          baseline: plan.baseline,
+          summary: describeRevisionPlan(plan),
+        }
+        writeJson(res, 200, response)
       } catch (error) {
         writeJson(res, 500, { error: (error as Error).message })
       }
@@ -3652,6 +3699,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     llmPromptRoute,
     usageResetRoute,
     timelineRoute,
+    revisionPlanRoute,
     snapshotRoute,
     tensionRoute,
     promptSlotsRoute,

@@ -27,6 +27,7 @@ import {
 } from './engine.ts'
 import { countHanzi } from './engine.ts'
 import { loadBookshelf } from './bookshelf.ts'
+import { buildRevisionPlan, describeRevisionPlan, MAX_REVISION_ROUNDS, revisionTodoText } from './revision.ts'
 
 /** 生产单 checkpoint 文件名（放在书目录下）。 */
 function runStateFile(outputDir: string): string {
@@ -207,6 +208,42 @@ export class ProductionRunner {
       chapter.status = 'pending'
       await this.produce(project, chapter)
     }
+    this.auditChapterAdvisories(chapter.no)
+  }
+
+  /**
+   * 出章即核对曲线（建议性，不阻塞）：
+   * 规则初筛得到的时间线矛盾 + 张力曲线偏差写进运行日志；本章已完结时再落成项目待办。
+   * 默认**不**触发任何自动修订——要看/要改由作者在面板发起「一键按建议修订」；
+   * 只有当本章因审稿 high 本来就要修订时，这些问题才搭同一轮车（见 handleRejected），
+   * 因此不额外增加轮次，也不会出现「改完甲又违反乙」。
+   */
+  private auditChapterAdvisories(chapterNo: number): void {
+    const config = this.deps.getConfig()
+    const outputDir = this.bookDir ?? config.outputDir
+    const project = loadProject(outputDir)
+    if (project === undefined) return
+    const chapter = project.chapters.find(c => c.no === chapterNo)
+    if (chapter === undefined) return
+    // reviewIssues 传空数组：这里只核对曲线/时间线，审稿意见走审稿通道。
+    const plan = buildRevisionPlan(project, { chapterNo, reviewIssues: [], includeTimeline: true, includeTension: true })
+    if (plan.items.length === 0) return
+    this.log(`第${chapterNo}章 曲线/时间线核对：${describeRevisionPlan(plan)}——建议性提示，未自动改动`)
+    if (chapter.status !== 'approved') return
+    if (plan.counts.timeline === 0 && plan.counts.tension === 0) return
+    const todos = (project.todos ??= [])
+    const added: string[] = []
+    for (const item of plan.items.slice(0, 3)) {
+      const text = revisionTodoText(item)
+      if (todos.some(t => t.text === text)) continue
+      todos.unshift({ id: `td-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, text, source: 'risk', done: false, createdAt: new Date().toISOString() })
+      added.push(text)
+    }
+    if (added.length > 0) {
+      project.updatedAt = new Date().toISOString()
+      saveProject(outputDir, project)
+      this.log(`第${chapterNo}章 已登记 ${added.length} 条建议性待办（可在时间线/张力面板一键按建议修订）`)
+    }
   }
 
   /** 完整质量门：生成 → 摘要+事实 → 伏笔标记 → 审稿 → 作者复盘。 */
@@ -287,9 +324,13 @@ export class ProductionRunner {
       this.log(`第${no}章 豁免通过（无 high）`)
       return
     }
-    this.log(`第${no}章 修订（${highs.length} 个 high）…`)
-    for (let round = 1; round <= 2; round++) {
-      const instr = '按审稿意见修订（优先处理）：\n' + highs.map(h => `[${h.severity}] ${h.item}${h.suggestion !== '' ? `\n建议：${h.suggestion}` : ''}`).join('\n\n')
+    // 合并层：审稿 high + 时间线矛盾 + 张力偏差 → 一份指令，一轮改完。
+    // 张力/时间线本身不触发修订（建议性），只在「反正要改」时搭车，避免多通道互相覆盖。
+    let plan = buildRevisionPlan(project, { chapterNo: no, reviewIssues: highs, baseReport: report })
+    this.log(`第${no}章 修订（${describeRevisionPlan(plan)}）…`)
+    if (plan.omitted > 0) this.log(`第${no}章 修订指令已截断 ${plan.omitted} 条（超出单轮上限，优先级低者留待下一轮）`)
+    for (let round = 1; round <= MAX_REVISION_ROUNDS; round++) {
+      const instr = plan.instruction
       try {
         for await (const _step of rewriteChapterStream(ctx, config, project, outputDir, no, instr, undefined)) { /* drain */ }
       } catch (error) {
@@ -304,7 +345,8 @@ export class ProductionRunner {
         this.log(`第${no}章 第${round}轮草稿缺失，重试`)
         continue
       }
-      const verify = await reviewChapterText(ctx, config, fresh!, draft, chapter.review)
+      // 验证基准 = 本轮实际下发的全部条目（审稿 + 时间线 + 张力）：复核核对的就是「要求改的东西」。
+      const verify = await reviewChapterText(ctx, config, fresh!, draft, plan.baseline)
       const highs2 = (verify.issues ?? []).filter(i => i.severity === 'high')
       if (verify.passed || highs2.length === 0) {
         // 应用草稿（与 draft/apply 路由同逻辑）：备份原稿 → 落盘 → 定状态。
@@ -314,9 +356,12 @@ export class ProductionRunner {
         return
       }
       this.log(`第${no}章 第${round}轮仍不过（${highs2.length} high）`)
+      // 下一轮重新合并：以本轮仍未解决的 high 为审稿来源，并重新核对时间线/张力
+      // （上一轮基线里已解决的条目不再下发，避免「越修越多」）。
+      plan = buildRevisionPlan(fresh ?? project, { chapterNo: no, reviewIssues: highs2, baseReport: verify })
     }
     if (this.state !== null) this.state.pendingManual.push(no)
-    this.log(`第${no}章  两轮修订仍不过 → 保留草稿待人工`)
+    this.log(`第${no}章  ${MAX_REVISION_ROUNDS} 轮修订仍不过 → 保留草稿待人工`)
   }
 
   private applyDraft(project: ProjectState, chapter: ChapterPlan, draft: string, report: ReviewReport): void {

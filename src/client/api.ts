@@ -32,6 +32,7 @@ import {
   type NovelConfig,
   type PlanResponse,
   type ReviewReport,
+  type RevisionPlanResponse,
   type StatusResponse,
   type StyleEngineRequest,
   type StyleAsset,
@@ -164,6 +165,14 @@ export class NovelApi {
   /** 审查手动编辑的正文（不落盘）。previousReport 传入时走「验证模式」（核对原意见解决 + 只挑新增 high）。 */
   async chapterCheck(no: number, text: string, previousReport?: ReviewReport): Promise<{ report: ReviewReport }> {
     return postJson<{ report: ReviewReport }>(NOVEL_API.chapterCheck, { chapterNo: no, text, previousReport })
+  }
+
+  /**
+   * 修订指令合并：把本章的审稿意见（勾选项）+ 时间线矛盾 + 张力偏差合成**一份**指令。
+   * 面板所有「按意见修订 / 一键按建议修订」入口都先走这里，保证同一章只改一轮。
+   */
+  async revisionPlan(no: number, reviewIssues?: ReviewReport['issues'], opts: { includeTimeline?: boolean; includeTension?: boolean } = {}): Promise<RevisionPlanResponse> {
+    return postJson<RevisionPlanResponse>(NOVEL_API.revisionPlan, { op: 'plan', chapterNo: no, reviewIssues, ...opts })
   }
 
   /** 保存手动编辑的正文（自动备份 .bak；带报告则沿用落盘，否则保存后自动审稿）。 */

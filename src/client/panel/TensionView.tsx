@@ -68,9 +68,13 @@ function CurveChart({ points, onPick }: { points: TensionCurvePoint[]; onPick: (
 
 export interface TensionViewProps {
   api: NovelApi
+  /** 一键按建议修订（合并审稿/张力/时间线后改这一章；由父级统一发起）。 */
+  onRevise?: (chapterNo: number) => void
+  /** 外部忙碌态（修订进行中时禁用按钮）。 */
+  busy?: boolean
 }
 
-export default function TensionView({ api }: TensionViewProps): JSX.Element {
+export default function TensionView({ api, onRevise, busy: outerBusy }: TensionViewProps): JSX.Element {
   const [data, setData] = useState<TensionResponse | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -168,6 +172,18 @@ export default function TensionView({ api }: TensionViewProps): JSX.Element {
                 <span className={css.lfPill} data-phase={issue.severity === 'high' ? 'failed' : 'requesting'}>{issue.severity === 'high' ? '高' : issue.severity === 'medium' ? '中' : '低'}</span>
                 <span style={{ marginLeft: 6 }}>{issue.chapters.length > 0 ? `第 ${issue.chapters.join('、')} 章：` : ''}{issue.item}</span>
                 {issue.suggestion !== '' && <div className={css.meta} style={{ marginLeft: 6 }}>建议：{issue.suggestion}</div>}
+                {onRevise !== undefined && issue.chapters.length > 0 && (
+                  <button
+                    type="button"
+                    className={`${css.button} ${css.buttonSmall}`}
+                    style={{ marginLeft: 6, marginTop: 2 }}
+                    disabled={busy || outerBusy === true}
+                    title="把该章的张力偏差与审稿意见、时间线矛盾合并成一轮修订（只改这一章，改完自动复核）"
+                    onClick={() => { onRevise(issue.chapters[0]!) }}
+                  >
+                    一键按建议修订（第 {issue.chapters[0]} 章）
+                  </button>
+                )}
               </div>
             ))}
           </div>

@@ -19,9 +19,13 @@ export interface TimelineViewProps {
   api: NovelApi
   /** 章节号列表（用于「抽取本章」下拉）。 */
   chapters: number[]
+  /** 一键按建议修订（合并审稿/时间线/张力后改这一章；由父级统一发起）。 */
+  onRevise?: (chapterNo: number) => void
+  /** 外部忙碌态（修订进行中时禁用按钮）。 */
+  busy?: boolean
 }
 
-export default function TimelineView({ api, chapters }: TimelineViewProps): JSX.Element {
+export default function TimelineView({ api, chapters, onRevise, busy: outerBusy }: TimelineViewProps): JSX.Element {
   const [events, setEvents] = useState<TimelineEvent[]>([])
   const [issues, setIssues] = useState<TimelineIssue[]>([])
   const [busy, setBusy] = useState(false)
@@ -128,6 +132,18 @@ export default function TimelineView({ api, chapters }: TimelineViewProps): JSX.
                 <span className={css.lfPill} data-phase={issue.severity === 'high' ? 'failed' : 'requesting'}>{SEVERITY_LABEL[issue.severity]}</span>
                 <span style={{ marginLeft: 6 }}>{issue.chapters.length > 0 ? `第 ${issue.chapters.join('、')} 章：` : ''}{issue.item}</span>
                 {issue.suggestion !== '' && <div className={css.meta} style={{ marginLeft: 6 }}>建议：{issue.suggestion}</div>}
+                {onRevise !== undefined && issue.chapters.length > 0 && (
+                  <button
+                    type="button"
+                    className={`${css.button} ${css.buttonSmall}`}
+                    style={{ marginLeft: 6, marginTop: 2 }}
+                    disabled={busy || outerBusy === true}
+                    title="把该章的时间线矛盾与审稿意见、张力偏差合并成一轮修订（只改这一章，改完自动复核）"
+                    onClick={() => { onRevise(issue.chapters[0]!) }}
+                  >
+                    一键按建议修订（第 {issue.chapters[0]} 章）
+                  </button>
+                )}
               </div>
             ))}
           </div>
