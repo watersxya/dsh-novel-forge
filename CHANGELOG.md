@@ -6,6 +6,7 @@
 
 - **代码不再内联外部来源**：清掉源码、注释、UI 文案与出站请求里的第三方项目名/组织名/上游符号名；榜单抓取的 `user-agent` 由上游标识改为本插件自己的 `dsh-novel-forge-radar/1.0`；章节生成骨架的提示词标题由「官方生成骨架」改为「章节生成骨架」，函数 `renderOfficialChapterWriterSkeleton` 更名 `renderChapterWriterSkeleton`（含 `prompting.ts` / `engine.ts` 两处调用）。
 - **归属声明集中登记**：新增 `THIRD_PARTY_NOTICES.md`，写明移植基准版本（`v0.2.3`，Apache-2.0）、移植范围（8 套叙事风格模板 / 12 条反 AI 规则 / 章节写作骨架 / 榜单抓取源）与**发布红线**（上游 `v0.2.4` 起为 AGPL-3.0-only，禁止再从上位版本复制）。该文件已加入 npm 分发包 `files`。
+- **归属范围补正**：`THIRD_PARTY_NOTICES.md` 按逐条比对结果列明移植数量（16 套风格模板中 8 套沿用、18 条反 AI 规则中 11 条沿用、4 档起步写法档全部沿用、14 个顶层题材中 7 个同名），并声明推进模式与剧情节拍经比对为本仓库自建（原 `assets.ts` 头注释的「genre tree + progression mode seeds」属过度声明，已随清理一并修正）。
 - **自动化门禁**：新增 `scripts/check-third-party.mjs`（`pnpm check:third-party`），扫描 `src/ tests/ scripts/ 配置` 中的外部项目名、组织名、上游符号名与 AGPL 标记，命中即失败；已接入 CI 与发布脚本第 3 步。目前 79 个文件全绿。
 
 ## [1.2.1-alpha] - 2026-09-13
