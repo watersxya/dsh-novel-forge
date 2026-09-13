@@ -1581,7 +1581,7 @@ export interface AntiAiRule {
   scope?: Array<'writing' | 'review' | 'polish' | 'all'>
 }
 
-/** 预置写法模板（来自 AI-Novel-Writing-Assistant 内置数据，一键绑定无需样本文本）。 */
+/** 预置叙事风格模板（一键绑定无需样本文本）。 */
 export interface StyleTemplateNarrativeRules {
   progressionMode?: string
   sceneUnitPattern?: string[]
@@ -1654,7 +1654,7 @@ export interface StyleTemplate {
   defaultAntiAiRuleKeys: string[]
 }
 
-/** 起始风格画像：无样本文本也能快速绑定一套写法（对齐上游 DEFAULT_STARTER_STYLE_PROFILES）。 */
+/** 起始风格画像：无样本文本也能快速绑定一套写法。 */
 export interface StarterStyleProfile {
   /** stable key（如 starter-power-up）。 */
   key: string

@@ -11,8 +11,8 @@ import { LLM_VENDORS } from '../../protocol.ts'
 import { tt } from './helpers.ts'
 import css from './panel.module.css'
 
-/** 目录不可用时回退的内置预设（历史行为）。 */
-export const FALLBACK_MODEL_PRESETS = ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'] as const
+/** 目录不可用时回退的内置预设（对齐当前模型目录）。 */
+export const FALLBACK_MODEL_PRESETS = ['deepseek-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'] as const
 
 const CUSTOM = '__custom__'
 interface TestState { testing: boolean; ok?: boolean; ms?: number; message?: string }

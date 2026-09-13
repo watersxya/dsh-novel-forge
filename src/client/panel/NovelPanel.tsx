@@ -97,7 +97,7 @@ const CMD_DRAWER_OF: Partial<Record<NovelTab, 'write' | 'setup' | 'assets' | 'pa
   breakdown: 'breakdown',
 }
 
-/** The navigation groups (AI-Novel-Writing-Assistant style grouping). */
+/** 侧栏导航分组（按创作阶段归类）。 */
 const NAV_GROUPS: ReadonlyArray<{ id: string; label: string; collapsible?: boolean; items: ReadonlyArray<{ id: NovelTab; label: string; icon: ReactElement }> }> = [  {
     id: 'dashboard',
     label: '概览',
@@ -2840,7 +2840,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   /** 侧栏当前书卡（demo 风格）：书架激活书 → 封面首字 / 书名 / 进度。 */
   const activeBook = shelf?.books.find(b => b.id === shelf?.activeBookId) ?? null
 
-  /** 主行动卡片：推荐下一步（AI-Novel-Writing-Assistant 首页主卡模式）。 */
+  /** 主行动卡片：同一刻只给作者一个「推荐下一步」。 */
   const nextAction = useMemo((): { eyebrow: string; title: string; reason: string; actionLabel: string; onClick: () => void } | null => {
     if (project === null) {
       return {

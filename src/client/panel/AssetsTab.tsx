@@ -1,6 +1,6 @@
 /**
  * 写作资产页签：题材基底库 / 推进模式库 / 反 AI 规则 / 写法引擎。
- * 学习自 AI-Novel-Writing-Assistant 的四大资产模块，注入到生成与审稿提示词中。
+ * 四大资产模块（题材 / 推进模式 / 反 AI 规则 / 叙事风格），注入到生成与审稿提示词中。
  */
 import { useCallback, useEffect, useState } from 'react'
 import type { NovelApi } from '../api.ts'
@@ -294,7 +294,7 @@ export function AssetsTab({ api, initialTab = 'genre' }: AssetsTabProps) {
       {assetTab === 'templates' && (
         <div className={css.card} style={{ flex: 1, minHeight: 0 }}>
           <span className={css.cardTitle}>笔法帖</span>
-          <span className={css.meta}>从内置 8 套叙事风格模板中一键选用（来自 AI-Novel-Writing-Assistant 写法引擎），无需样本文本；绑定后生成与润色都遵循该风格。</span>
+          <span className={css.meta}>从内置 8 套叙事风格模板中一键选用，无需样本文本；绑定后生成与润色都遵循该风格。</span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-8)', flex: 1, minHeight: 0, overflowY: 'auto' }}>
             {data.styleTemplates.map(template => {
               const bound = assets.styleAssets.some(s => s.name === template.name)

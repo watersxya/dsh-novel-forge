@@ -1,10 +1,10 @@
 /**
  * Writing assets — 题材基底库 / 推进模式库 / 反 AI 规则 / 写法引擎.
  *
- * Ported from AI-Novel-Writing-Assistant (Apache-2.0) built-in seed data:
- * - 8 preset style templates (DEFAULT_STYLE_TEMPLATES)
- * - 12 anti-AI rules with concrete detect patterns (DEFAULT_ANTI_AI_RULES)
- * - genre tree + progression mode seeds
+ * 内置种子数据（第三方归属见仓库根目录 THIRD_PARTY_NOTICES.md）：
+ * - 8 套预置叙事风格模板
+ * - 12 条带命中模式的反 AI 规则
+ * - 题材树 + 推进模式种子
  * Assets persist with the project (novel-project.json) and are injected into
  * generation / planning / review prompts, and available to the AI assistant.
  */
@@ -13,7 +13,7 @@ import type { AntiAiRule, GenreNode, PlotBeatTemplate, ProgressionMode, ProjectA
 
 // ------------------------------------------------------ built-in style templates
 
-/** 预置写法模板（来自 AI-Novel-Writing-Assistant 内置 DEFAULT_STYLE_TEMPLATES）。 */
+/** 预置叙事风格模板（8 套，一键绑定无需样本文本）。 */
 export const BUILTIN_STYLE_TEMPLATES: StyleTemplate[] = [
   {
     key: 'power-up-escalation',
@@ -471,7 +471,7 @@ export const BUILTIN_STYLE_TEMPLATES: StyleTemplate[] = [
 
 // ---------------------------------------------------------- built-in rules
 
-/** 内置全局反 AI 规则（来自 AI-Novel-Writing-Assistant 内置 DEFAULT_ANTI_AI_RULES）。 */
+/** 内置全局反 AI 规则（12 条，随插件发布；项目可叠加自定义规则）。 */
 export const BUILTIN_ANTI_AI_RULES: AntiAiRule[] = [
   {
     name: '禁止解释型心理描写',
@@ -1712,7 +1712,7 @@ export function styleTemplateToAsset(template: StyleTemplate): StyleAsset {
 
 // ---------------------------------------------------------- starter profiles
 
-/** 起始风格画像库：无样本文本也能快速绑定一套写法（对齐上游 DEFAULT_STARTER_STYLE_PROFILES）。 */
+/** 起始风格画像库：无样本文本也能快速绑定一套写法（4 档起步写法）。 */
 export const BUILTIN_STARTER_STYLE_PROFILES: StarterStyleProfile[] = [
   { key: 'starter-power-up', templateKey: 'power-up-escalation', name: '我的默认爽文推进写法', description: '适合第一次开书先跑顺目标推进、爽点兑现和章节收益点，后续可直接在此基础上微调。' },
   { key: 'starter-suspense', templateKey: 'suspense-pressure', name: '我的默认悬疑压迫写法', description: '适合异常、规则、调查和危险逼近类故事，先帮你把压迫感和信息差稳住。' },

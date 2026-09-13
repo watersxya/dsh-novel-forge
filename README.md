@@ -161,7 +161,7 @@ npm 分发的是预构建产物，无需任何构建授权。
 
 ## 影响与限制 / Impact & Limitations
 
-- **LLM 额度消耗**：生成/审稿/润色/质检/提炼/复盘等所有 AI 操作都调用 LLM（默认 `deepseek-official / deepseek-v4-flash`）。参考：一章 3000-4000 字正文 ≈ 1-2 万 token（含推理）；审稿约 2000-3000 token；全书质检与角色提炼更贵（数万 token）。建议分小批执行。
+- **LLM 额度消耗**：生成/审稿/润色/质检/提炼/复盘等所有 AI 操作都调用 LLM（默认 `deepseek-official / deepseek-flash`）。参考：一章 3000-4000 字正文 ≈ 1-2 万 token（含推理）；审稿约 2000-3000 token；全书质检与角色提炼更贵（数万 token）。建议分小批执行。
 - **写操作守卫**：AI 编辑 Agent 只在作者**明确要求**时执行写操作（生成/修订/删除章节、改设定等）；只提问不会误触发。
 - **并发安全**：计划/生成/审稿落盘前会自动合并磁盘上的最新设定（道藏/角色库/剧情线/知情度），多窗口同时操作互不覆盖。
 - **纯文本定位**：本插件不负责图片/视频生成；设定均为文字数据（角色卡仅含定位/性格/目标/关系/成长线/知情度等字段）。
@@ -175,11 +175,19 @@ npm 分发的是预构建产物，无需任何构建授权。
 ```
 src/            插件源码（宿主半 + 浏览器半）
 lib/            构建产物（lib/index.js 宿主 / lib/client.js 浏览器）
-scripts/        工具脚本
+scripts/        工具脚本（含 check-third-party.mjs 来源卫生门禁）
+THIRD_PARTY_NOTICES.md  第三方组件与归属声明
 package.json    包定义（dsh.bundle.patch + dsh.client 声明）
 cordis.patch.yml  profile 挂载补丁
 tsdown.config.ts  双面打包配置
 ```
+
+## 第三方组件 / Third-party
+
+移植的种子数据与写作骨架素材（来源、基准版本、许可证与发布红线）统一登记在
+[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。源码不再内联外部来源；
+`pnpm check:third-party`（CI 与发布流程都会执行）会在代码或配置里出现第三方项目名、
+组织名或不相容的许可证标记时直接失败。
 
 ---
 
@@ -232,6 +240,14 @@ Or link a local checkout and restart dsh web; the "Novel Forge" entry appears in
 
 ## Limitations
 
-- All AI operations consume LLM quota (default `deepseek-official / deepseek-v4-flash`).
+- All AI operations consume LLM quota (default `deepseek-official / deepseek-flash`).
 - Chapter quality depends on outline completeness; batch generation is serial.
 - The plugin writes text only — no image/video generation.
+
+## Third-party
+
+Seed data and writing-skeleton material ported from a third-party open-source project are
+documented in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md), including the pinned source
+version and its license. `pnpm check:third-party` (also run in CI and before every release)
+fails the build if a third-party project name or an incompatible license marker shows up in
+code or configuration.

@@ -18,7 +18,7 @@
     "deepseek-harness",
     "小说工坊",
     "novel-forge",
-    "ai-novel-writing",
+    "novel-writing-workbench",
     "novel-writing",
     "写作助手",
     "小说创作",
@@ -103,7 +103,8 @@
     "src",
     "scripts/patch-schemastery.mjs",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "license": "Apache-2.0",
   "scripts": {
@@ -113,6 +114,7 @@
     "watch": "tsdown --watch",
     "typecheck": "tsc --noEmit",
     "check:styles": "node scripts/check-theme-sizes.mjs",
+    "check:third-party": "node scripts/check-third-party.mjs",
     "release": "node scripts/release.mjs",
     "release:dry": "node scripts/release.mjs --dry-run",
     "test": "vitest run"

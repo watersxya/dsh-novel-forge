@@ -1,7 +1,7 @@
 /**
  * 纯逻辑单测：动作失败分级 / fail-stop 规则（不依赖 LLM，可离线跑）。
  *
- * 规则来源（借鉴 dsh-ai-novel-writer）：参数/契约类失败不得原样重复调用；
+ * 规则来源：参数/契约类失败不得原样重复调用；
  * 瞬时故障允许有限重试。规则必须可测试，否则只是文档。
  */
 import { describe, it, expect } from 'vitest'

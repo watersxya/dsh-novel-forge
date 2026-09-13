@@ -1,5 +1,5 @@
-/** 章节写作约束：官方 writer 骨架渲染成可附加到现有系统提示词末尾的必达/禁止/自查块。 */
-export function renderOfficialChapterWriterSkeleton(meta: {
+/** 章节写作约束：把写作骨架渲染成可附加到系统提示词末尾的必达/禁止/自查块。 */
+export function renderChapterWriterSkeleton(meta: {
   targetChars: number
   minChars: number
   maxChars: number
@@ -13,7 +13,7 @@ export function renderOfficialChapterWriterSkeleton(meta: {
   const hook = meta.endingHookPreference ?? '章末留一个明确的钩子（新信息、新风险或未闭合的选择）。'
   const antiAi = meta.antiAiRules ?? ''
   return [
-    '==================== 官方生成骨架（必达 / 禁止 / 输出前自查） ====================',
+    '==================== 章节生成骨架（必达 / 禁止 / 输出前自查） ====================',
     '【叙事视角】' + pov,
     '【本章必达】本章必须发生实质变化（局面、关系、信息、风险、决策至少一项）；开头迅速进入情境，禁止复述上一章。',
     '【禁止事项】不得写总结/复盘/解释性段落为主；不得引入新的核心角色或与上下文冲突的设定；不得为空凑字数。',

@@ -36,5 +36,8 @@ jobs:
       - name: Check fallback tiers
         run: node scripts/check-fallback-tiers.mjs
 
+      - name: Check third-party hygiene
+        run: node scripts/check-third-party.mjs
+
       - name: Test
         run: pnpm test

@@ -34,7 +34,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, emptyProjectAssets, recommendStylePreset, renderAllAssets, styleEngineSystemPrompt, styleFormulaSystemPrompt } from './assets.ts'
 import { scanAiFlavor } from './ai-scan.ts'
 import { emitLive, nextSessionId } from './llm-live.ts'
-import { renderOfficialChapterWriterSkeleton } from './prompting.ts'
+import { renderChapterWriterSkeleton } from './prompting.ts'
 import { NovelActionError } from './action-guard.ts'
 import { buildChapterContext, renderContextBlocks } from './novel-context.ts'
 import type {
@@ -806,7 +806,7 @@ function writeSystemPrompt(project: ProjectState, targetChars?: number, lengthRu
   sections.push('==================== 内容合规红线（平台硬性要求，最高优先级，违反即失败） ====================')
   sections.push(COMPLIANCE_REDLINES.join('\n'))
   sections.push('以上九条为硬性底线，任何情况下不得以任何形式出现或影射；若剧情确需涉及（如批判、反讽），只能以明确否定、揭露、批判的立场呈现，且不得展开细节。')
-  sections.push(renderOfficialChapterWriterSkeleton({
+  sections.push(renderChapterWriterSkeleton({
     targetChars: target,
     minChars: lo,
     maxChars: hi,
@@ -1798,7 +1798,7 @@ export async function suggestOutlines(
 }
 
 /** 拆书分析：对已写章节做结构/人物/文风/卖点四维体检。
- *  两阶段管道（借鉴 AI-Novel-Writing-Assistant）：
+ *  两阶段管道（先抽取候选、再落库）：
  *  ① 源片段笔记：每章抽取结构化笔记（剧情/人物/设定/写法/卖点/短板信号）
  *  ② 分节分析：按维度各跑一次 LLM，输出可读分析稿 + 结构化数据 + 证据链。
  *  @param scope 'recent'(默认最近20章) | 'volume:N' | 'all'

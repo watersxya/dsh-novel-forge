@@ -1,5 +1,5 @@
 /**
- * 「热门题材雷达」真实榜单抓取源（移植自 AI-Novel-Writing-Assistant marketRadarSources）。
+ * 「热门题材雷达」真实榜单抓取源（第三方归属见仓库根目录 THIRD_PARTY_NOTICES.md）。
  * 用全局 fetch 抓取公开榜单移动版页面，正则抽取元数据；无第三方依赖。
  */
 export type MarketRadarPlatform = 'fanqie' | 'qidian' | 'jinjiang'
@@ -133,7 +133,7 @@ export function parseJinjiangRanking(html: string, source: MarketRadarListSource
 
 async function fetchHtml(url: string): Promise<string> {
   const response = await fetch(url, {
-    headers: { 'user-agent': 'Mozilla/5.0 (compatible; AI-Novel-Market-Radar/1.0; public-ranking-metadata-only)' },
+    headers: { 'user-agent': 'Mozilla/5.0 (compatible; dsh-novel-forge-radar/1.0; public-ranking-metadata-only)' },
     signal: AbortSignal.timeout(20_000),
   })
   if (!response.ok) throw new Error(`榜单页面返回 HTTP ${response.status}`)

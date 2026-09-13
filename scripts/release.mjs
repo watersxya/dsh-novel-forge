@@ -63,10 +63,12 @@ console.log(NL + '▶ 校验与构建')
 shLive('pnpm typecheck')
 shLive('node scripts/check-theme-sizes.mjs')
 shLive('node scripts/check-fallback-tiers.mjs')
+// 第三方来源卫生：防止把外部来源的代码/文案带进本产物（细则见 THIRD_PARTY_NOTICES.md）。
+shLive('node scripts/check-third-party.mjs')
 shLive('pnpm build')
 // 测试与 CI 对齐：带着失败用例发布过一次就很难收回（npm 版本号不可复用）。
 shLive('pnpm test')
-console.log('  · typecheck / check-styles / build / test 全部通过')
+console.log('  · typecheck / check-styles / third-party / build / test 全部通过')
 
 // ---- 4) commit + tag -----------------------------------------------------
 console.log(NL + '▶ 提交与打 tag')
