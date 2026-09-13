@@ -1,8 +1,10 @@
 # 小说工坊 · 设计总纲「墨案 InkDesk」
 
-> 唯一设计基准。结构基准 = `demo-full.html`（书架→总编台）+ `demo-subpages.html`（子页布局）。
-> 视觉基准 = 本文档定义的「墨纸 / 纸白」双档 token 表。
-> 以前 4 套材料皮肤（macos / neumorph / clay / endfield）**删除**，不再参与。密度档与性能 lite 档保留。
+> **状态：现行设计基准**（唯一）。视觉基准 = 本文档定义的「墨纸 / 纸白」双档 token 表；
+> 这些 token 同时是 `scripts/check-theme-sizes.mjs` 的校验对象（主题块内不得出现尺寸声明）。
+> 以前 4 套材料皮肤（macos / neumorph / clay / endfield）**删除**，不再参与；面板不提供皮肤切换。
+> 结构基准曾参照内部 HTML 样稿（`demo-full.html` / `demo-subpages.html` 等）——这些样稿未随仓库分发，
+> 布局结论已固化到本文档与 `src/client/panel/`，历史样稿可在早期提交里找到。
 
 ---
 

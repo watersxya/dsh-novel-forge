@@ -1,5 +1,13 @@
 # 墨案 InkDesk 设计对齐清单
 
+> **历史归档 / Historical archive**
+> 这是「墨案 InkDesk」设计语言迁移期的内部工作稿，仅作追溯之用，**不再维护**，
+> 其中的文件路径、行号与完成状态可能已与当前代码不一致。
+> 现行设计基准见 [`../design-direction.md`](../design-direction.md)。
+
+---
+
+
 ## 目标
 将 `src/client/` 的 React 应用样式对齐到 `design-sample-workbench.html` 和 `demo-subpages.html` 展示的"墨案 InkDesk"设计语言。
 

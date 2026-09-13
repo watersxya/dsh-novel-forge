@@ -1,5 +1,13 @@
 # 墨案 InkDesk 设计对齐完成报告
 
+> **历史归档 / Historical archive**
+> 这是「墨案 InkDesk」设计语言迁移期的内部工作稿，仅作追溯之用，**不再维护**，
+> 其中的文件路径、行号与完成状态可能已与当前代码不一致。
+> 现行设计基准见 [`../design-direction.md`](../design-direction.md)。
+
+---
+
+
 **执行时间**：2026-09-07  
 **执行人**：Crow5 (Reinhard)  
 **目标**：将小说工坊 React 应用的 UI 样式对齐到 demo HTML 展示的"墨案 InkDesk"设计语言
@@ -165,10 +173,10 @@
 
 ### 新建文件
 
-**`DESIGN_ALIGNMENT_CHECKLIST.md`**
+**`design-alignment-checklist.md`**
 - 设计对齐清单（包含所有待验证项和优化项）
 
-**`DESIGN_ALIGNMENT_REPORT.md`**
+**`design-alignment-report.md`**
 - 本报告（完成总结）
 
 ---

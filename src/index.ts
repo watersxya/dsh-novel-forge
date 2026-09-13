@@ -130,7 +130,7 @@ const DEFAULT_AUTO_REVIEW_AFTER_REVISE = true
 const SECTION_ORDER = 160
 
 /** Model-facing announcement: plugin presence, capabilities, and limits. */
-export const NOVEL_GUIDANCE = '本机已安装 dsh-novel-forge 插件（AI 编译小说工作台）：侧边栏「小说工坊」入口。能力：读取 docx 大纲或粘贴大纲文本；用 LLM 提炼道藏（人设/世界观/金手指规则/写作红线）；生成卷计划与章节计划；逐章调用 LLM 生成 3000-4000 字正文并保存为 Markdown（默认输出到用户主目录 ~/.dsh/novels）；每章自动生成摘要（叙事记忆）、自动 AI 审稿（人设/设定/红线/文笔/爽点/逻辑），支持按审稿意见重写、去 AI 味润色、暗线（伏笔）管理、批量连写与全本导出（txt/md）。限制：生成消耗 LLM API 额度；输出目录与模型可在插件设置中修改；章节正文质量取决于大纲完整度。用户提到「小说 / 大纲 / 写小说 / 章节 / 审稿 / 润色」时即指本插件，请据此协作。'
+export const NOVEL_GUIDANCE = '本机已安装 dsh-novel-forge 插件（AI 编译小说工作台）：侧边栏「小说工坊」入口。能力：读取 docx 大纲、粘贴大纲文本或把 txt 全本拆章导入；用 LLM 提炼道藏（人设/世界观/金手指规则/写作红线）与大世界（境界/区域/势力）；生成卷计划与结构化章节计划（本章目标/剧情要点/必达项/义务合约/章末钩子）；逐章生成 3000-4000 字正文并保存为 Markdown（默认输出到用户主目录 ~/.dsh/novels）；每章自动生成摘要与编年录事实、抽取故事时间线（故事内时间/地点/在场角色/事件）、自动 AI 审稿（人设/设定/红线/文笔/爽点/逻辑/反 AI/呈现/合规九维）与作者复盘；支持按审稿意见合并修订（审稿 high + 时间线矛盾 + 张力偏差合成一轮，每章最多两轮后转人工）、去 AI 味润色、章节历史版本回滚、暗线（伏笔）管理、剧情线与角色库、张力曲线、全书一致性质检与敏感词扫描、分范围导出与项目备份、批量连写（生产单，可暂停/续跑）。限制：所有 AI 操作消耗 LLM API 额度；输出目录与模型可在插件设置中修改；章节正文质量取决于大纲完整度；张力/时间线问题默认只是建议（写日志与待办），不会自动改正文。用户提到「小说 / 大纲 / 写小说 / 章节 / 审稿 / 润色」时即指本插件，请据此协作。'
 
 /** Resolve a config-like value into the full runtime config. */
 export function resolveConfig(value: Partial<Config> | undefined): NovelConfig {

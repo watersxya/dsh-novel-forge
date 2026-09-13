@@ -282,6 +282,7 @@ src/                  插件源码（宿主半）
 lib/                  构建产物（lib/index.js 宿主 / lib/client.js 浏览器）
 tests/                14 个 vitest 测试文件（152 个用例）
 scripts/              构建与门禁脚本（含 check-third-party.mjs 来源卫生门禁、release.mjs）
+docs/                 设计文档（design-direction.md = 面板样式现行基准）+ archive/ 历史归档
 package.json          包定义（dsh.bundle.patch + dsh.client 声明）
 cordis.patch.yml      profile 挂载补丁
 tsdown.config.ts      双面打包配置
