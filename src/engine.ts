@@ -35,6 +35,8 @@ import { BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, emptyProjectAssets, r
 import { scanAiFlavor } from './ai-scan.ts'
 import { beginLiveCall, endLiveCall, markFirstToken } from './llm-live.ts'
 import { shouldSwitchModel, withModelFallback } from './llm-retry.ts'
+import { normalizeTimelineEvent, renderTimelineBlock, sortTimeline } from './timeline.ts'
+import { createSnapshot } from './snapshots.ts'
 import { renderChapterWriterSkeleton } from './prompting.ts'
 import { NovelActionError } from './action-guard.ts'
 import { buildChapterContext, renderContextBlocks } from './novel-context.ts'
@@ -47,6 +49,8 @@ import type {
   AuditIssue,
   AuthorReview,
   ExportScope,
+  TimelineEvent,
+  TimelineIssue,
   BreakdownResponse,
   ChapterPlan,
   Foreshadow,
@@ -734,7 +738,7 @@ function planSystemPrompt(volumes: Volume[] | undefined): string {
  *  `targetChars` 来自每章计划（规划时快照，= 设置的每章目标字数）；无则退回默认 3500。
  *  字数区间按目标动态生成（±15%，取整到百位），避免系统提示词与设置互相冲突。
  *  `lengthRule` 可覆盖第 1 条字数要求（整章修订/改编时按原文长度为准）。 */
-function writeSystemPrompt(project: ProjectState, targetChars?: number, lengthRule?: string): string {
+function writeSystemPrompt(project: ProjectState, targetChars?: number, lengthRule?: string, beforeChapter?: number): string {
   const bible = project.bible
   const sections: string[] = []
   if (bible !== undefined) {
@@ -826,6 +830,9 @@ function writeSystemPrompt(project: ProjectState, targetChars?: number, lengthRu
     tonePreference: '动作、对话、心理交替推进；重大信息用对话/动作/发现呈现。',
     antiAiRules: '严格遵循上方「反 AI 规则」与写法资产，避免套话与 AI 腔。',
   }))
+  // 故事时间线锚点：只注入本章之前的事件（回写旧章时不被后续章节剧透）。
+  const timelineBlock = renderTimelineBlock(project, beforeChapter ?? Number.MAX_SAFE_INTEGER)
+  if (timelineBlock !== '') sections.push(timelineBlock)
   return sections.join('\n')
 }
 
@@ -2312,9 +2319,9 @@ export async function designPlotlinePlan(
 }
 
 /** Build the rewrite system prompt (fix review issues / instructions). */
-function rewriteSystemPrompt(project: ProjectState, targetChars?: number): string {
+function rewriteSystemPrompt(project: ProjectState, targetChars?: number, beforeChapter?: number): string {
   // 整章修订以「与原文相当」为准，不套用目标字数区间（避免与原文长度冲突）。
-  const base = writeSystemPrompt(project, targetChars, '1. 输出完整的新正文（不要只输出修改片段、标题、章回名、作者的话或任何 Markdown 标记），字数与原章相当（允许 ±20%）。')
+  const base = writeSystemPrompt(project, targetChars, '1. 输出完整的新正文（不要只输出修改片段、标题、章回名、作者的话或任何 Markdown 标记），字数与原章相当（允许 ±20%）。', beforeChapter)
   return base + '\n\n额外要求：你正在【修订】一章已写好的正文。保留原文中好的部分，只修改需要修改的地方，输出完整的新正文（不要只输出修改片段），字数与原文相当。'
 }
 
@@ -2385,7 +2392,7 @@ export async function* rewriteChapterStream(
       ].filter(line => line !== '').join('\n')
 
   const system = localTarget === undefined
-    ? rewriteSystemPrompt(project, chapter.targetChars || config.chapterChars)
+    ? rewriteSystemPrompt(project, chapter.targetChars || config.chapterChars, chapter.no)
     : (() => {
         // 局部修订：补齐合规红线/本书红线/反AI规则/角色卡，加「只改表达不改情节」约束
         const bible = project.bible
@@ -2707,7 +2714,7 @@ export async function* generateChapterStream(
     provider: config.provider,
     model: config.generateModel || config.model,
     messages,
-    system: writeSystemPrompt(project, chapter.targetChars || config.chapterChars),
+    system: writeSystemPrompt(project, chapter.targetChars || config.chapterChars, undefined, chapter.no),
     // Full-chapter output: budget generously (4000 chars ≈ 8-12k tokens,
     // plus the model's reasoning channel).
     maxTokens: Math.max(config.maxTokens, 20000),
@@ -2774,7 +2781,7 @@ export async function* generateChapterStream(
       `请承接上文继续写约 ${need} 字，不要重复已有内容，不要重写开头，不要总结前文，直接续写新情节，结尾留一个章末钩子。只输出续写的正文，不要输出标题或任何说明。`,
     ].join('\n')
     const cont = await complete(ctx, config, {
-      system: writeSystemPrompt(project, target) + '\n\n【续写任务】严格承接已有正文往下写，不要重复已有内容、不要重写开头、不要总结前文，直接续写新情节，并在结尾留一个章末钩子。',
+      system: writeSystemPrompt(project, target, undefined, chapter.no) + '\n\n【续写任务】严格承接已有正文往下写，不要重复已有内容、不要重写开头、不要总结前文，直接续写新情节，并在结尾留一个章末钩子。',
       user: contUser,
       temperature: 0.85,
       maxTokens: Math.max(config.maxTokens, 12000),
@@ -2787,6 +2794,8 @@ export async function* generateChapterStream(
     hanzi = countHanzi(body)
   }
 
+  // 覆盖前留存历史版本：重新生成把好稿改坏时可以回滚（首次生成无旧稿，不产生空快照）。
+  if (chapter.file !== undefined && chapter.file !== '') createSnapshot(outputDir, chapter, '重新生成前')
   // Write the chapter file.
   const fileName = chapterFileName(chapter)
   mkdirSync(outputDir, { recursive: true })
@@ -4274,6 +4283,146 @@ export async function runDirectorAdvice(ctx: Context, config: NovelConfig, proje
     risks: arr(raw.risks),
     fixes: arr(raw.fixes),
   }
+}
+
+// ---------------------------------------------------------------- timeline
+
+/**
+ * 从一章正文抽取时间线事件（时间点 / 地点 / 参与角色 / 事件）。
+ *
+ * 会**替换**该章已有事件（重复抽取幂等）；抽取结果按 order 递增排序后写回项目。
+ * 失败时抛错，由调用方决定是否降级（自动流程用 try/catch 包住，不阻断出章）。
+ *
+ * @param ctx 宿主上下文。
+ * @param config 运行时配置。
+ * @param project 项目状态（就地更新 `project.timeline`）。
+ * @param outputDir 书目录。
+ * @param chapterNo 章节号。
+ * @returns 本次抽取到的事件（已写入 project）。
+ */
+export async function extractTimelineForChapter(
+  ctx: Context,
+  config: NovelConfig,
+  project: ProjectState,
+  outputDir: string,
+  chapterNo: number,
+): Promise<TimelineEvent[]> {
+  const chapter = project.chapters.find(c => c.no === chapterNo)
+  if (chapter === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 不在计划中`)
+  const body = readChapterFile(outputDir, chapter)
+  if (body === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 的正文文件不存在`)
+  const NL = String.fromCharCode(10)
+  const system = [
+    '你是小说连续性编辑。任务：把一章正文压缩成「故事时间线」事件，供后续章节保持时间与地点的连续性。',
+    '要求：',
+    '1. 只抽取**正文里真实发生**的场景节点（3-8 条），不要抽取预告、回忆性的泛泛陈述；纯粹的回忆/插叙请在 event 里注明「（回忆）」并给出其故事内时间。',
+    '2. time 用正文里的说法（如「第三日黄昏」「入宗三个月后」「同日夜」）；正文没写时间就填相对说法（如「紧接上一场景」）。',
+    '3. order 是本章内的先后序号，从 1 递增；跨章我会用章号排序，你只需要保证章内顺序正确。',
+    '4. place 是场景地点（一处一个词，如「青云宗外门」）；characters 只列**在场**的角色名（用正文里的名字，不要写「主角」）。',
+    '5. event 一句话说清发生了什么（不超过 40 字）。',
+    '输出必须是合法 JSON 数组，不要输出任何其他文字或 Markdown 代码块标记：',
+    '[{"time":"第三日黄昏","order":1,"place":"青云宗外门","characters":["沈青"],"event":"沈青被外门弟子当众羞辱"}]',
+    '重要：字符串值内部不得包含换行符；JSON 必须在一段内完整结束。',
+  ].join('@NL@').replace('@NL@', NL)
+  const text = await complete(ctx, config, {
+    system,
+    user: `第 ${chapterNo} 章《${chapter.title}》正文：@NL@@NL@${body.replace(/^#\s+.*$/m, '').trim().slice(0, 24000)}`.replace('@NL@', NL),
+    temperature: 0.2,
+    maxTokens: Math.max(config.maxTokens, 4000),
+    model: config.auditModel || config.model,
+    liveLabel: `时间线抽取 · 第${chapterNo}章`,
+  })
+  let parsed: unknown = []
+  try {
+    parsed = parseJson<unknown>(text, true)
+  } catch {
+    parsed = []
+  }
+  const rawList = Array.isArray(parsed) ? parsed : []
+  const now = new Date().toISOString()
+  const extracted = rawList
+    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+    .map((item, index) => normalizeTimelineEvent({
+      time: typeof item.time === 'string' ? item.time : '',
+      order: typeof item.order === 'number' ? item.order : index + 1,
+      place: typeof item.place === 'string' ? item.place : '',
+      characters: Array.isArray(item.characters) ? item.characters.filter((c): c is string => typeof c === 'string') : [],
+      event: typeof item.event === 'string' ? item.event : '',
+    }, chapterNo, index, now))
+    .filter(e => e.event !== '')
+  // 保留模型给出的**叙述顺序**（不按 order 重排）：时间线检查要靠这个顺序发现
+  // 「自报 order 与叙述顺序打架」；渲染/注入时再用 sortTimeline 按 order 排。
+  const kept = (project.timeline ?? []).filter(e => e.chapterNo !== chapterNo)
+  project.timeline = [...kept, ...extracted]
+  project.updatedAt = now
+  return extracted
+}
+
+/**
+ * AI 复核时间线：在规则初筛之外，让模型找规则抓不到的时序问题
+ * （年龄/季节错位、回忆与当前时间混淆、跨章跨度不合理等）。
+ *
+ * @param ctx 宿主上下文。
+ * @param config 运行时配置。
+ * @param project 项目状态。
+ * @returns 模型给出的问题清单（与规则初筛结果合并由调用方决定）。
+ */
+export async function reviewTimeline(
+  ctx: Context,
+  config: NovelConfig,
+  project: ProjectState,
+): Promise<TimelineIssue[]> {
+  const events = sortTimeline(project.timeline ?? [])
+  if (events.length === 0) return []
+  const NL = String.fromCharCode(10)
+  const lines = events.map(e => {
+    const parts = [`第${e.chapterNo}章`]
+    if (e.order !== undefined) parts.push(`#${e.order}`)
+    if (e.time !== '') parts.push(e.time)
+    if (e.place !== '') parts.push(`@${e.place}`)
+    if (e.characters.length > 0) parts.push(`(${e.characters.join('、')})`)
+    parts.push(e.event)
+    return '- ' + parts.join(' ')
+  })
+  const system = [
+    '你是小说连续性编辑，只做一件事：找**时间线**上的矛盾。',
+    '检查项：1) 时间倒流（后一章早于前一章且没有明确插叙标注）；2) 地点瞬移（同一人物无移动交代就换场景）；',
+    '3) 时间跨度与事件量明显不匹配（如「一日之内」发生跨越数月的剧情）；4) 季节/年龄/节日前后矛盾；5) 回忆与现实混淆。',
+    '只报**能在给定事件表里指认**的问题，不要臆测；没有问题就返回空数组。',
+    '输出必须是合法 JSON 数组，不要任何其他文字：',
+    '[{"severity":"high|medium|low","chapters":[3,7],"item":"问题一句话","suggestion":"怎么修"}]',
+    '重要：字符串值内部不得包含换行符。',
+  ].join(NL)
+  const text = await complete(ctx, config, {
+    system,
+    user: `故事时间线（按章节顺序）：@NL@${lines.join(NL)}`.replace('@NL@', NL),
+    temperature: 0.2,
+    maxTokens: Math.max(config.maxTokens, 4000),
+    model: config.auditModel || config.model,
+    liveLabel: '时间线复核',
+  })
+  let parsed: unknown = []
+  try {
+    parsed = parseJson<unknown>(text, true)
+  } catch {
+    parsed = []
+  }
+  if (!Array.isArray(parsed)) return []
+  return parsed
+    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+    .map(item => {
+      const severity = item.severity === 'high' || item.severity === 'low' ? item.severity : 'medium'
+      const chapters = Array.isArray(item.chapters)
+        ? item.chapters.filter((c): c is number => typeof c === 'number' && Number.isFinite(c))
+        : []
+      return {
+        severity,
+        chapters,
+        item: typeof item.item === 'string' ? item.item.slice(0, 300) : '',
+        suggestion: typeof item.suggestion === 'string' ? item.suggestion.slice(0, 300) : '',
+      } satisfies TimelineIssue
+    })
+    .filter(issue => issue.item !== '')
 }
 
 // ------------------------------------------------------------------ export

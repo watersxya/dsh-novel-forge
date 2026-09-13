@@ -15,6 +15,7 @@ import {
   planChapters,
   generateChapterStream,
   summarizeAndExtractFacts,
+  extractTimelineForChapter,
   markForeshadowPlanted,
   reviewChapter,
   reviewChapterText,
@@ -224,6 +225,9 @@ export class ProductionRunner {
     try {
       for await (const _step of generateChapterStream(ctx, config, project, outputDir, no)) { /* drain */ }
       try { await summarizeAndExtractFacts(ctx, config, project, outputDir, no) } catch (e) { console.warn('[dsh-novel-forge] run summary/facts:', (e as Error).message) }
+      if (config.autoTimeline ?? true) {
+        try { await extractTimelineForChapter(ctx, config, project, outputDir, no) } catch (e) { console.warn('[dsh-novel-forge] run timeline:', (e as Error).message) }
+      }
       try { markForeshadowPlanted(project, outputDir, no) } catch (e) { console.warn('[dsh-novel-forge] run foreshadow:', (e as Error).message) }
       if (config.autoReview ?? true) {
         const report = await reviewChapter(ctx, config, project, outputDir, no)

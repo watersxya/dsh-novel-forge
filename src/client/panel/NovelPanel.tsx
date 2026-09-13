@@ -28,6 +28,7 @@ import { ImportModal } from './ImportModal.tsx'
 import { WorldTab } from './WorldTab.tsx'
 import DirectorView from './DirectorView.tsx'
 import KnowledgeBaseView from './KnowledgeBaseView.tsx'
+import TimelineView from './TimelineView.tsx'
 import { EmptyState, PlotlineCard, PlotlineHealthPanel, PlotlinePlanPanel, PlotlineSuggestionPanel, RoleCandidateRow, RoleCard, SlideNav } from './views.tsx'
 import { extractDocxTextFromBuffer } from '../docx.ts'
 import { EXPORT_SCOPE_LABELS, EXPORT_SCOPE_VALUES } from '../../protocol.ts'
@@ -46,6 +47,7 @@ import type {
   ReviewReport,
   RoleRecord,
   ExportScope,
+  ChapterSnapshot,
   SensitiveHit,
   StageInfo,
   StoryBible,
@@ -352,7 +354,7 @@ function DiffList({ original, draft, fontSize }: { original: string; draft: stri
 }
 
 /** 章节工作台右侧页签：对比（草稿 diff）/ 审稿（AI 审稿报告）/ 复盘（作者复盘）。 */
-type ChapterSideTab = 'diff' | 'review' | 'author'
+type ChapterSideTab = 'diff' | 'review' | 'author' | 'versions'
 
 /** 章节工作台（独立全页）需要的全部输入；所有数据来自真实 project.chapters。 */
 interface ChapterWorkbenchProps {
@@ -382,6 +384,10 @@ interface ChapterWorkbenchProps {
   onApplyDraft: () => void
   onDiscardDraft: () => void
   onCheckDraft: () => void
+  /** 本章历史版本（快照）与回滚/存档动作。 */
+  snapshots: ChapterSnapshot[]
+  onRestoreSnapshot: (id: string) => void
+  onCreateSnapshot: () => void
 }
 
 /**
@@ -392,6 +398,7 @@ function ChapterWorkbench({
   chapter, text, draft, fontSize, busy, busyAny,
   onBack, onWrite, onReview, onApprove, onEdit, onRevisePicked, onReset, onRegenerate, onBackfillAuthor,
   tab, onTabChange, draftReport, onApplyDraft, onDiscardDraft, onCheckDraft,
+  snapshots, onRestoreSnapshot, onCreateSnapshot,
 }: ChapterWorkbenchProps): ReactElement {
   const badge = statusBadge(chapter)
   const review: ReviewReport | undefined = chapter.review
@@ -574,12 +581,39 @@ function ChapterWorkbench({
                 { id: 'review', label: '审稿' },
                 { id: 'diff', label: hasDraft ? '对比 · 草稿' : '对比' },
                 { id: 'author', label: '复盘' },
+                { id: 'versions', label: snapshots.length > 0 ? `历史版本 · ${snapshots.length}` : '历史版本' },
               ]}
               active={tab}
               onSelect={onTabChange}
             />
           </div>
           <div className={css.chWorkSideBody}>
+            {tab === 'versions' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-8)' }}>
+                <div className={css.row} style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className={css.meta}>覆盖写入前会自动留存；回滚也可再撤销。</span>
+                  <button type="button" className={css.button} onClick={onCreateSnapshot}>存档当前正文</button>
+                </div>
+                {snapshots.length === 0 && <span className={css.meta}>这一章还没有历史版本。</span>}
+                {snapshots.slice().sort((a, b) => b.at.localeCompare(a.at)).map(snapshot => (
+                  <div key={snapshot.id} style={{ border: '1px solid var(--nf-border)', borderRadius: 8, padding: '6px 8px', fontSize: 'var(--nf-fs-12)' }}>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                      <b>{new Date(snapshot.at).toLocaleString()}</b>
+                      <span className={css.meta}>{snapshot.reason}</span>
+                      <span className={css.meta}>{snapshot.chars} 字</span>
+                      <button
+                        type="button"
+                        className={css.button}
+                        style={{ marginLeft: 'auto' }}
+                        disabled={busyAny}
+                        onClick={() => onRestoreSnapshot(snapshot.id)}
+                        title="用这一版覆盖当前正文（回滚前会先留存当前正文）"
+                      >回滚到这一版</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             {tab === 'diff' && (hasDraft ? (
               <>
                 <div className={css.chWorkDraftBar}>
@@ -741,6 +775,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const [bookKey, setBookKey] = useState('')
   /** 导出范围（设置页导出卡片）：整本正文 / 设定 / 规划 / 角色 / 质检记录 / 项目备份。 */
   const [exportScope, setExportScope] = useState<ExportScope>('book')
+  /** 章节历史版本（快照）：打开工作台时拉取，回滚/存档后刷新。 */
+  const [snapshots, setSnapshots] = useState<ChapterSnapshot[]>([])
   const [dragActive, setDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [planCount, setPlanCount] = useState(30)
@@ -757,7 +793,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   /** 章节工作台（独立全页）当前打开的章号；null = 关闭。 */
   const [workbenchNo, setWorkbenchNo] = useState<number | null>(null)
   /** 工作台右栏页签（提升到面板层：修订完成后需要自动切到「对比」）。 */
-  const [wbTab, setWbTab] = useState<'review' | 'diff' | 'author'>('review')
+  const [wbTab, setWbTab] = useState<'review' | 'diff' | 'author' | 'versions'>('review')
   /** 工作台「草稿审查」报告（验证模式产物）—— 与 chapter.review（原稿审稿）是两回事，独立存放。 */
   const [wbDraftReport, setWbDraftReport] = useState<ReviewReport | null>(null)
   /** 复盘记录页：当前展开的章节号。 */
@@ -976,7 +1012,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   /** AI 助手悬浮窗：是否打开。 */
   const [assistantOpen, setAssistantOpen] = useState(false)
   /** 顶部导航右滑抽屉：写作/设定/资产/参数/工具页 = 内容抽屉。null = 常驻总编台。资料侧柜走总编台内嵌格，不再有独立滑出层。 */
-  const [rightDrawer, setRightDrawer] = useState<'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown' | null>(null)
+  const [rightDrawer, setRightDrawer] = useState<'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown' | 'timeline' | null>(null)
   /** 打开参数抽屉或切换激活书时，重新加载本书参数。 */
   useEffect(() => {
     if (rightDrawer !== 'params') return
@@ -1056,7 +1092,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const [drawerMax, setDrawerMax] = useState(false)
 
   /** 打开内容抽屉：只滑出抽屉层，不切 activeTab —— 底座总编台保持常驻可见（对齐 demo）。 */
-  const openDrawer = (which: 'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown'): void => {
+  const openDrawer = (which: 'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown' | 'timeline'): void => {
     setRightDrawer(which)
     setDrawerMax(false)
   }
@@ -1314,6 +1350,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         setCharCards(null)
       }
       setGeneratedFiles(status.generatedFiles)
+      try { setSnapshots((await api.snapshots()).snapshots) } catch { /* 快照是附加能力，失败不影响主流程 */ }
       const withDraft = status.project?.chapters.find(c => c.pendingDraft !== undefined && c.pendingDraft !== '')
       setDraftNo(withDraft?.no ?? null)
       const nextOutline = status.project?.outline
@@ -2630,6 +2667,41 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   }
 
   /** Export the book. */
+  /** 刷新章节历史版本列表。 */
+  const refreshSnapshots = async (): Promise<void> => {
+    try { setSnapshots((await api.snapshots()).snapshots) } catch { /* ignore */ }
+  }
+
+  /** 回滚到某个历史版本（回滚前宿主会先留存当前正文，所以可撤销）。 */
+  const handleRestoreSnapshot = async (id: string): Promise<void> => {
+    if (!window.confirm('用这一版覆盖当前正文？回滚前会自动留存当前正文，可以再换回来。')) return
+    setBusy(true); setError('')
+    try {
+      await api.snapshotRestore(id)
+      await refresh(false, true)
+      await refreshSnapshots()
+      setNotice('已回滚到所选版本')
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 手工给当前章节存档一个历史版本。 */
+  const handleCreateSnapshot = async (no: number): Promise<void> => {
+    setBusy(true); setError('')
+    try {
+      await api.snapshotCreate(no)
+      await refreshSnapshots()
+      setNotice('已存档当前正文')
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const handleExport = async (format: 'txt' | 'md' | 'json', scope: ExportScope = 'book'): Promise<void> => {
     setBusy(true)
     setError('')
@@ -2953,6 +3025,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     { key: 'blurb', group: 'book', name: '简介 / 封面', di: project !== null && project.blurb !== '' ? '● 已填写' : '○ 未填写', dim: project === null, go: () => { openDrawer('blurb') } },
     // —— 工具与设置 ——
     { key: 'run', group: 'tools', name: '生产单', di: '批次生产 · 流水线', go: () => { openDrawer('run') } },
+    { key: 'timeline', group: 'tools', name: '故事时间线', di: (project?.timeline ?? []).length > 0 ? `● ${(project?.timeline ?? []).length} 条事件` : '○ 未抽取', dim: project === null, go: () => { openDrawer('timeline') } },
     { key: 'knowledge', group: 'tools', name: '知识库', di: '跨书沉淀', go: () => { openDrawer('knowledge') } },
     { key: 'breakdown', group: 'tools', name: '拆书分析', di: '对标拆解', go: () => { openDrawer('breakdown') } },
   ]
@@ -3146,6 +3219,9 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           onApplyDraft={() => { void handleWbApplyDraft(workbench.no) }}
           onDiscardDraft={() => { void handleWbDiscardDraft(workbench.no) }}
           onCheckDraft={() => { void handleWbCheckDraft(workbench.no) }}
+          snapshots={snapshots.filter(s => s.chapterNo === workbench.no)}
+          onRestoreSnapshot={id => { void handleRestoreSnapshot(id) }}
+          onCreateSnapshot={() => { void handleCreateSnapshot(workbench.no) }}
         />
       )}
       {/* 右滑抽屉遮罩：覆盖总编台底座，点按关闭并回落 */}
@@ -4164,6 +4240,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           )}
           {rightDrawer === 'director' && <DirectorView api={api} todos={project?.todos ?? []} onTodosChange={(todos) => setProject(prev => prev === null ? prev : { ...prev, todos, updatedAt: new Date().toISOString() })} />}
           {rightDrawer === 'knowledge' && <KnowledgeBaseView api={api} />}
+          {rightDrawer === 'timeline' && <TimelineView api={api} chapters={chapters.map(c => c.no)} />}
           {rightDrawer === 'run' && (
           <RunPanel api={api} totalChapters={chapters.length} />
           )}

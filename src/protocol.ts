@@ -28,6 +28,10 @@ export const NOVEL_API = {
   llmPrompt: '/api/dsh-novel-forge/llm-live/prompt',
   /** 清零本次运行的用量账本。 */
   usageReset: '/api/dsh-novel-forge/usage/reset',
+  /** 章节历史版本（快照）。 */
+  snapshot: '/api/dsh-novel-forge/snapshot',
+  /** 故事时间线（GET 列表 / POST 操作）。 */
+  timeline: '/api/dsh-novel-forge/timeline',
   marketRadar: '/api/dsh-novel-forge/market-radar',
   marketRadarScan: '/api/dsh-novel-forge/market-radar/scan',
   marketRadarApply: '/api/dsh-novel-forge/market-radar/apply',
@@ -561,6 +565,56 @@ export interface StoryBible {
 }
 
 /** A planted/active/resolved foreshadowing thread. */
+/**
+ * 故事时间线事件：从章节正文抽取的「故事内时间点 + 地点 + 参与角色 + 事件」。
+ * 用途：后续章节的时间连续性与地点衔接（比编年录更强调"顺序"）。
+ */
+export interface TimelineEvent {
+  /** 稳定 id（时间线内唯一）。 */
+  id: string
+  /** 所属章节号。 */
+  chapterNo: number
+  /** 故事内时间点（如「第三日黄昏」「入宗三个月后」「同日夜」）。 */
+  time: string
+  /** 相对顺序（同书内递增；无法判断时缺省）。用于检测时间倒流。 */
+  order?: number
+  /** 地点。 */
+  place: string
+  /** 参与角色（角色名）。 */
+  characters: string[]
+  /** 事件一句话。 */
+  event: string
+  /** 来源：模型抽取 / 作者手改。 */
+  source: 'extracted' | 'manual'
+  createdAt: string
+}
+
+/** 时间线矛盾（规则初筛 + AI 复核）。 */
+export interface TimelineIssue {
+  severity: 'high' | 'medium' | 'low'
+  /** 定位到的章节（可多个）。 */
+  chapters: number[]
+  /** 问题描述。 */
+  item: string
+  /** 建议修法。 */
+  suggestion: string
+}
+
+/** GET /timeline 响应。 */
+export interface TimelineResponse {
+  events: TimelineEvent[]
+  /** 规则初筛发现的问题（瞬时计算，不落盘）。 */
+  issues?: TimelineIssue[]
+}
+
+/** POST /timeline 请求：op=extract 抽单章 / check 全量检查 / update 手改 / remove 删除 / clear 清空。 */
+export interface TimelineRequest {
+  op: 'extract' | 'check' | 'update' | 'remove' | 'clear'
+  chapterNo?: number
+  event?: TimelineEvent
+  id?: string
+}
+
 export interface Foreshadow {
   /** Stable id. */
   id: string
@@ -997,6 +1051,8 @@ export interface ProjectState {
   roles?: RoleRecord[]
   /** 人物志：角色当前状态聚合结果（从编年录刷新后存档，打开页面直接显示）。 */
   roleStatus?: RoleStatusCard[]
+  /** 故事时间线（逐章抽取：时间点 / 地点 / 参与角色 / 事件）。 */
+  timeline?: TimelineEvent[]
   /** 本书参数（写作/审稿/推理/模型快切；未设字段回退全局 config）。 */
   bookSettings?: BookSettings
   /** ISO timestamps. */
@@ -1159,6 +1215,8 @@ export interface NovelConfig {
    * 留空表示不切换。批量连写时能显著减少"整批中断"。
    */
   fallbackModel?: string
+  /** 是否在出章后自动抽取故事时间线（失败不阻断出章）。默认开。 */
+  autoTimeline?: boolean
   /** LLM reasoning effort: off = no thinking; low/high/max = thinking intensity. */
   reasoningEffort: 'off' | 'low' | 'high' | 'max'
   /** 分析类任务（提炼/拆书/反推大纲等）的推理档位；默认 low，不受上面写作档位影响。 */
@@ -1331,6 +1389,34 @@ export interface LlmPromptRecord {
   chars: number
   /** 记录本身是否被截断。 */
   truncated?: boolean
+}
+
+/** 章节历史版本（快照）：覆盖写入前自动留存，可回滚。 */
+export interface ChapterSnapshot {
+  id: string
+  chapterNo: number
+  /** 快照文件（相对书目录）。 */
+  file: string
+  /** 留存原因（生成覆盖 / 采纳草稿 / 修订 / 手工）。 */
+  reason: string
+  chars: number
+  at: string
+}
+
+/** GET /snapshot 响应。 */
+export interface SnapshotResponse {
+  snapshots: ChapterSnapshot[]
+  /** 快照占用字节数。 */
+  bytes: number
+}
+
+/** POST /snapshot 请求：op=create 手工存档 / restore 回滚 / remove 删除 / prune 只留最近 N 个。 */
+export interface SnapshotRequest {
+  op: 'create' | 'restore' | 'remove' | 'prune'
+  chapterNo?: number
+  id?: string
+  /** prune：每章保留数量。 */
+  keep?: number
 }
 
 export interface StatusResponse {
@@ -1577,6 +1663,8 @@ export interface ConfigPatch {
   auditModel?: string
   /** 备用模型（主模型失败时自动切换重试一次；空串 = 关闭）。 */
   fallbackModel?: string
+  /** 出章后自动抽取故事时间线（默认开）。 */
+  autoTimeline?: boolean
   reasoningEffort?: 'off' | 'low' | 'high' | 'max'
   analysisReasoning?: 'off' | 'low' | 'high' | 'max'
   chapterChars?: number

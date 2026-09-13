@@ -579,6 +579,53 @@ export class NovelApi {
     }
   }
 
+  /** 故事时间线：列表（含规则初筛问题）。 */
+  async timeline(): Promise<import('../protocol.ts').TimelineResponse> {
+    const response = await fetch(withBookId(NOVEL_API.timeline))
+    return readJson<import('../protocol.ts').TimelineResponse>(response)
+  }
+
+  /** 抽取某一章的时间线事件。 */
+  async timelineExtract(chapterNo: number): Promise<{ events: import('../protocol.ts').TimelineEvent[] }> {
+    return postJson<{ events: import('../protocol.ts').TimelineEvent[] }>(NOVEL_API.timeline, { op: 'extract', chapterNo })
+  }
+
+  /** 检查时间线矛盾（规则初筛 + AI 复核）。 */
+  async timelineCheck(): Promise<import('../protocol.ts').TimelineResponse> {
+    return postJson<import('../protocol.ts').TimelineResponse>(NOVEL_API.timeline, { op: 'check' })
+  }
+
+  /** 手工修正一条时间线事件。 */
+  async timelineUpdate(event: import('../protocol.ts').TimelineEvent): Promise<void> {
+    await postJson(NOVEL_API.timeline, { op: 'update', event })
+  }
+
+  /** 删除一条时间线事件。 */
+  async timelineRemove(id: string): Promise<void> {
+    await postJson(NOVEL_API.timeline, { op: 'remove', id })
+  }
+
+  /** 章节历史版本列表。 */
+  async snapshots(): Promise<import('../protocol.ts').SnapshotResponse> {
+    const response = await fetch(withBookId(NOVEL_API.snapshot))
+    return readJson<import('../protocol.ts').SnapshotResponse>(response)
+  }
+
+  /** 回滚到某个历史版本。 */
+  async snapshotRestore(id: string): Promise<void> {
+    await postJson(NOVEL_API.snapshot, { op: 'restore', id })
+  }
+
+  /** 给某章手工存档。 */
+  async snapshotCreate(chapterNo: number): Promise<void> {
+    await postJson(NOVEL_API.snapshot, { op: 'create', chapterNo })
+  }
+
+  /** 删除一个历史版本。 */
+  async snapshotRemove(id: string): Promise<void> {
+    await postJson(NOVEL_API.snapshot, { op: 'remove', id })
+  }
+
   /** Load the persisted assistant conversation. */
   async assistantHistory(): Promise<import('../protocol.ts').AssistantMessage[]> {
     const response = await fetch(withBookId(NOVEL_API.assistantHistory))

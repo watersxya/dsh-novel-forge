@@ -107,6 +107,7 @@ export function SettingsView({ api, variant = 'page', onSettingsTab, onEditorFon
         reviewModel: configDraft.reviewModel,
         auditModel: configDraft.auditModel,
         fallbackModel: configDraft.fallbackModel ?? '',
+        autoTimeline: configDraft.autoTimeline ?? true,
         reasoningEffort: configDraft.reasoningEffort ?? 'off',
         chapterChars: configDraft.chapterChars,
         maxTokens: configDraft.maxTokens,
@@ -217,6 +218,20 @@ export function SettingsView({ api, variant = 'page', onSettingsTab, onEditorFon
             </div>
             <span className={css.meta}>
               只对可重试的失败生效：用户取消、参数错误不会切换；正文生成只在「一个字都没产出」时才换模型重试，避免重复生成。
+            </span>
+          </div>
+          <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-12)' }}>
+            <span className={css.cardTitle}>故事时间线</span>
+            <label className={css.row} style={{ gap: 'var(--nf-space-8)', alignItems: 'center' }}>
+              <input
+                type="checkbox"
+                checked={configDraft.autoTimeline ?? true}
+                onChange={e => setConfigDraft({ ...configDraft, autoTimeline: e.target.checked })}
+              />
+              <span>出章后自动抽取时间线事件（时间 / 地点 / 在场角色 / 事件）</span>
+            </label>
+            <span className={css.meta}>
+              抽取失败不会阻断出章；可在侧柜「故事时间线」里手工抽取、修正，并一键检查时间倒流 / 地点瞬移等矛盾。
             </span>
           </div>
           <ReasoningSection

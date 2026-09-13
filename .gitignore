@@ -28,3 +28,8 @@ coverage/
 # Agent / doc scratch (not part of the plugin)
 .workbuddy/
 docs/
+
+# 一次性补丁脚本（agent 临时产物）
+__*.py
+__*.mjs
+__*.txt

@@ -39,6 +39,7 @@ import { rewriteChapterStream, countHanzi } from './engine.ts'
 import { computeBookStage, isGenericContinue, renderStageContract, splitByStage, stageAllows, type BookStage } from './stage-contract.ts'
 import { beginLiveCall, endLiveCall, markFirstToken } from './llm-live.ts'
 import { withModelFallback } from './llm-retry.ts'
+import { createSnapshot } from './snapshots.ts'
 import { NovelActionError, classifyActionError, FailureLedger } from './action-guard.ts'
 
 /** History file name inside the output dir. */
@@ -483,6 +484,8 @@ export async function* executeAction(
       if (chapter === undefined || draft === undefined || draft === '') {
         throw new NovelActionError('contract', `章节 ${no} 修订后没有产出草稿`)
       }
+      // 覆盖前留存历史版本（助手直接修订会就地覆盖正文）。
+      if (chapter.file !== undefined && chapter.file !== '') createSnapshot(outputDir, chapter, '助手修订前')
       const fileName = chapterFileName(chapter)
       mkdirSync(outputDir, { recursive: true })
       writeFileSync(join(outputDir, fileName), `# 第${chapter.no}章 ${chapter.title}\n\n${draft}\n`, 'utf8')

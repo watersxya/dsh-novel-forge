@@ -69,6 +69,10 @@ import {
   type LoadOutlineRequest,
   type LoadOutlineResponse,
   type ExportScope,
+  type SnapshotRequest,
+  type SnapshotResponse,
+  type TimelineRequest,
+  type TimelineResponse,
   type NovelConfig,
   type PlotlinesRequest,
   type PlotlinesResponse,
@@ -197,11 +201,15 @@ import {
   suggestForeshadows,
   suggestPlotlines,
   summarizeAndExtractFacts,
+  extractTimelineForChapter,
+  reviewTimeline,
   summarizeChapter,
   syncProjectWithDisk,
 } from './engine.ts'
 import { countHanzi } from './engine.ts'
 import { computeBookStage } from './stage-contract.ts'
+import { createSnapshot, loadSnapshots, pruneSnapshots, removeSnapshot, restoreSnapshot, snapshotsBytes } from './snapshots.ts'
+import { detectTimelineIssues } from './timeline.ts'
 
 /** Cap on JSON request bodies (generous: cover images travel as base64). */
 const MAX_JSON_BODY_BYTES = 64 * 1024 * 1024
@@ -627,11 +635,20 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           }
         }
         emitLive({ type: 'session_completed', sessionId: liveSession, totalChars: genChars, preview: '', at: new Date().toISOString(), phase: 'completed' })
-        // Auto pipeline: summary + facts（一次调用）-> review（unless skipped）。
+        // Auto pipeline: summary + facts（一次调用）-> timeline -> review（unless skipped）。
         try {
           await summarizeAndExtractFacts(ctx, config, project, config.outputDir, no)
         } catch (error) {
           console.warn('[dsh-novel-forge] summary/facts failed:', (error as Error).message)
+        }
+        // 故事时间线：抽取本章事件（失败不阻断出章，作者可在时间线页手工补）。
+        if (config.autoTimeline ?? true) {
+          try {
+            await extractTimelineForChapter(ctx, config, project, config.outputDir, no)
+            saveProject(config.outputDir, project)
+          } catch (error) {
+            console.warn('[dsh-novel-forge] timeline extract failed:', (error as Error).message)
+          }
         }
         // 伏笔落地标记：正文中命中 planned 伏笔关键词 → 自动标为 planted（暗线管理页与正文同步）。
         try {
@@ -1088,6 +1105,8 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
       if (existsSync(targetPath)) {
         copyFileSync(targetPath, join(config.outputDir, `${fileName.replace(/\.md$/, '')}.bak.md`))
       }
+      // 覆盖前留一份历史版本：采纳草稿改坏了可以回滚。
+      createSnapshot(config.outputDir, chapter, '采纳草稿前')
       writeFileSync(targetPath, `# 第${chapter.no}章 ${chapter.title}\n\n${text}\n`, 'utf8')
       chapter.status = 'written'
       chapter.chars = countHanzi(text)
@@ -1707,6 +1726,151 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
       if (!guard(req, res, 'POST')) return
       resetLiveUsage()
       writeJson(res, 200, { ok: true, usage: liveUsage() })
+    },
+  }
+
+  // ------------------------------------------------------------- timeline
+  /**
+   * 故事时间线：GET 列表（含规则初筛问题）；POST op=extract|check|update|remove|clear。
+   */
+  const timelineRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.timeline,
+    handler: async (req, res) => {
+      const config = getConfig()
+      const qurl = new URL(req.url ?? '/', 'http://localhost')
+      if (req.method === 'GET') {
+        if (!isLoopbackRequest(req)) { writeJson(res, 403, { error: 'forbidden: loopback-only' }); return }
+        const outputDir = resolveOutputDir(config, qurl.searchParams.get('bookId') ?? undefined)
+        const project = loadProject(outputDir)
+        if (project === undefined) { writeJson(res, 400, { error: '输出目录中没有项目' }); return }
+        const response: TimelineResponse = {
+          events: project.timeline ?? [],
+          issues: detectTimelineIssues(project),
+        }
+        writeJson(res, 200, response)
+        return
+      }
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<TimelineRequest & { bookId?: string }>(req)
+      const outputDir = resolveOutputDir(config, body?.bookId)
+      const project = loadProject(outputDir)
+      if (project === undefined) { writeJson(res, 400, { error: '输出目录中没有项目' }); return }
+      try {
+        if (body?.op === 'extract') {
+          const no = body.chapterNo
+          if (typeof no !== 'number' || !Number.isFinite(no)) { writeJson(res, 400, { error: 'extract 需要 chapterNo' }); return }
+          const events = await extractTimelineForChapter(ctx, config, project, outputDir, no)
+          saveProject(outputDir, project)
+          writeJson(res, 200, { events, all: project.timeline ?? [] })
+          return
+        }
+        if (body?.op === 'check') {
+          const ruleIssues = detectTimelineIssues(project)
+          let aiIssues: typeof ruleIssues = []
+          try {
+            aiIssues = await reviewTimeline(ctx, config, project)
+          } catch (error) {
+            // AI 复核失败不阻断：规则初筛结果照常返回，并说明原因。
+            writeJson(res, 200, { issues: ruleIssues, aiError: (error as Error).message })
+            return
+          }
+          writeJson(res, 200, { issues: [...ruleIssues, ...aiIssues] })
+          return
+        }
+        if (body?.op === 'update') {
+          const event = body.event
+          if (event === undefined || typeof event.id !== 'string') { writeJson(res, 400, { error: 'update 需要 event' }); return }
+          const list = project.timeline ?? []
+          const idx = list.findIndex(e => e.id === event.id)
+          if (idx === -1) { writeJson(res, 404, { error: '时间线事件不存在' }); return }
+          list[idx] = { ...event, source: 'manual' }
+          project.timeline = list
+          project.updatedAt = new Date().toISOString()
+          saveProject(outputDir, project)
+          writeJson(res, 200, { events: project.timeline })
+          return
+        }
+        if (body?.op === 'remove') {
+          project.timeline = (project.timeline ?? []).filter(e => e.id !== body.id)
+          project.updatedAt = new Date().toISOString()
+          saveProject(outputDir, project)
+          writeJson(res, 200, { events: project.timeline })
+          return
+        }
+        if (body?.op === 'clear') {
+          project.timeline = []
+          project.updatedAt = new Date().toISOString()
+          saveProject(outputDir, project)
+          writeJson(res, 200, { events: [] })
+          return
+        }
+        writeJson(res, 400, { error: `未知 op：${String(body?.op)}` })
+      } catch (error) {
+        writeJson(res, 500, { error: (error as Error).message })
+      }
+    },
+  }
+
+  // ------------------------------------------------------------ snapshots
+  /** 章节历史版本：GET 列表；POST op=create|restore|remove|prune。 */
+  const snapshotRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.snapshot,
+    handler: async (req, res) => {
+      const config = getConfig()
+      const qurl = new URL(req.url ?? '/', 'http://localhost')
+      if (req.method === 'GET') {
+        if (!isLoopbackRequest(req)) { writeJson(res, 403, { error: 'forbidden: loopback-only' }); return }
+        const outputDir = resolveOutputDir(config, qurl.searchParams.get('bookId') ?? undefined)
+        const response: SnapshotResponse = { snapshots: loadSnapshots(outputDir), bytes: snapshotsBytes(outputDir) }
+        writeJson(res, 200, response)
+        return
+      }
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<SnapshotRequest & { bookId?: string }>(req)
+      const outputDir = resolveOutputDir(config, body?.bookId)
+      const project = loadProject(outputDir)
+      try {
+        if (body?.op === 'create') {
+          if (project === undefined) { writeJson(res, 400, { error: '输出目录中没有项目' }); return }
+          const chapter = project.chapters.find(c => c.no === body.chapterNo)
+          if (chapter === undefined) { writeJson(res, 404, { error: `章节 ${String(body.chapterNo)} 不在计划中` }); return }
+          const snapshot = createSnapshot(outputDir, chapter, '手工存档')
+          if (snapshot === undefined) { writeJson(res, 400, { error: '该章暂无正文文件，无法存档' }); return }
+          writeJson(res, 200, { snapshot, snapshots: loadSnapshots(outputDir) })
+          return
+        }
+        if (body?.op === 'restore') {
+          if (project === undefined) { writeJson(res, 400, { error: '输出目录中没有项目' }); return }
+          const id = body.id ?? ''
+          const snap = loadSnapshots(outputDir).find(x => x.id === id)
+          if (snap === undefined) { writeJson(res, 404, { error: '快照不存在' }); return }
+          const chapter = project.chapters.find(c => c.no === snap.chapterNo)
+          if (chapter === undefined) { writeJson(res, 404, { error: `章节 ${snap.chapterNo} 不在计划中` }); return }
+          const chars = restoreSnapshot(outputDir, chapter, id)
+          chapter.chars = countHanzi(readChapterFile(outputDir, chapter) ?? '')
+          chapter.status = chapter.status === 'approved' ? 'written' : chapter.status
+          chapter.review = undefined
+          project.updatedAt = new Date().toISOString()
+          saveProject(outputDir, project)
+          writeJson(res, 200, { ok: true, chapterNo: chapter.no, chars, snapshots: loadSnapshots(outputDir) })
+          return
+        }
+        if (body?.op === 'remove') {
+          const ok = removeSnapshot(outputDir, body.id ?? '')
+          writeJson(res, ok ? 200 : 404, { ok, snapshots: loadSnapshots(outputDir) })
+          return
+        }
+        if (body?.op === 'prune') {
+          const removed = pruneSnapshots(outputDir, body.keep)
+          writeJson(res, 200, { removed, snapshots: loadSnapshots(outputDir), bytes: snapshotsBytes(outputDir) })
+          return
+        }
+        writeJson(res, 400, { error: `未知 op：${String(body?.op)}` })
+      } catch (error) {
+        writeJson(res, 500, { error: (error as Error).message })
+      }
     },
   }
 
@@ -3373,6 +3537,8 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     assistantHistoryRoute,
     llmPromptRoute,
     usageResetRoute,
+    timelineRoute,
+    snapshotRoute,
     assistantClearRoute,
     bookshelfRoute,
     bookshelfActivateRoute,
