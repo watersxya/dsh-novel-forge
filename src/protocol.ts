@@ -30,6 +30,10 @@ export const NOVEL_API = {
   usageReset: '/api/dsh-novel-forge/usage/reset',
   /** 章节历史版本（快照）。 */
   snapshot: '/api/dsh-novel-forge/snapshot',
+  /** 张力曲线（GET 数据 / POST 设置）。 */
+  tension: '/api/dsh-novel-forge/tension',
+  /** 提示词槽位（GET 列表 / POST 写入）。 */
+  promptSlots: '/api/dsh-novel-forge/prompt-slots',
   /** 故事时间线（GET 列表 / POST 操作）。 */
   timeline: '/api/dsh-novel-forge/timeline',
   marketRadar: '/api/dsh-novel-forge/market-radar',
@@ -305,6 +309,10 @@ export interface ChapterPlan {
   review?: ReviewReport
   /** 作者复盘：钩子兑现/结尾钩子/剧情线推进/连续性/节奏趋势（生成后自动）。 */
   authorReview?: AuthorReview
+  /** 本章目标张力 0-100（规划或作者设定；用于张力曲线）。 */
+  tension?: number
+  /** 本章实际张力 0-100（审稿时模型打分；缺省时回落到 review.tension）。 */
+  tensionActual?: number
   /**
    * 待确认草稿：润色（去AI味）或整章重写的产物正文。生成时先存这里，
    * 用户看过对比后点「采纳」才覆盖正文文件；点「放弃」则丢弃。刷新页面不丢失。
@@ -383,6 +391,8 @@ export interface ReviewReport {
   aiFlavor?: number
   /** 本地扫描命中的高频套话（按次数降序，取前若干）。 */
   aiPhrases?: Array<{ word: string; count: number }>
+  /** 本章张力 0-100（审稿模型评分；用于张力曲线的"实际"值）。 */
+  tension?: number
   /** When the review ran. */
   reviewedAt: string
 }
@@ -565,6 +575,82 @@ export interface StoryBible {
 }
 
 /** A planted/active/resolved foreshadowing thread. */
+/**
+ * 张力曲线形状预设：
+ * `escalation` 递进爬升 / `suspense` 悬疑加压 / `wave` 波浪呼吸 /
+ * `frontLoad` 前紧后稳 / `flat` 平稳推进 / `custom` 自定义。
+ */
+export type TensionCurvePreset = 'escalation' | 'suspense' | 'wave' | 'frontLoad' | 'flat' | 'custom'
+
+/** 张力曲线配置（随项目保存）。 */
+export interface TensionCurveConfig {
+  preset: TensionCurvePreset
+  /** preset=custom 时的逐章采样（0-100；缺省按章节数取默认值）。 */
+  custom?: number[]
+}
+
+/** 张力曲线的一条问题（实际 vs 目标 / 曲线形状）。 */
+export interface TensionIssue {
+  severity: 'high' | 'medium' | 'low'
+  chapters: number[]
+  item: string
+  suggestion: string
+}
+
+/** 张力曲线数据点（面板绘图用）。 */
+export interface TensionCurvePoint {
+  no: number
+  title: string
+  /** 目标张力。 */
+  target?: number
+  /** 实际张力（审稿打分）。 */
+  actual?: number
+  /** 参考曲线在此处的取值。 */
+  reference?: number
+}
+
+/** GET /tension 响应。 */
+export interface TensionResponse {
+  preset: TensionCurvePreset
+  points: TensionCurvePoint[]
+  /** 规则核对发现的问题。 */
+  issues: TensionIssue[]
+}
+
+/** POST /tension 请求。 */
+export interface TensionRequest {
+  op: 'preset' | 'set' | 'clear'
+  preset?: TensionCurvePreset
+  chapterNo?: number
+  /** op=set 时的目标张力（0-100）。 */
+  tension?: number
+}
+
+/** 允许作者编辑的提示词槽位 id（白名单）。 */
+export type PromptSlotId = 'styleExtra' | 'antiAiExtra' | 'dialogueExtra' | 'endingHookExtra'
+
+/** 一个提示词槽位的当前内容。 */
+export interface PromptSlotState {
+  id: PromptSlotId
+  label: string
+  hint: string
+  placeholder: string
+  maxChars: number
+  value: string
+}
+
+/** GET /prompt-slots 响应。 */
+export interface PromptSlotsResponse {
+  slots: PromptSlotState[]
+}
+
+/** POST /prompt-slots 请求：设置或清空一个槽位。 */
+export interface PromptSlotsRequest {
+  id: PromptSlotId
+  /** 空串 = 清空该槽位（恢复默认）。 */
+  value: string
+}
+
 /**
  * 故事时间线事件：从章节正文抽取的「故事内时间点 + 地点 + 参与角色 + 事件」。
  * 用途：后续章节的时间连续性与地点衔接（比编年录更强调"顺序"）。
@@ -1053,6 +1139,10 @@ export interface ProjectState {
   roleStatus?: RoleStatusCard[]
   /** 故事时间线（逐章抽取：时间点 / 地点 / 参与角色 / 事件）。 */
   timeline?: TimelineEvent[]
+  /** 张力曲线配置（形状预设 + 自定义采样）。 */
+  tensionCurve?: TensionCurveConfig
+  /** 作者自定义的提示词槽位（白名单见 prompt-slots.ts）。 */
+  promptSlots?: Partial<Record<PromptSlotId, string>>
   /** 本书参数（写作/审稿/推理/模型快切；未设字段回退全局 config）。 */
   bookSettings?: BookSettings
   /** ISO timestamps. */

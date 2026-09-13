@@ -69,8 +69,12 @@ import {
   type LoadOutlineRequest,
   type LoadOutlineResponse,
   type ExportScope,
+  type PromptSlotsRequest,
+  type PromptSlotsResponse,
   type SnapshotRequest,
   type SnapshotResponse,
+  type TensionRequest,
+  type TensionResponse,
   type TimelineRequest,
   type TimelineResponse,
   type NovelConfig,
@@ -210,6 +214,8 @@ import { countHanzi } from './engine.ts'
 import { computeBookStage } from './stage-contract.ts'
 import { createSnapshot, loadSnapshots, pruneSnapshots, removeSnapshot, restoreSnapshot, snapshotsBytes } from './snapshots.ts'
 import { detectTimelineIssues } from './timeline.ts'
+import { buildCurveData, detectTensionIssues, TENSION_MAX, TENSION_MIN, TENSION_PRESETS, clampTension } from './tension.ts'
+import { PROMPT_SLOTS, normalizeSlotValue, readPromptSlots } from './prompt-slots.ts'
 
 /** Cap on JSON request bodies (generous: cover images travel as base64). */
 const MAX_JSON_BODY_BYTES = 64 * 1024 * 1024
@@ -1871,6 +1877,114 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
       } catch (error) {
         writeJson(res, 500, { error: (error as Error).message })
       }
+    },
+  }
+
+  // --------------------------------------------------------------- tension
+  /** 张力曲线：GET 数据（含规则核对）；POST op=preset|set|clear。 */
+  const tensionRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.tension,
+    handler: async (req, res) => {
+      const config = getConfig()
+      const qurl = new URL(req.url ?? '/', 'http://localhost')
+      if (req.method === 'GET') {
+        if (!isLoopbackRequest(req)) { writeJson(res, 403, { error: 'forbidden: loopback-only' }); return }
+        const outputDir = resolveOutputDir(config, qurl.searchParams.get('bookId') ?? undefined)
+        const project = loadProject(outputDir)
+        if (project === undefined) { writeJson(res, 400, { error: '输出目录中没有项目' }); return }
+        const curve = buildCurveData(project)
+        const response: TensionResponse = { preset: curve.preset, points: curve.points, issues: detectTensionIssues(project) }
+        writeJson(res, 200, response)
+        return
+      }
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<TensionRequest & { bookId?: string }>(req)
+      const outputDir = resolveOutputDir(config, body?.bookId)
+      const project = loadProject(outputDir)
+      if (project === undefined) { writeJson(res, 400, { error: '输出目录中没有项目' }); return }
+      if (body?.op === 'preset') {
+        const preset = body.preset
+        if (preset === undefined || !TENSION_PRESETS.includes(preset)) { writeJson(res, 400, { error: '未知的张力曲线预设' }); return }
+        project.tensionCurve = { ...(project.tensionCurve ?? {}), preset }
+        project.updatedAt = new Date().toISOString()
+        saveProject(outputDir, project)
+        writeJson(res, 200, { ok: true, preset })
+        return
+      }
+      if (body?.op === 'set') {
+        const no = body.chapterNo
+        if (typeof no !== 'number' || !Number.isFinite(no)) { writeJson(res, 400, { error: 'set 需要 chapterNo' }); return }
+        const chapter = project.chapters.find(c => c.no === no)
+        if (chapter === undefined) { writeJson(res, 404, { error: `章节 ${no} 不在计划中` }); return }
+        if (body.tension === undefined) {
+          chapter.tension = undefined
+        } else {
+          if (body.tension < TENSION_MIN || body.tension > TENSION_MAX) { writeJson(res, 400, { error: `张力需在 ${TENSION_MIN}-${TENSION_MAX} 之间` }); return }
+          chapter.tension = clampTension(body.tension)
+        }
+        project.updatedAt = new Date().toISOString()
+        saveProject(outputDir, project)
+        writeJson(res, 200, { ok: true, chapterNo: no, tension: chapter.tension })
+        return
+      }
+      if (body?.op === 'clear') {
+        for (const c of project.chapters) c.tension = undefined
+        project.updatedAt = new Date().toISOString()
+        saveProject(outputDir, project)
+        writeJson(res, 200, { ok: true })
+        return
+      }
+      writeJson(res, 400, { error: `未知 op：${String(body?.op)}` })
+    },
+  }
+
+  // ---------------------------------------------------------- prompt slots
+  /** 提示词槽位：GET 列表（含说明与上限）；POST 写入或清空单个槽位。 */
+  const promptSlotsRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.promptSlots,
+    handler: async (req, res) => {
+      const config = getConfig()
+      const qurl = new URL(req.url ?? '/', 'http://localhost')
+      if (req.method === 'GET') {
+        if (!isLoopbackRequest(req)) { writeJson(res, 403, { error: 'forbidden: loopback-only' }); return }
+        const outputDir = resolveOutputDir(config, qurl.searchParams.get('bookId') ?? undefined)
+        const project = loadProject(outputDir)
+        if (project === undefined) { writeJson(res, 400, { error: '输出目录中没有项目' }); return }
+        const values = new Map(readPromptSlots(project).map(s => [s.id, s.text] as const))
+        const response: PromptSlotsResponse = {
+          slots: PROMPT_SLOTS.map(spec => ({
+            id: spec.id,
+            label: spec.label,
+            hint: spec.hint,
+            placeholder: spec.placeholder,
+            maxChars: spec.maxChars,
+            value: values.get(spec.id) ?? '',
+          })),
+        }
+        writeJson(res, 200, response)
+        return
+      }
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<PromptSlotsRequest & { bookId?: string }>(req)
+      const outputDir = resolveOutputDir(config, body?.bookId)
+      const project = loadProject(outputDir)
+      if (project === undefined) { writeJson(res, 400, { error: '输出目录中没有项目' }); return }
+      let value: string
+      try {
+        value = normalizeSlotValue(String(body?.id ?? ''), String(body?.value ?? ''))
+      } catch (error) {
+        writeJson(res, 400, { error: (error as Error).message })
+        return
+      }
+      const slots = { ...(project.promptSlots ?? {}) }
+      if (value === '') delete slots[body!.id]
+      else slots[body!.id] = value
+      project.promptSlots = slots
+      project.updatedAt = new Date().toISOString()
+      saveProject(outputDir, project)
+      writeJson(res, 200, { ok: true, id: body!.id, chars: value.length })
     },
   }
 
@@ -3539,6 +3653,8 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     usageResetRoute,
     timelineRoute,
     snapshotRoute,
+    tensionRoute,
+    promptSlotsRoute,
     assistantClearRoute,
     bookshelfRoute,
     bookshelfActivateRoute,

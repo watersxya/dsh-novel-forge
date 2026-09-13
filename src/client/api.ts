@@ -579,6 +579,33 @@ export class NovelApi {
     }
   }
 
+  /** 张力曲线：数据 + 规则核对。 */
+  async tension(): Promise<import('../protocol.ts').TensionResponse> {
+    const response = await fetch(withBookId(NOVEL_API.tension))
+    return readJson<import('../protocol.ts').TensionResponse>(response)
+  }
+
+  /** 设置张力曲线预设。 */
+  async tensionPreset(preset: import('../protocol.ts').TensionCurvePreset): Promise<void> {
+    await postJson(NOVEL_API.tension, { op: 'preset', preset })
+  }
+
+  /** 设置/清除某一章的目标张力。 */
+  async tensionSet(chapterNo: number, tension?: number): Promise<void> {
+    await postJson(NOVEL_API.tension, { op: 'set', chapterNo, tension })
+  }
+
+  /** 提示词槽位：列表。 */
+  async promptSlots(): Promise<import('../protocol.ts').PromptSlotsResponse> {
+    const response = await fetch(withBookId(NOVEL_API.promptSlots))
+    return readJson<import('../protocol.ts').PromptSlotsResponse>(response)
+  }
+
+  /** 写入一个提示词槽位（空串 = 清空）。 */
+  async promptSlotSet(id: import('../protocol.ts').PromptSlotId, value: string): Promise<void> {
+    await postJson(NOVEL_API.promptSlots, { id, value })
+  }
+
   /** 故事时间线：列表（含规则初筛问题）。 */
   async timeline(): Promise<import('../protocol.ts').TimelineResponse> {
     const response = await fetch(withBookId(NOVEL_API.timeline))

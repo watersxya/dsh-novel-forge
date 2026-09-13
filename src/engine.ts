@@ -35,6 +35,8 @@ import { BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, emptyProjectAssets, r
 import { scanAiFlavor } from './ai-scan.ts'
 import { beginLiveCall, endLiveCall, markFirstToken } from './llm-live.ts'
 import { shouldSwitchModel, withModelFallback } from './llm-retry.ts'
+import { renderTensionBlock } from './tension.ts'
+import { renderPromptSlots } from './prompt-slots.ts'
 import { normalizeTimelineEvent, renderTimelineBlock, sortTimeline } from './timeline.ts'
 import { createSnapshot } from './snapshots.ts'
 import { renderChapterWriterSkeleton } from './prompting.ts'
@@ -727,7 +729,7 @@ function planSystemPrompt(volumes: Volume[] | undefined): string {
     '3. 严格遵循大纲的人设、金手指规则、战力体系与世界观设定，不得自行发明冲突设定。',
     '4. 输出必须是合法的 JSON 数组，不要输出任何其他文字或 Markdown 代码块标记。',
     '5. 数组每个元素格式：{"title": "章节标题（10字以内，有网文感）", "beats": "结构化剧情要点（150-250字，必须包含四段，段间用换行分隔）：\\n本章目标：本章要完成的核心推进；\\n剧情要点：主要情节的起承转合（2-4 句）；\\n爽点/钩子：本章的爽点兑现或情绪钩子；\\n结尾钩子：本章结尾为下一章埋下的悬念"}',
-    '6. 每个章节对象可额外包含以下可选字段（尽量给出，缺失则跳过）：mustAdvance（数组，本章必须推进的局面/关系/信息/风险/决策变化）；mustPreserve（数组，本章必须保持不破坏的项）；characterHardFacts（数组，本章不可违背的人物硬事实：身份/阵营/境界/当前位置/知情度）；endingHook（字符串，本章结尾钩子要求）；obligation（字符串，本章义务合约一句话）。',
+    '6. 每个章节对象可额外包含以下可选字段（尽量给出，缺失则跳过）：tension（0-100 整数：本章张力目标，对抗/揭示/抉择/代价的强度；铺垫与日常章明显偏低，与相邻章节形成起伏）、mustAdvance（数组，本章必须推进的局面/关系/信息/风险/决策变化）；mustPreserve（数组，本章必须保持不破坏的项）；characterHardFacts（数组，本章不可违背的人物硬事实：身份/阵营/境界/当前位置/知情度）；endingHook（字符串，本章结尾钩子要求）；obligation（字符串，本章义务合约一句话）。',
     '重要：beats 字段内部必须使用 \\n 转义表示换行（JSON 字符串内不得有真实换行符），其余字符串值也不得包含真实换行符，JSON 必须在一段内完整结束。',
     '重要：直接输出 JSON 结果本身，不要把思考过程或推理内容写在输出里。',
     volumeBlock,
@@ -833,6 +835,14 @@ function writeSystemPrompt(project: ProjectState, targetChars?: number, lengthRu
   // 故事时间线锚点：只注入本章之前的事件（回写旧章时不被后续章节剧透）。
   const timelineBlock = renderTimelineBlock(project, beforeChapter ?? Number.MAX_SAFE_INTEGER)
   if (timelineBlock !== '') sections.push(timelineBlock)
+  // 本章张力（目标值 + 参考曲线位置）：写作时把握松紧。
+  if (beforeChapter !== undefined) {
+    const tensionBlock = renderTensionBlock(project, beforeChapter)
+    if (tensionBlock !== '') sections.push(tensionBlock)
+  }
+  // 作者自定义槽位（只影响表达方式，不覆盖道藏/红线/合规）。
+  const slotBlock = renderPromptSlots(project)
+  if (slotBlock !== '') sections.push(slotBlock)
   return sections.join('\n')
 }
 
@@ -1011,6 +1021,9 @@ export async function planChapters(
       beats,
       targetChars: config.chapterChars,
       status: 'pending',
+      tension: typeof entry.tension === 'number' && Number.isFinite(entry.tension)
+        ? Math.max(0, Math.min(100, Math.round(entry.tension)))
+        : undefined,
       mustAdvance: strArr(entry.mustAdvance).slice(0, 4),
       mustPreserve: strArr(entry.mustPreserve).slice(0, 4),
       characterHardFacts: strArr(entry.characterHardFacts).slice(0, 6),
@@ -1066,8 +1079,8 @@ function reviewSystemPrompt(project: ProjectState): string {
     '8. 呈现方式：整章是否纯内心推理铺陈（无对话/无对抗，推理全靠解说）；反派是否纯背景板无行动；重要配角是否无名标签化（瘦高个/灰衣人全程代称）——命中即列为问题。',
     '9. 内容合规（最高优先级）：逐条核对下方「内容合规红线」，任何一条命中（含影射、暗示、详细描写）必须列为 high，并给出改写建议。',
     '输出必须是合法 JSON 对象，不要输出任何其他文字：',
-    '{"score": 0-100的整数, "riskScore": 0-100的整数(越高越需人工处理,可结合本地AI味指数), "verdict": "一句话总评", "issues": [{"severity": "high|medium|low", "dimension": "character|setting|redline|writing|pacing|logic|anti-ai|presentation|compliance", "item": "问题描述", "suggestion": "修改建议", "ruleName": "命中的反AI规则名(见反AI规则清单)", "ruleType": "forbidden|risk|encourage", "category": "套话|句式|段落|心理|设定|节奏|对话|其他", "excerpt": "命中的原文摘录(不超过50字)", "reason": "判定理由", "canAutoRewrite": true|false}]}',
-    '维度 dimension 与上方 9 个审查维度一一对应：人设=character、设定=setting、红线=redline、文笔=writing、节奏=pacing、逻辑=logic、反AI=anti-ai、呈现=presentation、合规=compliance。每条 issue 都必须填 dimension。',
+    '{"score": 0-100的整数, "riskScore": 0-100的整数(越高越需人工处理,可结合本地AI味指数), "tension": 0-100的整数(本章张力强度:对抗/揭示/抉择/代价;铺垫与日常章应明显偏低), "verdict": "一句话总评", "issues": [{"severity": "high|medium|low", "dimension": "character|setting|redline|writing|pacing|logic|anti-ai|presentation|compliance", "item": "问题描述", "suggestion": "修改建议", "ruleName": "命中的反AI规则名(见反AI规则清单)", "ruleType": "forbidden|risk|encourage", "category": "套话|句式|段落|心理|设定|节奏|对话|其他", "excerpt": "命中的原文摘录(不超过50字)", "reason": "判定理由", "canAutoRewrite": true|false}]}',
+    'tension 是本章张力强度评分（不是质量分）：对决/揭秘/生死抉择偏高，铺垫章、日常章、过渡章偏低；同一本书内保持同一尺度。',
     '反 AI 类 issue 尽量给出 ruleName/ruleType/category/excerpt/reason/canAutoRewrite，便于统计与自动改写。',
     'AI 套话高频模板词示例（集中出现必须整体降密度）：仿佛、似乎、极其、完美、深不见底、形成了、莫名、无法形容、难以言喻、精心雕琢、肤光胜雪、眉目如画、歌舞升平、觥筹交错、妙语连珠、不可名状、另一层真相、命运、真相。',
     '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
@@ -1123,7 +1136,7 @@ export async function reviewChapter(
     bodyText,
   ].filter(line => line !== '').join('\n')
   const text = await complete(ctx, config, { system: reviewSystemPrompt(project), user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 8000), reasoning: config.analysisReasoning ?? 'low', model: config.reviewModel, liveLabel: '审稿' })
-  const raw = parseJsonObject<{ score?: unknown; riskScore?: unknown; verdict?: unknown; issues?: unknown; resolvedIds?: unknown; unresolvedIds?: unknown }>(text)
+  const raw = parseJsonObject<{ score?: unknown; riskScore?: unknown; tension?: unknown; verdict?: unknown; issues?: unknown; resolvedIds?: unknown; unresolvedIds?: unknown }>(text)
   const issues = Array.isArray(raw.issues)
     ? raw.issues
         .filter((v): v is Record<string, unknown> => typeof v === 'object' && v !== null)
@@ -1156,6 +1169,9 @@ export async function reviewChapter(
   const report: ReviewReport = {
     score,
     passed,
+    tension: typeof raw.tension === 'number' && Number.isFinite(raw.tension)
+      ? Math.max(0, Math.min(100, Math.round(raw.tension)))
+      : undefined,
     verdict: typeof raw.verdict === 'string' ? raw.verdict.slice(0, 200) : '',
     issues,
     riskScore,

@@ -29,6 +29,8 @@ import { WorldTab } from './WorldTab.tsx'
 import DirectorView from './DirectorView.tsx'
 import KnowledgeBaseView from './KnowledgeBaseView.tsx'
 import TimelineView from './TimelineView.tsx'
+import TensionView from './TensionView.tsx'
+import PromptSlotsView from './PromptSlotsView.tsx'
 import { EmptyState, PlotlineCard, PlotlineHealthPanel, PlotlinePlanPanel, PlotlineSuggestionPanel, RoleCandidateRow, RoleCard, SlideNav } from './views.tsx'
 import { extractDocxTextFromBuffer } from '../docx.ts'
 import { EXPORT_SCOPE_LABELS, EXPORT_SCOPE_VALUES } from '../../protocol.ts'
@@ -1012,7 +1014,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   /** AI 助手悬浮窗：是否打开。 */
   const [assistantOpen, setAssistantOpen] = useState(false)
   /** 顶部导航右滑抽屉：写作/设定/资产/参数/工具页 = 内容抽屉。null = 常驻总编台。资料侧柜走总编台内嵌格，不再有独立滑出层。 */
-  const [rightDrawer, setRightDrawer] = useState<'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown' | 'timeline' | null>(null)
+  const [rightDrawer, setRightDrawer] = useState<'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown' | 'timeline' | 'tension' | 'promptSlots' | null>(null)
   /** 打开参数抽屉或切换激活书时，重新加载本书参数。 */
   useEffect(() => {
     if (rightDrawer !== 'params') return
@@ -1092,7 +1094,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const [drawerMax, setDrawerMax] = useState(false)
 
   /** 打开内容抽屉：只滑出抽屉层，不切 activeTab —— 底座总编台保持常驻可见（对齐 demo）。 */
-  const openDrawer = (which: 'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown' | 'timeline'): void => {
+  const openDrawer = (which: 'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown' | 'timeline' | 'tension' | 'promptSlots'): void => {
     setRightDrawer(which)
     setDrawerMax(false)
   }
@@ -3025,6 +3027,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     { key: 'blurb', group: 'book', name: '简介 / 封面', di: project !== null && project.blurb !== '' ? '● 已填写' : '○ 未填写', dim: project === null, go: () => { openDrawer('blurb') } },
     // —— 工具与设置 ——
     { key: 'run', group: 'tools', name: '生产单', di: '批次生产 · 流水线', go: () => { openDrawer('run') } },
+    { key: 'tension', group: 'tools', name: '张力曲线', di: chapters.length > 0 ? `● ${chapters.length} 章曲线` : '○ 需先排章节', dim: project === null, go: () => { openDrawer('tension') } },
+    { key: 'promptSlots', group: 'tools', name: '提示词槽位', di: Object.keys(project?.promptSlots ?? {}).length > 0 ? `● 已设 ${Object.keys(project?.promptSlots ?? {}).length} 项` : '○ 未设置', dim: project === null, go: () => { openDrawer('promptSlots') } },
     { key: 'timeline', group: 'tools', name: '故事时间线', di: (project?.timeline ?? []).length > 0 ? `● ${(project?.timeline ?? []).length} 条事件` : '○ 未抽取', dim: project === null, go: () => { openDrawer('timeline') } },
     { key: 'knowledge', group: 'tools', name: '知识库', di: '跨书沉淀', go: () => { openDrawer('knowledge') } },
     { key: 'breakdown', group: 'tools', name: '拆书分析', di: '对标拆解', go: () => { openDrawer('breakdown') } },
@@ -4241,6 +4245,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           {rightDrawer === 'director' && <DirectorView api={api} todos={project?.todos ?? []} onTodosChange={(todos) => setProject(prev => prev === null ? prev : { ...prev, todos, updatedAt: new Date().toISOString() })} />}
           {rightDrawer === 'knowledge' && <KnowledgeBaseView api={api} />}
           {rightDrawer === 'timeline' && <TimelineView api={api} chapters={chapters.map(c => c.no)} />}
+          {rightDrawer === 'tension' && <TensionView api={api} />}
+          {rightDrawer === 'promptSlots' && <PromptSlotsView api={api} />}
           {rightDrawer === 'run' && (
           <RunPanel api={api} totalChapters={chapters.length} />
           )}
