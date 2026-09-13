@@ -1,8 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [1.2.1-alpha] - 2026-09-13
 
-发版流程与安装文档修正（无功能变更）：
+发版流程与安装文档修正（无功能变更）。
 
 - **`latest` 不再停在首个版本**：本线所有版本都是 `-alpha` 预发布，`npm publish --tag alpha` 不会动 `latest`，裸装（`npm i @waterwx/dsh-novel-forge`）会一直拿到 1.0.0-alpha。发布脚本现在在 publish 后显式 `npm dist-tag add … latest`，并已把 `latest` 手动同步到 1.2.0-alpha（将来发正式版时删掉这段即可）。
 - **GitHub Release 标记 prerelease**：版本号含 `-` 时创建/更新 release 会带 `prerelease: true`。
