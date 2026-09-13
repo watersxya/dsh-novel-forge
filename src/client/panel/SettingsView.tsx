@@ -8,6 +8,7 @@ import { Brain, Folder, Sparkles, RotateCcw, Upload, X, Image } from 'lucide-rea
 import type { NovelApi } from '../api.ts'
 import type { MoveOutputDirResponse, NovelConfig } from '../../protocol.ts'
 import { tt } from './helpers.ts'
+import { RUN_CHIP_MODE_OPTIONS, readRunChipMode, writeRunChipMode, type RunChipMode } from '../chip-prefs.ts'
 import { ModelManager } from './ModelManager.tsx'
 import { ReasoningSection } from './ReasoningSection.tsx'
 import { SubPage } from './SubPage.tsx'
@@ -47,6 +48,8 @@ export function SettingsView({ api, variant = 'page', onSettingsTab, onEditorFon
   /** 改变全局界面密度。 */
   onChangeThemeDensity: (d: 'comfort' | 'compact' | 'spacious') => void;
 }) {
+  /** 右上角生成状态芯片的显示偏好（三态；存 localStorage，选择即时生效）。 */
+  const [runChipMode, setRunChipMode] = useState<RunChipMode>(() => readRunChipMode())
   const [config, setConfig] = useState<NovelConfig | null>(null);
   const [configDraft, setConfigDraft] = useState<NovelConfig | null>(null);
   const [busy, setBusy] = useState(false);
@@ -265,6 +268,17 @@ export function SettingsView({ api, variant = 'page', onSettingsTab, onEditorFon
             <div className={css.field}><label className={css.fieldLabel}>主题风格</label><span className={css.input} style={{ display: 'inline-flex', alignItems: 'center' }}>墨纸 · 暖编辑案头</span><span className={css.meta}>统一墨纸风格，无需再选皮肤；切换明暗即达纸白/墨色。</span></div>
             <div className={css.field}><label className={css.fieldLabel}>界面密度</label><select className={css.input} value={themeDensity} onChange={e => onChangeThemeDensity(e.target.value as ThemeDensity)}><option value="comfort">舒适（默认）</option><option value="compact">紧凑</option><option value="spacious">宽松</option></select></div>
             <div className={css.field}><label className={css.fieldLabel}>编辑器字号（正文编辑 / 工作区）</label><select className={css.input} value={editorFontSize} onChange={e => changeEditorFont(Number(e.target.value))}>{[12,13,14,15,16,18,20,22,24].map(v => <option key={v} value={v}>{v}px</option>)}</select></div>
+            <div className={css.field}>
+              <label className={css.fieldLabel}>生成状态芯片（右上角）</label>
+              <select
+                className={css.input}
+                value={runChipMode}
+                onChange={e => { const next = e.target.value as RunChipMode; setRunChipMode(next); writeRunChipMode(next) }}
+              >
+                {RUN_CHIP_MODE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <span className={css.meta}>固定在窗口右上角，显示生产单 生成中 / 已暂停 / 批完成 / 出错，点击可打开小说工坊。「关闭」时同时停掉状态轮询。存于浏览器本地，即时生效。</span>
+            </div>
             <div className={css.row} style={{ justifyContent: 'flex-end' }}><button type="button" className={css.button} onClick={resetTheme}><RotateCcw size={14} style={{ verticalAlign: -2 }} /> 恢复默认主题</button></div>
           </div>
 

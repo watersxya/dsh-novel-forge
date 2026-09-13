@@ -2,6 +2,8 @@
  * 运行状态芯片：固定在页面顶部的「小说工坊生成状态」小徽标。
  * 轮询 /run/status，实时显示 生成中/暂停/完成/停止/出错 + 当前章号；
  * 点击可打开/关闭小说工坊面板。独立 DOM 注入，不触碰主面板逻辑，挂载失败静默降级。
+ * 显示偏好（关 / 仅生成中暂停时 / 总是）存在 localStorage，见 chip-prefs.ts：
+ * 书架页「设置 · 全局 → 外观与主题」里有对应下拉，选择即时生效（跨标签页也同步）。
  *
  * P0 重写说明（原实现的三个问题）：
  *   1. 整块背景染状态色 + 固定白字 → 浅色主题下「白字配亮底」对比度崩坏。
@@ -17,6 +19,7 @@ import type { NovelApi } from './api.ts'
 import type { PanelController } from './panel/controller.ts'
 import type { RunState } from '../protocol.ts'
 import css from './panel/panel.module.css'
+import { isRunChipVisible, readRunChipMode, subscribeRunChipMode, type RunChipMode } from './chip-prefs.ts'
 
 const REFRESH_MS = 4000
 
@@ -110,16 +113,20 @@ export function mountRunStatus(controller: PanelController, api: NovelApi): () =
 
   let disposed = false
   let timer: number | undefined
+  let mode: RunChipMode = readRunChipMode()
+  /** 最近一次拿到的生产单状态：切换偏好时据此立刻重算可见性，不必等下一轮询。 */
+  let last: RunState | null = null
 
   const render = (s: RunState | null): void => {
-    if (s === null) {
+    last = s
+    if (!isRunChipVisible(mode, s)) {
       chip.dataset.visible = 'false'
       return
     }
-    let body = label(s)
-    if (s.status === 'running' && s.stats.error > 0) body += ` · ×${s.stats.error}`
+    let body = label(s!)
+    if (s!.status === 'running' && s!.stats.error > 0) body += ` · ×${s!.stats.error}`
     text.textContent = body
-    chip.dataset.status = s.status
+    chip.dataset.status = s!.status
     chip.dataset.visible = 'true'
     chip.setAttribute('aria-label', body)
   }
@@ -130,13 +137,28 @@ export function mountRunStatus(controller: PanelController, api: NovelApi): () =
       const s = await api.runStatus()
       render(s)
     } catch { /* best-effort */ }
-    if (!disposed) timer = window.setTimeout(() => { void tick() }, REFRESH_MS)
+    if (!disposed && mode !== 'off') timer = window.setTimeout(() => { void tick() }, REFRESH_MS)
   }
+
+  /** 偏好变化：立即重算可见性；「关闭」时停掉轮询，重新打开时续上。 */
+  const applyMode = (next: RunChipMode): void => {
+    const wasOff = mode === 'off'
+    mode = next
+    render(last)
+    if (mode === 'off') {
+      if (timer !== undefined) { window.clearTimeout(timer); timer = undefined }
+      return
+    }
+    if (wasOff && timer === undefined) void tick()
+  }
+
+  const unsubscribe = subscribeRunChipMode(applyMode)
 
   void tick()
 
   return () => {
     disposed = true
+    unsubscribe()
     if (timer !== undefined) window.clearTimeout(timer)
     chip.remove()
   }
