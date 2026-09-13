@@ -64,7 +64,9 @@ shLive('pnpm typecheck')
 shLive('node scripts/check-theme-sizes.mjs')
 shLive('node scripts/check-fallback-tiers.mjs')
 shLive('pnpm build')
-console.log('  · typecheck / check-styles / build 全部通过')
+// 测试与 CI 对齐：带着失败用例发布过一次就很难收回（npm 版本号不可复用）。
+shLive('pnpm test')
+console.log('  · typecheck / check-styles / build / test 全部通过')
 
 // ---- 4) commit + tag -----------------------------------------------------
 console.log(NL + '▶ 提交与打 tag')
@@ -113,6 +115,19 @@ if (DRY_RUN) {
     }
   }
 }
+// 本线所有版本都是预发布：npm publish --tag alpha 不会动 latest，裸装
+// （npm i @waterwx/dsh-novel-forge，不带标签）就会永远停在首个版本。
+// 这里显式把 latest 同步到本次版本；将来若发布正式版，删掉这段即可。
+if (!DRY_RUN) {
+  try {
+    shLive('npm dist-tag add ' + pkg.name + '@' + version + ' latest')
+    console.log('  · latest -> ' + version)
+  } catch (e) {
+    console.error('✗ 同步 latest dist-tag 失败（npm 侧已完成，可稍后手动重试）：' + String(e))
+  }
+} else {
+  console.log('  [dry] npm dist-tag add ' + pkg.name + '@' + version + ' latest')
+}
 
 // ---- 7) GitHub release ---------------------------------------------------
 console.log(NL + '▶ GitHub Release')
@@ -135,12 +150,14 @@ if (DRY_RUN) {
 async function ensureRelease(token, ver, name, bodyText) {
   const list = await fetchJSON('https://api.github.com/repos/' + REPO + '/releases', token)
   const tag = 'v' + ver
+  // 带预发布标识（-alpha / -beta）的版本在 GitHub 上也标成 prerelease。
+  const isPrerelease = ver.includes('-')
   const rel = list.find((r) => r.tag_name === tag)
   if (rel) {
     console.log('  · release ' + tag + ' 已存在，更新正文')
-    await fetchJSON('https://api.github.com/repos/' + REPO + '/releases/' + rel.id, token, 'PATCH', { body: bodyText })
+    await fetchJSON('https://api.github.com/repos/' + REPO + '/releases/' + rel.id, token, 'PATCH', { body: bodyText, prerelease: isPrerelease })
   } else {
-    await fetchJSON('https://api.github.com/repos/' + REPO + '/releases', token, 'POST', { tag_name: tag, name: name, body: bodyText })
+    await fetchJSON('https://api.github.com/repos/' + REPO + '/releases', token, 'POST', { tag_name: tag, name: name, body: bodyText, prerelease: isPrerelease })
     console.log('  · 已创建 release ' + tag)
   }
 }

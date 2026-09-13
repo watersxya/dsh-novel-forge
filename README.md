@@ -135,8 +135,12 @@ dsh plugin --profile web add link:"<此目录绝对路径>"
 ### 从 npm 安装（推荐）
 
 ```sh
-dsh plugin --profile web add @waterwx/dsh-novel-forge
+dsh plugin --profile web add @waterwx/dsh-novel-forge@alpha
 ```
+
+> 版本标签：本项目整条线都是 `-alpha` 预发布，请显式指定 `@alpha` 以拿到最新版。
+> `latest` 与 `alpha` 在发版时同步指向同一版本（见 `scripts/release.mjs`），
+> 但显式带标签可以避免 registry 缓存或旧标签带来的意外降级。
 
 npm 分发的是预构建产物，无需任何构建授权。
 从 GitHub 安装需为 git 依赖的 `prepare` 构建授权（`pnpm-workspace.yaml` 的 `allowBuilds`）。
@@ -214,9 +218,11 @@ An AI novel-writing plugin for DeepSeek Harness (DSH). Feed it an outline (docx 
 ## Install
 
 ```sh
-dsh plugin --profile web add @waterwx/dsh-novel-forge
+dsh plugin --profile web add @waterwx/dsh-novel-forge@alpha
 ```
-or link a local checkout and restart dsh web; the "Novel Forge" entry appears in the sidebar.
+The `@alpha` tag is required on purpose: every release on the current line is a
+prerelease, so pin the tag instead of relying on the `latest` dist-tag.
+Or link a local checkout and restart dsh web; the "Novel Forge" entry appears in the sidebar.
 
 ## Data
 
