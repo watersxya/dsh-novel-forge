@@ -1,13 +1,15 @@
 /**
- * Tiny translation helper for the panel: reads the zh dict with the en dict
- * as fallback (the family plugins use a full locale registry; the panel keeps
- * a dependency-free helper so the client bundle stays self-contained).
+ * Tiny translation helper for the panel.
+ *
+ * 面板是中文单语界面：文案只在 `locales.ts` 定义一次，这里按类型化键位取值
+ * （键位不匹配会在编译期报错），保持客户端 bundle 自包含、不引入运行时语言服务。
+ * 需要多语言时再接入 DSH 的 locale 服务，届时只需替换本函数实现。
  */
-import { zh, en, type NovelKey } from '../locales.ts'
+import { zh, type NovelKey } from '../locales.ts'
 
 /** Translate one key with optional {placeholder} substitution. */
 export function tt(key: NovelKey, params?: Record<string, string | number>): string {
-  let text: string = zh[key] ?? en[key] ?? key
+  let text: string = zh[key] ?? key
   if (params !== undefined) {
     for (const [name, value] of Object.entries(params)) {
       text = text.replaceAll(`{${name}}`, String(value))

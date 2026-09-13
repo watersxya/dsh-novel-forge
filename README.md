@@ -23,6 +23,8 @@
 **版本：`1.3.0-alpha`** · 定位：**纯文本小说创作**。所有环节（开书、设定、规划、写作、审校、质检、导出）都在侧边栏「小说工坊」面板内完成；不涉及图片 / 视频 / 分镜生成。
 
 > 整条线目前都是 `-alpha` 预发布：安装请显式带 `@alpha` 标签。
+>
+> **界面语言**：面板为**简体中文单语**（无语言切换）。本文档的中英对照是文档翻译，不代表界面提供英文。
 
 ---
 
@@ -236,6 +238,7 @@ npm 分发的是预构建产物，无需任何构建授权。
 - **写操作守卫**：AI 编辑 Agent 只在作者**明确要求**时执行写操作；只提问不会误触发；阶段不符的动作会被契约拒绝。
 - **并发安全**：计划 / 生成 / 审稿落盘前会自动合并磁盘上的最新设定（道藏 / 角色库 / 剧情线 / 知情度），多窗口同时操作互不覆盖。
 - **纯文本定位**：本插件不负责图片 / 视频生成；设定均为文字数据（角色卡仅含定位 / 性格 / 目标 / 关系 / 成长线 / 知情度等字段）。
+- **界面语言**：小说工坊面板是简体中文单语（用户可见文案统一定义在 `src/client/locales.ts`，键位参与编译期校验）；不提供语言切换，也没有英文界面。
 - **章节质量**取决于大纲完整度；批量生成串行执行（单例执行器，不与手动操作并发写同一本书）。
 - **修订边界**：张力 / 时间线问题默认只是**建议**（日志 + 待办），不阻塞出章、不自动改正文；自动修订只在审稿 high 触发，且每章最多 2 轮，超出转人工待办 —— 自动化不会无限改写你的正文。
 - **用量账本**：Token / 耗时统计保存在进程内，重启即清零；逐章 token 未持久化（章节仅记录字数）。
@@ -298,6 +301,8 @@ vitest.config.ts      测试范围（tests/**/*.test.ts）
 An AI novel-writing plugin for DeepSeek Harness (DSH). Feed it an outline (docx / pasted text / a full txt split into chapters) and it compiles it into a complete novel: open a book → build the setting → plan chapters → compile chapter by chapter → revise → audit & finalize → export.
 
 **Version `1.3.0-alpha` · Scope: pure-text novel writing.** Everything happens inside the "Novel Forge" sidebar panel; no comic / storyboard / image / video generation.
+
+**UI language: Simplified Chinese only.** The panel ships a single Chinese UI (no language switch); the English section below is documentation for this repository, not an in-app language option.
 
 ### Main pipeline
 
