@@ -33,7 +33,8 @@ import { createUserMessage, BlockAssembler, ReasoningEffortId, type GenerateOpti
 import type { Context } from '@deepseek-ai/cordis'
 import { BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, emptyProjectAssets, recommendStylePreset, renderAllAssets, styleEngineSystemPrompt, styleFormulaSystemPrompt } from './assets.ts'
 import { scanAiFlavor } from './ai-scan.ts'
-import { emitLive, nextSessionId } from './llm-live.ts'
+import { beginLiveCall, endLiveCall, markFirstToken } from './llm-live.ts'
+import { shouldSwitchModel, withModelFallback } from './llm-retry.ts'
 import { renderChapterWriterSkeleton } from './prompting.ts'
 import { NovelActionError } from './action-guard.ts'
 import { buildChapterContext, renderContextBlocks } from './novel-context.ts'
@@ -45,6 +46,7 @@ import type {
   AdaptProposeResponse,
   AuditIssue,
   AuthorReview,
+  ExportScope,
   BreakdownResponse,
   ChapterPlan,
   Foreshadow,
@@ -346,58 +348,67 @@ async function complete(
   options: { system: string; user: string; temperature?: number; maxTokens?: number; reasoning?: 'off' | 'low' | 'high' | 'max'; model?: string; liveLabel?: string },
 ): Promise<string> {
   const liveLabel = options.liveLabel ?? 'LLM 调用'
-  const sessionId = nextSessionId()
-  const effModel = options.model || config.model
-  emitLive({ type: 'session_started', sessionId, label: liveLabel, model: effModel, at: new Date().toISOString(), context: { interactionId: sessionId } })
-  emitLive({ type: 'phase_changed', sessionId, phase: 'streaming', phaseMessage: '模型正在返回内容', at: new Date().toISOString() })
   const messages: Message[] = [createUserMessage({
     content: [{ type: 'text', text: options.user }],
     source: { kind: 'plugin', plugin: 'dsh-novel-forge' },
   })]
-  const request: GenerateOptions = {
-    provider: config.provider,
-    model: options.model || config.model,
-    messages,
-    system: options.system,
-    maxTokens: options.maxTokens ?? config.maxTokens,
-    temperature: options.temperature ?? 0.7,
-    reasoningEffort: ReasoningEffortId(options.reasoning ?? config.reasoningEffort ?? 'off'),
+  /** 用指定模型跑一次完整调用（含实况打点、token 记账与诊断日志）。 */
+  const runOnce = async (model: string): Promise<string> => {
+    const live = beginLiveCall({ label: liveLabel, model, system: options.system, user: options.user })
+    const request: GenerateOptions = {
+      provider: config.provider,
+      model,
+      messages,
+      system: options.system,
+      maxTokens: options.maxTokens ?? config.maxTokens,
+      temperature: options.temperature ?? 0.7,
+      reasoningEffort: ReasoningEffortId(options.reasoning ?? config.reasoningEffort ?? 'off'),
+    }
+    const assembler = new BlockAssembler()
+    for await (const chunk of ctx.llm.stream(request)) {
+      if (chunk.type === 'text-delta') markFirstToken(live)
+      assembler.push(chunk)
+    }
+    const finish = assembler.finish
+    if (finish.kind === 'error' || finish.kind === 'aborted') {
+      const message = `LLM 调用失败（${finish.kind}）: ${finish.failure.message}`
+      endLiveCall(live, assembler, { phase: 'failed', error: message })
+      throw new Error(message)
+    }
+    if (finish.kind === 'max-tokens') {
+      const message = 'LLM 输出达到 maxTokens 上限，请增大配置后重试'
+      endLiveCall(live, assembler, { phase: 'failed', error: message })
+      throw new Error(message)
+    }
+    // Diagnostics: log the assembled block shape (reasoning-only turns yield no
+    // text blocks — some models answer entirely in the reasoning channel).
+    if (process.env.DSH_NOVEL_DEBUG === '1') {
+      console.error('[dsh-novel-forge] complete: finish=%j blocks=%j', JSON.stringify(finish), assembler.blocks().map(b => `${b.type}:${'text' in b ? b.text.length : '?'}`))
+    }
+    const text = textFromAssembler(assembler)
+    endLiveCall(live, assembler, { chars: text.length, preview: text.slice(0, 320), phase: text === '' ? 'failed' : 'completed' })
+    return text
   }
-  const assembler = new BlockAssembler()
-  for await (const chunk of ctx.llm.stream(request)) {
-    assembler.push(chunk)
-  }
-  const finish = assembler.finish
-  if (finish.kind === 'error' || finish.kind === 'aborted') {
-    throw new Error(`LLM 调用失败（${finish.kind}）: ${finish.failure.message}`)
-  }
-  if (finish.kind === 'max-tokens') {
-    throw new Error('LLM 输出达到 maxTokens 上限，请增大配置后重试')
-  }
+  // 主模型失败（网络/限流/额度类）且配置了备用模型时，自动换模型重试一次。
+  return withModelFallback({ model: options.model || config.model, fallbackModel: config.fallbackModel }, runOnce)
+}
+
+/**
+ * 从 assembler 取模型文本；无文本块时回落到 reasoning 通道
+ * （部分模型会把答案整个放在思考通道，适配器以 reasoning 块呈现）。
+ */
+function textFromAssembler(assembler: BlockAssembler): string {
   const blocks = assembler.blocks()
-  // Diagnostics: log the assembled block shape (reasoning-only turns yield no
-  // text blocks — the v4-flash model can answer entirely in the reasoning
-  // channel, which the adapter surfaces as a reasoning block).
-  if (process.env.DSH_NOVEL_DEBUG === '1') {
-    console.error('[dsh-novel-forge] complete: finish=%j blocks=%j', JSON.stringify(finish), blocks.map(b => `${b.type}:${'text' in b ? b.text.length : '?'}`))
-  }
   const textBlocks = blocks
     .filter((block): block is Extract<StreamChunk, { type: 'block-end' }>['block'] & { type: 'text' } => block.type === 'text')
     .map(block => block.text)
-  let text = textBlocks.join('\n').trim()
-  // v4-flash can answer entirely in the reasoning channel (the adapter
-  // surfaces that as a 'reasoning' block). Fall back to it when no text came
-  // back — the reasoning content is the model's actual answer here.
-  if (text === '') {
-    const reasoning = blocks
-      .filter((block): block is { type: 'reasoning'; text: string } => block.type === 'reasoning')
-      .map(block => block.text)
-      .join('\n')
-      .trim()
-    if (reasoning !== '') text = reasoning
-  }
-  emitLive({ type: 'session_completed', sessionId, totalChars: text.length, preview: text.slice(0, 320), at: new Date().toISOString(), phase: text === '' ? 'failed' : 'completed' })
-  return text
+  const text = textBlocks.join('\n').trim()
+  if (text !== '') return text
+  return blocks
+    .filter((block): block is { type: 'reasoning'; text: string } => block.type === 'reasoning')
+    .map(block => block.text)
+    .join('\n')
+    .trim()
 }
 
 /** 解析 JSON 数组；失败或为空时给模型一次修复重试（对齐上游 structuredInvokeRepair 精神）。 */
@@ -2419,24 +2430,43 @@ export async function* rewriteChapterStream(
   }
 
   yield { frame: 'start' }
-  const assembler = new BlockAssembler()
+  const primaryModel = request.model ?? config.model
+  let rewritten = ''
   let streamError: Error | undefined
-  for await (const chunk of ctx.llm.stream(request)) {
-    assembler.push(chunk)
-    if (chunk.type === 'text-delta') yield { frame: 'delta', text: chunk.text }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const model = attempt === 0 ? primaryModel : (config.fallbackModel ?? '').trim()
+    if (model === '') break
+    const live = beginLiveCall({
+      label: `修订 · 第${chapterNo}章`,
+      model,
+      system: request.system,
+      user: messages[0]?.content !== undefined ? JSON.stringify(messages[0].content).slice(0, 2000) : undefined,
+    })
+    const assembler = new BlockAssembler()
+    let produced = 0
+    for await (const chunk of ctx.llm.stream({ ...request, model })) {
+      assembler.push(chunk)
+      if (chunk.type === 'text-delta') { produced += chunk.text.length; markFirstToken(live); yield { frame: 'delta', text: chunk.text } }
+    }
+    const finish = assembler.finish
+    streamError = undefined
+    if (finish.kind === 'error' || finish.kind === 'aborted') {
+      streamError = new Error(`修订失败（${finish.kind}）: ${finish.failure.message}`)
+    } else if (finish.kind === 'max-tokens') {
+      streamError = new Error('修订输出达到 maxTokens 上限，请增大配置后重试')
+    }
+    rewritten = assembler
+      .blocks()
+      .filter((block): block is Extract<StreamChunk, { type: 'block-end' }>['block'] & { type: 'text' } => block.type === 'text')
+      .map(block => block.text)
+      .join('\n')
+      .trim()
+    endLiveCall(live, assembler, streamError === undefined
+      ? { chars: rewritten.length, preview: rewritten.slice(0, 320), phase: rewritten === '' ? 'failed' : 'completed' }
+      : { chars: rewritten.length, phase: 'failed', error: streamError.message })
+    if (streamError === undefined) break
+    if (produced > 0 || !shouldSwitchModel(config.fallbackModel, model, streamError)) break
   }
-  const finish = assembler.finish
-  if (finish.kind === 'error' || finish.kind === 'aborted') {
-    streamError = new Error(`修订失败（${finish.kind}）: ${finish.failure.message}`)
-  } else if (finish.kind === 'max-tokens') {
-    streamError = new Error('修订输出达到 maxTokens 上限，请增大配置后重试')
-  }
-  const rewritten = assembler
-    .blocks()
-    .filter((block): block is Extract<StreamChunk, { type: 'block-end' }>['block'] & { type: 'text' } => block.type === 'text')
-    .map(block => block.text)
-    .join('\n')
-    .trim()
   if (streamError !== undefined) throw streamError
   if (rewritten.length < 20) throw new Error('修订结果过短，可能失败，请重试')
 
@@ -2511,24 +2541,43 @@ export async function* polishChapterStream(
     reasoningEffort: ReasoningEffortId('off'),
   }
   yield { frame: 'start' }
-  const assembler = new BlockAssembler()
+  const primaryModel = request.model ?? config.model
+  let newBody = ''
   let streamError: Error | undefined
-  for await (const chunk of ctx.llm.stream(request)) {
-    assembler.push(chunk)
-    if (chunk.type === 'text-delta') yield { frame: 'delta', text: chunk.text }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const model = attempt === 0 ? primaryModel : (config.fallbackModel ?? '').trim()
+    if (model === '') break
+    const live = beginLiveCall({
+      label: `去 AI 味润色 · 第${chapterNo}章`,
+      model,
+      system: request.system,
+      user: body.slice(0, 2000),
+    })
+    const assembler = new BlockAssembler()
+    let produced = 0
+    for await (const chunk of ctx.llm.stream({ ...request, model })) {
+      assembler.push(chunk)
+      if (chunk.type === 'text-delta') { produced += chunk.text.length; markFirstToken(live); yield { frame: 'delta', text: chunk.text } }
+    }
+    const finish = assembler.finish
+    streamError = undefined
+    if (finish.kind === 'error' || finish.kind === 'aborted') {
+      streamError = new Error(`润色失败（${finish.kind}）: ${finish.failure.message}`)
+    } else if (finish.kind === 'max-tokens') {
+      streamError = new Error('润色输出达到 maxTokens 上限')
+    }
+    newBody = assembler
+      .blocks()
+      .filter((block): block is Extract<StreamChunk, { type: 'block-end' }>['block'] & { type: 'text' } => block.type === 'text')
+      .map(block => block.text)
+      .join('\n')
+      .trim()
+    endLiveCall(live, assembler, streamError === undefined
+      ? { chars: newBody.length, preview: newBody.slice(0, 320), phase: newBody === '' ? 'failed' : 'completed' }
+      : { chars: newBody.length, phase: 'failed', error: streamError.message })
+    if (streamError === undefined) break
+    if (produced > 0 || !shouldSwitchModel(config.fallbackModel, model, streamError)) break
   }
-  const finish = assembler.finish
-  if (finish.kind === 'error' || finish.kind === 'aborted') {
-    streamError = new Error(`润色失败（${finish.kind}）: ${finish.failure.message}`)
-  } else if (finish.kind === 'max-tokens') {
-    streamError = new Error('润色输出达到 maxTokens 上限')
-  }
-  const newBody = assembler
-    .blocks()
-    .filter((block): block is Extract<StreamChunk, { type: 'block-end' }>['block'] & { type: 'text' } => block.type === 'text')
-    .map(block => block.text)
-    .join('\n')
-    .trim()
   if (streamError !== undefined) throw streamError
   if (newBody.length < 100) throw new Error('润色结果过短，可能失败，请重试')
 
@@ -2667,26 +2716,49 @@ export async function* generateChapterStream(
 
   yield { frame: 'start' }
 
-  const assembler = new BlockAssembler()
+  const primaryModel = request.model ?? config.model
+  let body = ''
   let streamError: Error | undefined
-  for await (const chunk of ctx.llm.stream(request)) {
-    assembler.push(chunk)
-    if (chunk.type === 'text-delta') {
-      yield { frame: 'delta', text: chunk.text }
+  // 最多两次尝试：主模型 → （未产出任何文字且失败可重试时）备用模型。
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const model = attempt === 0 ? primaryModel : (config.fallbackModel ?? '').trim()
+    if (model === '') break
+    const live = beginLiveCall({
+      label: `正文生成 · 第${chapter.no}章`,
+      model,
+      system: request.system,
+      user,
+    })
+    const assembler = new BlockAssembler()
+    let produced = 0
+    for await (const chunk of ctx.llm.stream({ ...request, model })) {
+      assembler.push(chunk)
+      if (chunk.type === 'text-delta') {
+        produced += chunk.text.length
+        markFirstToken(live)
+        yield { frame: 'delta', text: chunk.text }
+      }
     }
+    const finish = assembler.finish
+    streamError = undefined
+    if (finish.kind === 'error' || finish.kind === 'aborted') {
+      streamError = new Error(`生成失败（${finish.kind}）: ${finish.failure.message}`)
+    } else if (finish.kind === 'max-tokens') {
+      streamError = new Error('达到 maxTokens 上限，正文可能不完整，请增大 maxTokens 后重试')
+    }
+    body = assembler
+      .blocks()
+      .filter((block): block is Extract<StreamChunk, { type: 'block-end' }>['block'] & { type: 'text' } => block.type === 'text')
+      .map(block => block.text)
+      .join('\n')
+      .trim()
+    endLiveCall(live, assembler, streamError === undefined
+      ? { chars: body.length, preview: body.slice(0, 320), phase: body === '' ? 'failed' : 'completed' }
+      : { chars: body.length, phase: 'failed', error: streamError.message })
+    if (streamError === undefined) break
+    // 只有「一个字都没产出」时才换模型重试——已有正文绝不能重复生成。
+    if (produced > 0 || !shouldSwitchModel(config.fallbackModel, model, streamError)) break
   }
-  const finish = assembler.finish
-  if (finish.kind === 'error' || finish.kind === 'aborted') {
-    streamError = new Error(`生成失败（${finish.kind}）: ${finish.failure.message}`)
-  } else if (finish.kind === 'max-tokens') {
-    streamError = new Error('达到 maxTokens 上限，正文可能不完整，请增大 maxTokens 后重试')
-  }
-  let body = assembler
-    .blocks()
-    .filter((block): block is Extract<StreamChunk, { type: 'block-end' }>['block'] & { type: 'text' } => block.type === 'text')
-    .map(block => block.text)
-    .join('\n')
-    .trim()
   if (streamError !== undefined) throw streamError
   if (body.length < 100) throw new Error('生成内容过短，可能失败，请重试')
 
@@ -4228,4 +4300,208 @@ export function exportBook(outputDir: string, project: ProjectState, format: 'tx
   const file = `《${safeFileName(project.bookName)}》全本.${ext}`
   writeFileSync(join(outputDir, file), content, 'utf8')
   return { file, chars: content.length, chapters: done.length }
+}
+
+/** 逐行渲染「- 名称：值」清单，跳过空值。 */
+function renderPairs(pairs: Array<[string, string | undefined]>): string {
+  return pairs
+    .filter(([, v]) => v !== undefined && v !== '')
+    .map(([k, v]) => `- ${k}：${v}`)
+    .join('\n')
+}
+
+/** 渲染项目设定（卷首语 / 开书定盘 / 总纲 / 道藏 / 大世界 / 写作资产）。 */
+function renderSettings(project: ProjectState): string {
+  const out: string[] = [`# ${project.bookName} · 项目设定`, '']
+  out.push('## 卷首语 / 简介', '', project.blurb !== undefined && project.blurb !== '' ? project.blurb : '（未填写）', '')
+  const c = project.bookContract
+  if (c !== undefined) {
+    out.push('## 开书定盘', '', renderPairs([
+      ['书籍承诺', c.promise],
+      ['主推进模式', c.primaryModeName],
+      ['辅助推进模式', (c.secondaryModeNames ?? []).join('、')],
+      ['文风基调', c.tone],
+      ['目标平台', c.targetPlatform],
+    ]), '')
+  }
+  out.push('## 总纲', '', project.outline.trim() === '' ? '（未导入）' : project.outline.trim(), '')
+  const bible = project.bible
+  if (bible !== undefined) {
+    out.push('## 道藏', '')
+    if (bible.worldRules.length > 0) out.push('### 世界规则', '', bible.worldRules.map((r, i) => `${i + 1}. ${r}`).join('\n'), '')
+    if (bible.redLines.length > 0) out.push('### 写作红线', '', bible.redLines.map(r => `- ${r}`).join('\n'), '')
+    if (bible.style.length > 0) out.push('### 文风', '', bible.style.map(x => `- ${x}`).join('\n'), '')
+    if (bible.characters.length > 0) {
+      out.push('### 角色（道藏）', '')
+      for (const ch of bible.characters) {
+        out.push(`- **${ch.name}**（${ch.role}）`)
+        if (ch.traits.length > 0) out.push(`  - 标签：${ch.traits.join('、')}`)
+        if (ch.goals !== '') out.push(`  - 目标：${ch.goals}`)
+        if (ch.relations !== '') out.push(`  - 关系：${ch.relations}`)
+        if ((ch.knowledge ?? []).length > 0) out.push(`  - 知情：${(ch.knowledge ?? []).join('；')}`)
+      }
+      out.push('')
+    }
+  }
+  const world = project.world
+  if (world !== undefined) {
+    out.push('## 大世界', '')
+    if (world.realms.length > 0) out.push('### 境界体系', '', world.realms.map((r, i) => `${i + 1}. ${r.name}${r.description !== '' ? `：${r.description}` : ''}`).join('\n'), '')
+    if (world.regions.length > 0) out.push('### 区域', '', world.regions.map(r => `- ${r.name}${r.description !== '' ? `：${r.description}` : ''}`).join('\n'), '')
+    if (world.factions.length > 0) out.push('### 势力', '', world.factions.map(f => `- ${f.name}（${f.kind}）${f.description !== '' ? `：${f.description}` : ''}`).join('\n'), '')
+  }
+  const assets = project.assets
+  if (assets !== undefined) {
+    const head: Array<[string, string | undefined]> = []
+    if (assets.genre !== undefined) head.push(['题材', assets.genre.name])
+    if (assets.primaryProgression !== undefined) head.push(['主推进', assets.primaryProgression.name])
+    if ((assets.auxiliaryProgressions ?? []).length > 0) head.push(['辅助推进', assets.auxiliaryProgressions.map(a => a.name).join('、')])
+    if (head.length > 0) out.push('## 写作资产', '', renderPairs(head), '')
+    if ((assets.antiAiRules ?? []).length > 0) {
+      out.push('### 反 AI 规则', '')
+      out.push(assets.antiAiRules.map(r => `- ${r.name}：避免「${r.avoid}」→ ${r.fix}`).join('\n'), '')
+    }
+    if ((assets.styleAssets ?? []).length > 0) {
+      out.push('### 笔法帖 / 写法资产', '')
+      out.push(assets.styleAssets.map(x => `- ${x.name}`).join('\n'), '')
+    }
+  }
+  return out.join('\n').replace(/\n(\n)+/g, '\n\n')
+}
+
+/** 渲染规划（卷计划 + 章节计划）。 */
+function renderPlan(project: ProjectState): string {
+  const out: string[] = [`# ${project.bookName} · 规划`, '']
+  const volumes = (project.volumes ?? []).slice().sort((a, b) => a.no - b.no)
+  if (volumes.length > 0) {
+    out.push('## 卷计划', '')
+    for (const v of volumes) {
+      out.push(`### 第${v.no}卷 ${v.title}`, '')
+      if (v.summary !== '') out.push(v.summary, '')
+    }
+  }
+  out.push(`## 章节计划（共 ${project.chapters.length} 章）`, '')
+  for (const c of project.chapters.slice().sort((a, b) => a.no - b.no)) {
+    out.push(`### 第${c.no}章 ${c.title}　[${c.status}]`, '')
+    if (c.beats !== '') out.push(c.beats.trim(), '')
+    const extra = renderPairs([
+      ['本章必达', (c.mustAdvance ?? []).join('；')],
+      ['不可破坏', (c.mustPreserve ?? []).join('；')],
+      ['人物硬事实', (c.characterHardFacts ?? []).join('；')],
+      ['结尾钩子', c.endingHook],
+      ['义务合约', c.obligation],
+    ])
+    if (extra !== '') out.push(extra, '')
+    if (c.summary !== undefined && c.summary !== '') out.push(`- 摘要：${c.summary}`, '')
+  }
+  return out.join('\n')
+}
+
+/** 渲染角色（角色库 + 人物志）。 */
+function renderCharacters(project: ProjectState): string {
+  const out: string[] = [`# ${project.bookName} · 角色`, '']
+  const roles = project.roles ?? []
+  out.push(`## 角色库（${roles.length}）`, '')
+  if (roles.length === 0) out.push('（空）', '')
+  for (const r of roles) {
+    out.push(`### ${r.name}（${r.roleLabel}）`, '')
+    const info = renderPairs([
+      ['身份', r.identity],
+      ['性格', r.traits.join('、')],
+      ['目标', r.goals],
+      ['关系网', r.relations.join('；')],
+      ['成长线', r.arc.join(' → ')],
+      ['知情度', r.knowledge.join('；')],
+      ['首次出场', r.firstChapter !== undefined ? `第${r.firstChapter}章` : undefined],
+    ])
+    if (info !== '') out.push(info, '')
+  }
+  const status = project.roleStatus ?? []
+  if (status.length > 0) {
+    out.push('## 人物志（当前状态）', '')
+    for (const card of status) {
+      out.push(`- **${card.name}**（${card.role}）${card.status}　—　最近出场第 ${card.lastChapter} 章，累计 ${card.appearances} 次`)
+    }
+  }
+  return out.join('\n')
+}
+
+/** 渲染质检记录（逐章审稿 + 作者复盘 + 暗线 + 剧情线 + 待办）。 */
+function renderReview(project: ProjectState): string {
+  const out: string[] = [`# ${project.bookName} · 质检记录`, '']
+  const reviewed = project.chapters.filter(c => c.review !== undefined).slice().sort((a, b) => a.no - b.no)
+  out.push(`## 审稿（${reviewed.length} / ${project.chapters.length} 章）`, '')
+  for (const c of reviewed) {
+    const r = c.review!
+    out.push(`### 第${c.no}章 ${c.title}　${r.score} 分 · ${r.passed ? '通过' : '未过'}`, '')
+    if (r.verdict !== '') out.push(r.verdict, '')
+    if (r.issues.length > 0) {
+      out.push(r.issues.map(i => `- [${i.severity}] ${i.item}${i.suggestion !== '' ? ` → ${i.suggestion}` : ''}`).join('\n'), '')
+    }
+  }
+  const author = project.chapters.filter(c => c.authorReview !== undefined).slice().sort((a, b) => a.no - b.no)
+  if (author.length > 0) {
+    out.push('## 作者复盘', '')
+    for (const c of author) {
+      const a = c.authorReview!
+      out.push(`### 第${c.no}章 ${c.title}`, '')
+      out.push(renderPairs([
+        ['上一章钩子兑现', a.hookHonored ? '是' : '否'],
+        ['钩子说明', a.hookNote],
+        ['结尾钩子强度', String(a.endingHook)],
+        ['剧情线推进', a.plotlineProgress],
+        ['连续性', a.continuity],
+      ]), '')
+    }
+  }
+  const fores = project.foreshadows ?? []
+  if (fores.length > 0) {
+    out.push('## 暗线 / 伏笔', '')
+    out.push(fores.map(f => `- [${f.status}] ${f.description}${f.targetChapter !== undefined ? `（预计第 ${f.targetChapter} 章回收）` : ''}`).join('\n'), '')
+  }
+  const plotlines = project.plotlines ?? []
+  if (plotlines.length > 0) {
+    out.push('## 剧情线', '')
+    out.push(plotlines.map(l => `- [${l.status}] ${l.name}：${l.goal}（${l.progress}）`).join('\n'), '')
+  }
+  const todos = project.todos ?? []
+  if (todos.length > 0) {
+    out.push('## 编辑待办', '')
+    out.push(todos.map(t => `- [${t.done ? 'x' : ' '}] ${t.text}`).join('\n'), '')
+  }
+  return out.join('\n')
+}
+
+/**
+ * 按范围导出：整本正文 / 设定 / 规划 / 角色 / 质检记录 / 项目 JSON。
+ *
+ * @param outputDir 书目录。
+ * @param project 项目状态。
+ * @param scope 导出范围。
+ * @param format txt / md / json（json 只对 `project` 范围有独立含义，其余按 md 落盘）。
+ * @returns 文件名、字符数与章节数。
+ */
+export function exportScope(
+  outputDir: string,
+  project: ProjectState,
+  scope: ExportScope,
+  format: 'txt' | 'md' | 'json',
+): { file: string; chars: number; chapters: number } {
+  if (scope === 'book') return exportBook(outputDir, project, format === 'json' ? 'md' : format)
+  if (scope === 'project') {
+    const payload = { schema: 'dsh-novel-forge/project@1', exportedAt: new Date().toISOString(), project }
+    const content = JSON.stringify(payload, null, 2)
+    const file = `《${safeFileName(project.bookName)}》项目备份.json`
+    writeFileSync(join(outputDir, file), content, 'utf8')
+    return { file, chars: content.length, chapters: project.chapters.length }
+  }
+  const body = scope === 'settings' ? renderSettings(project)
+    : scope === 'plan' ? renderPlan(project)
+      : scope === 'characters' ? renderCharacters(project)
+        : renderReview(project)
+  const ext = format === 'json' ? 'md' : format
+  const label = scope === 'settings' ? '项目设定' : scope === 'plan' ? '规划' : scope === 'characters' ? '角色' : '质检记录'
+  const file = `《${safeFileName(project.bookName)}》${label}.${ext}`
+  writeFileSync(join(outputDir, file), body, 'utf8')
+  return { file, chars: body.length, chapters: 0 }
 }

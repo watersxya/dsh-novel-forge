@@ -37,6 +37,8 @@ import {
 } from './engine.ts'
 import { rewriteChapterStream, countHanzi } from './engine.ts'
 import { computeBookStage, isGenericContinue, renderStageContract, splitByStage, stageAllows, type BookStage } from './stage-contract.ts'
+import { beginLiveCall, endLiveCall, markFirstToken } from './llm-live.ts'
+import { withModelFallback } from './llm-retry.ts'
 import { NovelActionError, classifyActionError, FailureLedger } from './action-guard.ts'
 
 /** History file name inside the output dir. */
@@ -806,37 +808,48 @@ async function chatOnce(
       messages[messages.length - 1] = { ...last, content: newBlocks }
     }
   }
-  const request: GenerateOptions = {
-    provider: config.provider,
-    model: config.model,
-    messages,
-    system,
-    // v4-flash 推理模型：reasoning channel 占预算，给足避免回复被截断。
-    maxTokens: Math.max(config.maxTokens, 16000),
-    temperature: 0.7,
-  }
-  const assembler = new BlockAssembler()
-  for await (const chunk of ctx.llm.stream(request)) {
-    assembler.push(chunk)
-  }
-  const finish = assembler.finish
-  if (finish.kind === 'error' || finish.kind === 'aborted') {
-    throw new Error(`助手调用失败（${finish.kind}）: ${finish.failure.message}`)
-  }
-  const blocks = assembler.blocks()
-  const textBlocks = blocks
-    .filter((block): block is Extract<StreamChunk, { type: 'block-end' }>['block'] & { type: 'text' } => block.type === 'text')
-    .map(block => block.text)
-  let text = textBlocks.join('\n').trim()
-  if (text === '') {
-    const reasoning = blocks
-      .filter((block): block is { type: 'reasoning'; text: string } => block.type === 'reasoning')
+  /** 用指定模型跑一次（含实况打点与 token 记账）。 */
+  const runOnce = async (model: string): Promise<string> => {
+    const request: GenerateOptions = {
+      provider: config.provider,
+      model,
+      messages,
+      system,
+      // 推理模型的 reasoning channel 占预算，给足避免回复被截断。
+      maxTokens: Math.max(config.maxTokens, 16000),
+      temperature: 0.7,
+    }
+    // 实况打点：助手对话同样计入用量账本，并能查看实际发送的 Prompt。
+    const live = beginLiveCall({ label: 'AI 编辑对话', model, system, user: messages.map(m => JSON.stringify(m.content)).join(' / ').slice(0, 8000) })
+    const assembler = new BlockAssembler()
+    for await (const chunk of ctx.llm.stream(request)) {
+      if (chunk.type === 'text-delta') markFirstToken(live)
+      assembler.push(chunk)
+    }
+    const finish = assembler.finish
+    if (finish.kind === 'error' || finish.kind === 'aborted') {
+      const message = `助手调用失败（${finish.kind}）: ${finish.failure.message}`
+      endLiveCall(live, assembler, { phase: 'failed', error: message })
+      throw new Error(message)
+    }
+    const blocks = assembler.blocks()
+    const textBlocks = blocks
+      .filter((block): block is Extract<StreamChunk, { type: 'block-end' }>['block'] & { type: 'text' } => block.type === 'text')
       .map(block => block.text)
-      .join('\n')
-      .trim()
-    if (reasoning !== '') text = reasoning
+    let text = textBlocks.join('\n').trim()
+    if (text === '') {
+      const reasoning = blocks
+        .filter((block): block is { type: 'reasoning'; text: string } => block.type === 'reasoning')
+        .map(block => block.text)
+        .join('\n')
+        .trim()
+      if (reasoning !== '') text = reasoning
+    }
+    endLiveCall(live, assembler, { chars: text.length, preview: text.slice(0, 320), phase: text === '' ? 'failed' : 'completed' })
+    return text
   }
-  return text
+  // 主模型失败（网络/限流/额度类）且配置了备用模型时，自动换模型重试一次。
+  return withModelFallback({ model: config.model, fallbackModel: config.fallbackModel }, runOnce)
 }
 
 /** Run one user turn. Yields stream frames; persists history. */

@@ -30,6 +30,7 @@ import DirectorView from './DirectorView.tsx'
 import KnowledgeBaseView from './KnowledgeBaseView.tsx'
 import { EmptyState, PlotlineCard, PlotlineHealthPanel, PlotlinePlanPanel, PlotlineSuggestionPanel, RoleCandidateRow, RoleCard, SlideNav } from './views.tsx'
 import { extractDocxTextFromBuffer } from '../docx.ts'
+import { EXPORT_SCOPE_LABELS, EXPORT_SCOPE_VALUES } from '../../protocol.ts'
 import type {
   AuditStatus,
   BookSettings,
@@ -44,6 +45,7 @@ import type {
   ProjectState,
   ReviewReport,
   RoleRecord,
+  ExportScope,
   SensitiveHit,
   StageInfo,
   StoryBible,
@@ -737,6 +739,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
    * 的聊天记录，而新消息已经发到另一本书里。
    */
   const [bookKey, setBookKey] = useState('')
+  /** 导出范围（设置页导出卡片）：整本正文 / 设定 / 规划 / 角色 / 质检记录 / 项目备份。 */
+  const [exportScope, setExportScope] = useState<ExportScope>('book')
   const [dragActive, setDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [planCount, setPlanCount] = useState(30)
@@ -2626,11 +2630,11 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   }
 
   /** Export the book. */
-  const handleExport = async (format: 'txt' | 'md'): Promise<void> => {
+  const handleExport = async (format: 'txt' | 'md' | 'json', scope: ExportScope = 'book'): Promise<void> => {
     setBusy(true)
     setError('')
     try {
-      const result = await api.exportBook(format)
+      const result = await api.exportBook(format, scope)
       setNotice(tt('settings.exported', { file: result.file, chars: result.chars, chapters: result.chapters }))
       pushProgress(tt('settings.exported', { file: result.file, chars: result.chars, chapters: result.chapters }), 'done')
     } catch (err) {
@@ -3699,14 +3703,41 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                   onChange={patch => { setBookCfg({ ...bookCfg, ...patch }) }}
                 />
 
-                {/* 导出（本书） */}
+                {/* 导出（本书）：按范围导出——整本正文 / 设定 / 规划 / 角色 / 质检记录 / 项目备份 JSON */}
                 <div className={`${css.card} ${css.settingsCard}`} style={{ gap: 'var(--nf-space-12)' }}>
                   <span className={css.cardTitle}>导出（本书）</span>
-                  <div className={css.row}>
-                    <button type="button" className={css.button} disabled={busy || chapters.length === 0} onClick={() => { void handleExport('txt') }}>{tt('settings.exportTxt')}</button>
-                    <button type="button" className={css.button} disabled={busy || chapters.length === 0} onClick={() => { void handleExport('md') }}>{tt('settings.exportMd')}</button>
+                  <div className={css.row} style={{ flexWrap: 'wrap', gap: 'var(--nf-space-8)' }}>
+                    <select
+                      className={css.input}
+                      value={exportScope}
+                      onChange={e => setExportScope(e.target.value as ExportScope)}
+                      title="选择导出范围"
+                    >
+                      {EXPORT_SCOPE_VALUES.map(scope => (
+                        <option key={scope} value={scope}>{EXPORT_SCOPE_LABELS[scope]}</option>
+                      ))}
+                    </select>
+                    {exportScope === 'project' ? (
+                      <button type="button" className={css.button} disabled={busy} onClick={() => { void handleExport('json', 'project') }}>导出项目备份 JSON</button>
+                    ) : exportScope === 'book' ? (
+                      <>
+                        <button type="button" className={css.button} disabled={busy || chapters.length === 0} onClick={() => { void handleExport('txt', 'book') }}>{tt('settings.exportTxt')}</button>
+                        <button type="button" className={css.button} disabled={busy || chapters.length === 0} onClick={() => { void handleExport('md', 'book') }}>{tt('settings.exportMd')}</button>
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" className={css.button} disabled={busy} onClick={() => { void handleExport('txt', exportScope) }}>导出 TXT</button>
+                        <button type="button" className={css.button} disabled={busy} onClick={() => { void handleExport('md', exportScope) }}>导出 Markdown</button>
+                      </>
+                    )}
                   </div>
-                  <span className={css.meta}>导出当前书的全部已写章节。</span>
+                  <span className={css.meta}>
+                    {exportScope === 'project'
+                      ? '导出完整项目 JSON（含设定/规划/角色/事实库），用于备份或迁移到其它机器。'
+                      : exportScope === 'book'
+                        ? '导出当前书的全部已写章节。'
+                        : `导出「${EXPORT_SCOPE_LABELS[exportScope]}」，不含正文，便于单独存档或交给他人。`}
+                  </span>
                 </div>
               </>
             )}

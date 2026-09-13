@@ -24,6 +24,10 @@ export const NOVEL_API = {
   director: '/api/dsh-novel-forge/director',
   directorTodos: '/api/dsh-novel-forge/director/todos',
   llmLive: '/api/dsh-novel-forge/llm-live/stream',
+  /** 查看某次调用实际发送的 Prompt（按 sessionId）。 */
+  llmPrompt: '/api/dsh-novel-forge/llm-live/prompt',
+  /** 清零本次运行的用量账本。 */
+  usageReset: '/api/dsh-novel-forge/usage/reset',
   marketRadar: '/api/dsh-novel-forge/market-radar',
   marketRadarScan: '/api/dsh-novel-forge/market-radar/scan',
   marketRadarApply: '/api/dsh-novel-forge/market-radar/apply',
@@ -1150,6 +1154,11 @@ export interface NovelConfig {
   reviewModel?: string
   /** 全书质检(审计)用模型（缺省用 model）。 */
   auditModel?: string
+  /**
+   * 备用模型：主模型调用失败（网络/限流/额度/服务不可用）时自动切换重试一次。
+   * 留空表示不切换。批量连写时能显著减少"整批中断"。
+   */
+  fallbackModel?: string
   /** LLM reasoning effort: off = no thinking; low/high/max = thinking intensity. */
   reasoningEffort: 'off' | 'low' | 'high' | 'max'
   /** 分析类任务（提炼/拆书/反推大纲等）的推理档位；默认 low，不受上面写作档位影响。 */
@@ -1232,6 +1241,98 @@ export interface StageInfo {
   reason: string
 }
 
+// ------------------------------------------------------------ LLM 实况 / 用量
+
+/** 单次 LLM 调用的 token 用量（来自 dsh-llm 的 usage chunk）。 */
+export interface LlmTokenUsage {
+  inputTokens: number
+  outputTokens: number
+  /** 供应商给出的总用量（缺失时由输入+输出推导）。 */
+  totalTokens?: number
+  /** 思考（reasoning）通道用量。 */
+  reasoningTokens?: number
+  /** 命中缓存的输入用量。 */
+  cacheReadTokens?: number
+}
+
+/** LLM 实况帧：宿主 → 浏览器的 SSE 事件（每次调用一组 session_* 事件）。 */
+export interface LlmLiveFrame {
+  type: 'session_started' | 'output_delta' | 'reasoning_delta' | 'phase_changed' | 'session_completed'
+  /** 宿主生成，形如 ll-<base36>-<n>。 */
+  sessionId: string
+  /** 本次调用用途（如 正文生成/审稿/章节规划）。 */
+  label?: string
+  /** 使用模型。 */
+  model?: string
+  /** 事件时间（ISO）。 */
+  at: string
+  /** session_started：交互上下文。 */
+  context?: { taskId?: string; interactionId: string }
+  /** output_delta / reasoning_delta：本次增量文本。 */
+  content?: string
+  /** session 累计字符数。 */
+  totalChars?: number
+  /** reasoning 累计字符数。 */
+  totalReasoningChars?: number
+  /** phase_changed：新阶段。 */
+  phase?: 'requesting' | 'streaming' | 'completed' | 'failed'
+  /** phase_changed：阶段描述。 */
+  phaseMessage?: string
+  /** session_completed：最终预览（截断）。 */
+  preview?: string
+  /** session_completed：失败信息。 */
+  error?: string
+  /** session_completed：本次用量（供应商未上报时缺省）。 */
+  usage?: LlmTokenUsage
+  /** session_completed：本次调用耗时（毫秒）。 */
+  elapsedMs?: number
+  /** session_completed：首字耗时（毫秒；未拿到文本时缺省）。 */
+  firstTokenMs?: number
+  /** session_started：是否已记录可查看的 Prompt（面板据此显示「查看 Prompt」）。 */
+  hasPrompt?: boolean
+  /** session_started：Prompt 字符数（system + user）。 */
+  promptChars?: number
+}
+
+/** 按用途分组的用量。 */
+export interface LlmUsageBucket {
+  label: string
+  calls: number
+  failed: number
+  inputTokens: number
+  outputTokens: number
+  reasoningTokens: number
+  elapsedMs: number
+}
+
+/** 本次运行（进程内，重启归零）的 LLM 用量汇总。 */
+export interface LlmUsageSummary {
+  calls: number
+  failed: number
+  inputTokens: number
+  outputTokens: number
+  reasoningTokens: number
+  totalTokens: number
+  elapsedMs: number
+  /** 供应商未上报 usage 的调用次数（用于说明数据为何不完整）。 */
+  callsWithoutUsage: number
+  byLabel: LlmUsageBucket[]
+}
+
+/** 一次调用的 Prompt 记录（供面板查看「实际发送了什么」）。 */
+export interface LlmPromptRecord {
+  sessionId: string
+  label?: string
+  model?: string
+  at: string
+  system?: string
+  user?: string
+  /** system + user 的字符数（记录被截断时仍给出原始长度）。 */
+  chars: number
+  /** 记录本身是否被截断。 */
+  truncated?: boolean
+}
+
 export interface StatusResponse {
   config: NovelConfig
   /** The persisted project, when one exists in the output dir. */
@@ -1242,6 +1343,8 @@ export interface StatusResponse {
   audit?: AuditStatus
   /** 宿主按项目真实状态算出的创作阶段（面板角标 / 外部自动化共用）。 */
   stage?: StageInfo
+  /** 本次运行（进程内）的 LLM 用量汇总：调用次数 / 输入·输出·思考 token / 耗时。 */
+  usage?: LlmUsageSummary
   /**
    * 截断声明：本次响应中被裁掉的字段说明（如「编年录：共 320 条，仅返回最近 80 条」）。
    * 消费方不得把缺失字段当作"不存在"，需要完整数据时走专用接口。
@@ -1426,13 +1529,41 @@ export interface ChapterResponse {
 }
 
 /** POST /export request/response. */
+/**
+ * 导出范围：
+ * - `book`       整本正文（txt / md）
+ * - `settings`   项目设定（总纲 / 道藏 / 大世界 / 写作资产 / 卷首语）
+ * - `plan`       规划（卷计划 + 章节计划，含每章目标/要点/钩子/硬事实）
+ * - `characters` 角色（角色库 + 人物志当前状态）
+ * - `review`     质检记录（逐章审稿 + 作者复盘 + 伏笔/剧情线状态）
+ * - `project`    项目 JSON（完整状态，用于备份/迁移；仅 json 格式）
+ */
+export type ExportScope = 'book' | 'settings' | 'plan' | 'characters' | 'review' | 'project'
+
+/** 导出范围全集（宿主校验用；顺序即 UI 展示顺序）。 */
+export const EXPORT_SCOPE_VALUES: readonly ExportScope[] = ['book', 'settings', 'plan', 'characters', 'review', 'project']
+
+/** 导出范围的中文标签。 */
+export const EXPORT_SCOPE_LABELS: Record<ExportScope, string> = {
+  book: '整本正文',
+  settings: '项目设定',
+  plan: '规划（卷/章节）',
+  characters: '角色',
+  review: '质检记录',
+  project: '项目备份 JSON',
+}
+
 export interface ExportRequest {
-  format: 'txt' | 'md'
+  format: 'txt' | 'md' | 'json'
+  /** 缺省 `book`（兼容旧调用）。 */
+  scope?: ExportScope
 }
 export interface ExportResponse {
   file: string
   chars: number
   chapters: number
+  scope: ExportScope
+  format: 'txt' | 'md' | 'json'
 }
 
 /** POST /config request: patch any subset of the runtime config. */
@@ -1444,6 +1575,8 @@ export interface ConfigPatch {
   generateModel?: string
   reviewModel?: string
   auditModel?: string
+  /** 备用模型（主模型失败时自动切换重试一次；空串 = 关闭）。 */
+  fallbackModel?: string
   reasoningEffort?: 'off' | 'low' | 'high' | 'max'
   analysisReasoning?: 'off' | 'low' | 'high' | 'max'
   chapterChars?: number

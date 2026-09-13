@@ -106,6 +106,7 @@ export function SettingsView({ api, variant = 'page', onSettingsTab, onEditorFon
         generateModel: configDraft.generateModel,
         reviewModel: configDraft.reviewModel,
         auditModel: configDraft.auditModel,
+        fallbackModel: configDraft.fallbackModel ?? '',
         reasoningEffort: configDraft.reasoningEffort ?? 'off',
         chapterChars: configDraft.chapterChars,
         maxTokens: configDraft.maxTokens,
@@ -198,6 +199,25 @@ export function SettingsView({ api, variant = 'page', onSettingsTab, onEditorFon
               onModel={v => setConfigDraft({ ...configDraft, model: v })}
               onSavedModels={models => setConfigDraft({ ...configDraft, savedModels: models })}
             />
+          </div>
+          <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-12)' }}>
+            <span className={css.cardTitle}>备用模型（故障自动切换）</span>
+            <div className={css.field}>
+              <label className={css.fieldLabel}>主模型调用失败（限流 / 超时 / 额度 / 服务不可用）时，自动换它重试一次</label>
+              <select
+                className={css.input}
+                value={configDraft.fallbackModel ?? ''}
+                onChange={e => setConfigDraft({ ...configDraft, fallbackModel: e.target.value })}
+              >
+                <option value="">不切换（关闭）</option>
+                {[...new Set([configDraft.model, ...(configDraft.savedModels ?? []).map(m => m.model)])]
+                  .filter(m => m !== '')
+                  .map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <span className={css.meta}>
+              只对可重试的失败生效：用户取消、参数错误不会切换；正文生成只在「一个字都没产出」时才换模型重试，避免重复生成。
+            </span>
           </div>
           <ReasoningSection
             reasoningEffort={configDraft.reasoningEffort ?? 'off'}

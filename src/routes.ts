@@ -18,6 +18,7 @@ import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { Context } from '@deepseek-ai/cordis'
 import { ProductionRunner } from './run.ts'
 import {
+  EXPORT_SCOPE_VALUES,
   NOVEL_API,
   type AssetsPatch,
   type AssetsResponse,
@@ -67,6 +68,7 @@ import {
   type JobFrame,
   type LoadOutlineRequest,
   type LoadOutlineResponse,
+  type ExportScope,
   type NovelConfig,
   type PlotlinesRequest,
   type PlotlinesResponse,
@@ -133,7 +135,7 @@ import { copyDirContents, listDirContents, normalizeDir, removeDir } from './mig
 import { loadAuthorAssets, upsertAuthorAsset, removeAuthorAsset, importDefaultAuthorAssets } from './author-assets.ts'
 import { BUILTIN_ANTI_AI_RULES, BUILTIN_GENRE_LIBRARY, BUILTIN_PLOT_BEATS, BUILTIN_PROGRESSION_MODES, BUILTIN_STARTER_STYLE_PROFILES, BUILTIN_STYLE_TEMPLATES, emptyProjectAssets, ensureBuiltinAssets } from './assets.ts'
 import { scanAiFlavor } from './ai-scan.ts'
-import { emitLive, nextSessionId, subscribeLiveFeed } from './llm-live.ts'
+import { emitLive, livePrompt, liveUsage, nextSessionId, resetLiveUsage, subscribeLiveFeed } from './llm-live.ts'
 import { scanMarketRanking } from './market-radar-scan.ts'
 import { addGlobalGenre, addGlobalMode, globalGenreLibrary, globalProgressionLibrary } from './global-assets.ts'
 import {
@@ -143,7 +145,7 @@ import {
   autoLinkPlotlines,
   backfillFacts,
   createProject,
-  exportBook,
+  exportScope,
   importBookText,
   importBookTextFromText,
   previewBookText,
@@ -385,6 +387,8 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         audit: auditState,
         // 阶段契约：宿主算一次，面板角标、助手提示词、外部自动化共用同一结论。
         stage: computeBookStage(project),
+        // 本次运行（进程内）的 LLM 用量：调用次数 / 输入·输出·思考 token / 耗时。
+        usage: liveUsage(),
         ...(truncations.length > 0 ? { truncations } : {}),
       }
       writeJson(res, 200, response)
@@ -981,10 +985,12 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         writeJson(res, 400, { error: '输出目录中没有项目' })
         return
       }
-      const format = body?.format === 'md' ? 'md' : 'txt'
+      const format: 'txt' | 'md' | 'json' = body?.format === 'json' ? 'json' : body?.format === 'md' ? 'md' : 'txt'
+      // 导出范围：整本正文 / 设定 / 规划 / 角色 / 质检记录 / 项目 JSON。
+      const scope: ExportScope = body?.scope !== undefined && EXPORT_SCOPE_VALUES.includes(body.scope) ? body.scope : 'book'
       try {
-        const result = exportBook(config.outputDir, project, format)
-        const response: ExportResponse = { ...result }
+        const result = exportScope(config.outputDir, project, scope, format)
+        const response: ExportResponse = { ...result, scope, format }
         writeJson(res, 200, response)
       } catch (error) {
         writeJson(res, 500, { error: (error as Error).message })
@@ -1672,6 +1678,35 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           resolve()
         })
       })
+    },
+  }
+
+  // --------------------------------------------------- llm-live prompt/usage
+  /** 查看某次调用实际发送的 Prompt（面板「查看 Prompt」按钮用）。 */
+  const llmPromptRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.llmPrompt,
+    handler: (req, res) => {
+      if (!guard(req, res, 'GET')) return
+      const qurl = new URL(req.url ?? '/', 'http://localhost')
+      const sessionId = qurl.searchParams.get('sessionId') ?? ''
+      const record = livePrompt(sessionId)
+      if (record === undefined) {
+        writeJson(res, 404, { error: '该调用的 Prompt 记录已过期（只保留最近 40 次调用）' })
+        return
+      }
+      writeJson(res, 200, record)
+    },
+  }
+
+  /** 清零本次运行的用量账本。 */
+  const usageResetRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.usageReset,
+    handler: (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      resetLiveUsage()
+      writeJson(res, 200, { ok: true, usage: liveUsage() })
     },
   }
 
@@ -3336,6 +3371,8 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     llmLiveRoute,
     assistantRoute,
     assistantHistoryRoute,
+    llmPromptRoute,
+    usageResetRoute,
     assistantClearRoute,
     bookshelfRoute,
     bookshelfActivateRoute,

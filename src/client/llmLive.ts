@@ -4,22 +4,10 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { NOVEL_API } from '../protocol.ts'
+import { NOVEL_API, type LlmLiveFrame, type LlmTokenUsage } from '../protocol.ts'
 
-export interface LlmLiveFrame {
-  type: 'session_started' | 'output_delta' | 'reasoning_delta' | 'phase_changed' | 'session_completed'
-  sessionId: string
-  label?: string
-  model?: string
-  at: string
-  content?: string
-  totalChars?: number
-  totalReasoningChars?: number
-  phase?: 'requesting' | 'streaming' | 'completed' | 'failed'
-  phaseMessage?: string
-  preview?: string
-  error?: string
-}
+// 帧结构定义在 protocol.ts（宿主与浏览器共用同一份线上形状），此处只再导出。
+export type { LlmLiveFrame }
 
 export interface LlmLiveSession {
   sessionId: string
@@ -31,6 +19,16 @@ export interface LlmLiveSession {
   totalChars: number
   startedAt: string
   updatedAt: string
+  /** 本次调用的 token 用量（供应商未上报时缺省）。 */
+  usage?: LlmTokenUsage
+  /** 本次调用耗时（毫秒）。 */
+  elapsedMs?: number
+  /** 首字耗时（毫秒）。 */
+  firstTokenMs?: number
+  /** 是否保存了可查看的 Prompt。 */
+  hasPrompt?: boolean
+  /** Prompt 字符数（system + user）。 */
+  promptChars?: number
 }
 
 const MAX_PREVIEW_CHARS = 20_000
@@ -50,6 +48,8 @@ function applyFrame(current: Record<string, LlmLiveSession>, frame: LlmLiveFrame
       totalChars: 0,
       startedAt: frame.at,
       updatedAt: frame.at,
+      hasPrompt: frame.hasPrompt,
+      promptChars: frame.promptChars,
     }
     next[id] = session
     return next
@@ -66,7 +66,17 @@ function applyFrame(current: Record<string, LlmLiveSession>, frame: LlmLiveFrame
     session = { ...session, phase: frame.phase ?? session.phase, phaseMessage: frame.phaseMessage ?? session.phaseMessage, updatedAt: frame.at }
     next[id] = session
   } else if (frame.type === 'session_completed') {
-    session = { ...session, phase: frame.phase ?? 'completed', phaseMessage: frame.phase === 'failed' ? (frame.error ?? '调用失败') : '模型结果已准备完成', totalChars: frame.totalChars ?? session.totalChars, preview: session.preview || (frame.preview ?? ''), updatedAt: frame.at }
+    session = {
+      ...session,
+      phase: frame.phase ?? 'completed',
+      phaseMessage: frame.phase === 'failed' ? (frame.error ?? '调用失败') : '模型结果已准备完成',
+      totalChars: frame.totalChars ?? session.totalChars,
+      preview: session.preview || (frame.preview ?? ''),
+      updatedAt: frame.at,
+      usage: frame.usage ?? session.usage,
+      elapsedMs: frame.elapsedMs ?? session.elapsedMs,
+      firstTokenMs: frame.firstTokenMs ?? session.firstTokenMs,
+    }
     next[id] = session
   }
   return next

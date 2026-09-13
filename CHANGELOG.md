@@ -9,6 +9,14 @@
 - **归属范围补正**：`THIRD_PARTY_NOTICES.md` 按逐条比对结果列明移植数量（16 套风格模板中 8 套沿用、18 条反 AI 规则中 11 条沿用、4 档起步写法档全部沿用、14 个顶层题材中 7 个同名），并声明推进模式与剧情节拍经比对为本仓库自建（原 `assets.ts` 头注释的「genre tree + progression mode seeds」属过度声明，已随清理一并修正）。
 - **自动化门禁**：新增 `scripts/check-third-party.mjs`（`pnpm check:third-party`），扫描 `src/ tests/ scripts/ 配置` 中的外部项目名、组织名、上游符号名与 AGPL 标记，命中即失败；已接入 CI 与发布脚本第 3 步。目前 79 个文件全绿。
 
+第一批「向成熟生产系统补齐」的四项能力（A1–A4）：
+
+- **A1 Token / 耗时记账**：实况帧新增 `usage`（输入 / 输出 / 思考 / 缓存 token）与 `elapsedMs`、`firstTokenMs`；`beginLiveCall` / `endLiveCall` / `markFirstToken` 统一打点，覆盖 `complete()` 与正文生成 / 修订 / 润色 / 助手对话全部 LLM 调用（此前实况只覆盖 `complete()`，正文生成完全不可见）。`/status.usage` 返回本次运行（进程内）汇总：调用次数、失败数、各类 token、模型耗时、未上报用量的调用数，以及**按用途分组**；面板实况区新增「本次运行」累计条与「重新计数」。
+- **A2 查看实际发送的 Prompt**：每次调用保存 system + user（环形保留最近 40 次、单条上限 6 万字符），新增 `GET /llm-live/prompt?sessionId=`；实况卡片提供「查看 Prompt」按钮，弹层可切换 User / System 两个页签并显示总字符数与截断标记。
+- **A3 分范围导出 + 项目备份 JSON**：`/export` 新增 `scope`：`book`（整本正文）/ `settings`（总纲·道藏·大世界·写作资产·卷首语）/ `plan`（卷 + 章节计划，含必达·硬事实·钩子·义务合约）/ `characters`（角色库 + 人物志）/ `review`（逐章审稿 + 作者复盘 + 暗线 + 剧情线 + 待办）/ `project`（完整项目 JSON，带 `schema` 与导出时间，用于备份迁移）；设置页导出卡片改为「范围下拉 + 对应格式按钮」。
+- **A4 备用模型与失败恢复**：新增 `fallbackModel` 配置（设置页「备用模型（故障自动切换）」）；新增 `src/llm-retry.ts` 定义恢复规则——只对网络/超时/限流/服务端/额度类失败切换，用户取消与参数错误不切换；备用模型也失败时抛**主模型原始错误**保留第一现场。`complete()` 与助手对话按此重试一次；正文生成 / 修订 / 润色**仅在「一个字都没产出」时**才换模型重试，杜绝重复生成。
+- 工程：新增 `src/llm-retry.ts`、`tests/llm-retry.test.ts`（11 例，覆盖可重试判定、切换条件、原始错误保留、未配置时不切换、onSwitch 回调），套件 → 69 个用例。
+
 ## [1.2.1-alpha] - 2026-09-13
 
 发版流程与安装文档修正（无功能变更）。

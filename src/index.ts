@@ -53,6 +53,8 @@ export interface Config {
   reviewModel?: string
   /** 任务级模型路由：质检模型（留空则跟随 model）。 */
   auditModel?: string
+  /** 备用模型：主模型失败时自动切换重试一次（留空 = 不切换）。 */
+  fallbackModel?: string
   /** LLM reasoning effort (off/low/high/max). */
   reasoningEffort?: 'off' | 'low' | 'high' | 'max'
   /** 分析类任务（提炼/拆书/反推大纲等）的推理档位；默认 low。 */
@@ -89,6 +91,7 @@ export const Config: z<Config> = z.object({
   generateModel: z.string().default(''),
   reviewModel: z.string().default(''),
   auditModel: z.string().default(''),
+  fallbackModel: z.string().default(''),
   reasoningEffort: z.union(['off', 'low', 'high', 'max']).default('off'),
   analysisReasoning: z.union(['off', 'low', 'high', 'max']).default('low'),
   chapterChars: z.number().default(3500),
@@ -111,6 +114,7 @@ const DEFAULT_PROVIDER = 'deepseek-official'
 const DEFAULT_MODEL = 'deepseek-flash'
 const DEFAULT_REASONING_EFFORT = 'off' as const
 const DEFAULT_ANALYSIS_REASONING = 'low' as const
+const DEFAULT_FALLBACK_MODEL = ''
 const DEFAULT_CHAPTER_CHARS = 3500
 const DEFAULT_MAX_TOKENS = 12000
 const DEFAULT_REVIEW_PASS_SCORE = 70
@@ -134,6 +138,7 @@ export function resolveConfig(value: Partial<Config> | undefined): NovelConfig {
     generateModel: value?.generateModel,
     reviewModel: value?.reviewModel,
     auditModel: value?.auditModel,
+    fallbackModel: value?.fallbackModel ?? DEFAULT_FALLBACK_MODEL,
     reasoningEffort: value?.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
     analysisReasoning: value?.analysisReasoning ?? DEFAULT_ANALYSIS_REASONING,
     chapterChars: value?.chapterChars ?? DEFAULT_CHAPTER_CHARS,
@@ -189,6 +194,7 @@ export function apply(ctx: Context, config?: Config): void {
     if (patch.generateModel !== undefined) next.generateModel = patch.generateModel
     if (patch.reviewModel !== undefined) next.reviewModel = patch.reviewModel
     if (patch.auditModel !== undefined) next.auditModel = patch.auditModel
+    if (patch.fallbackModel !== undefined) next.fallbackModel = patch.fallbackModel
     if (patch.reasoningEffort !== undefined) next.reasoningEffort = patch.reasoningEffort
     if (patch.analysisReasoning !== undefined) next.analysisReasoning = patch.analysisReasoning
     if (patch.chapterChars !== undefined) next.chapterChars = patch.chapterChars

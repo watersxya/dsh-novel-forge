@@ -152,8 +152,8 @@ export class NovelApi {
     return postJson<ForeshadowResponse>(NOVEL_API.foreshadow, req)
   }
 
-  async exportBook(format: 'txt' | 'md'): Promise<ExportResponse> {
-    return postJson<ExportResponse>(NOVEL_API.exportBook, { format })
+  async exportBook(format: 'txt' | 'md' | 'json', scope: import('../protocol.ts').ExportScope = 'book'): Promise<ExportResponse> {
+    return postJson<ExportResponse>(NOVEL_API.exportBook, { format, scope })
   }
 
   async chapter(no: number): Promise<ChapterResponse> {
