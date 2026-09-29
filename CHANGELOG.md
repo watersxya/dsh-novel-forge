@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0] - 2026-09-30
+
+去掉 `alpha` 时代遗留：版本号转正式、`peerDependencies` 对齐 dsh 运行时，**从此不再依赖版本豁免**。
+
+- **`peerDependencies` 由 `^0.1.2-alpha.3` 改为 `^0.2.0-rc.2`**（10 个 `@deepseek-ai/dsh-*` 包）。原范围的上界是 `<0.2.0`，把当前运行时 `0.2.0-rc.2` 排除在外 —— 这正是 profile 里必须为**精确版本**登记一条豁免（`compatibility.json`）的原因，也是「改版本号 → 豁免键对不上 → 整个 bundle 被跳过、UI 入口消失」那次事故的根因。对齐后经 Host 自身判定函数复核：`evaluatePluginCompatibility` 返回 `undefined`，**且在不带任何豁免时同样通过**——插件现在是靠自己的声明合规，不再靠人工签发的豁免。
+  - 范围取值经 semver 实测：`^0.2.0-rc.2` 接受 `0.2.0-rc.x` 与后续 `0.2.x`（含 `0.2.0` 正式版），只在升到 `0.3.0` 时才需要再改。
+  - 注意：判定函数比对的**不是**那 10 个包各自的版本，而是单一的运行时版本（`plugin-compatibility.ts`：`semver.satisfies(runtimeVersion, requirement)`），因此对齐的是「运行时版本」这一条。
+- **版本号 `1.3.3-alpha` → `2.0.0`**：去掉 alpha 后缀（那是最初基于 alpha 版 dsh 创建时留下的代号，现已不适用）。选择 `2.0.0` 可越过已发布的 `1.3.3`（正式版）与已废弃的 `2.x` 实验线，从而占据 npm `latest`；发布时使用 `latest` dist-tag 而非 `alpha`。
+  - 已发布的历史不受影响：`1.3.3-alpha` 等版本仍在 npm 上、不可回收；`2.x` 实验线（含已废弃的漫剧工作台）从未占据 `latest`，可按需用 `npm deprecate` 标注废弃。
+- `devDependencies` 仍锁定 `0.1.2-alpha.3`（本地类型检查与测试用），与运行时判定无关，本轮未改动以避免打乱类型解析。
+
 ## [Unreleased]
 
 ### 发布工具加固：消除「幽灵声明」
