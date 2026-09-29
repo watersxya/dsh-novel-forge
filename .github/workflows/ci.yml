@@ -39,5 +39,9 @@ jobs:
       - name: Check third-party hygiene
         run: node scripts/check-third-party.mjs
 
+      # 无障碍阈值回退肉眼难发现，发布后只能靠新版本修，故进 CI 与发布前置。
+      - name: Audit colour contrast
+        run: node scripts/audit-contrast.mjs
+
       - name: Test
         run: pnpm test

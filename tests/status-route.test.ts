@@ -27,15 +27,19 @@ function readShelfAt(home: string): string {
 let dir: string
 let previousHome: string | undefined
 let previousUserProfile: string | undefined
+let previousDshHome: string | undefined
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'nf-status-'))
-  // 书架等状态文件落在 homedir() 下：把 HOME/USERPROFILE 指到临时目录，
+  // 书架等状态文件落在 dshHome() 下：把 HOME/USERPROFILE 指到临时目录，
   // 保证测试既不读也不写用户真实的 ~/.dsh（否则空书架会被播种成临时书）。
+  // DSH_HOME 优先级更高且测试进程会继承宿主的值，必须一并摘掉。
   previousHome = process.env.HOME
   previousUserProfile = process.env.USERPROFILE
+  previousDshHome = process.env.DSH_HOME
   process.env.HOME = dir
   process.env.USERPROFILE = dir
+  delete process.env.DSH_HOME
 })
 
 afterEach(() => {
@@ -43,6 +47,8 @@ afterEach(() => {
   else process.env.HOME = previousHome
   if (previousUserProfile === undefined) delete process.env.USERPROFILE
   else process.env.USERPROFILE = previousUserProfile
+  if (previousDshHome === undefined) delete process.env.DSH_HOME
+  else process.env.DSH_HOME = previousDshHome
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -69,7 +75,7 @@ function makeDeps(): Parameters<typeof makeRoutes>[0] {
   return {
     ctx: {} as never,
     getConfig: () => config,
-    patchConfig: async () => config,
+    patchConfig: async () => ({ config }),
     rawConfig: () => config,
   } as Parameters<typeof makeRoutes>[0]
 }
@@ -157,5 +163,72 @@ describe('GET /status', () => {
     // homedir 已被重定向到临时目录：真实 ~/.dsh 的书架文件不可能被本次调用改动。
     expect(homedir()).toBe(dir)
     expect(readShelfAt(REAL_HOME)).toBe(realShelfBefore)
+  })
+})
+
+/** 发一次 POST /config，返回状态码与解析后的响应体。 */
+async function callConfig(
+  deps: Parameters<typeof makeRoutes>[0],
+  patch: Record<string, unknown>,
+  remoteAddress = '127.0.0.1',
+): Promise<{ status: number; body: { config?: NovelConfig; settingsWarning?: string; error?: string } }> {
+  const route = makeRoutes(deps).find(r => r.path === NOVEL_API.config)
+  if (route === undefined) throw new Error('/config route is not registered')
+  const payload = JSON.stringify(patch)
+  const req = {
+    method: 'POST',
+    url: NOVEL_API.config,
+    headers: { host: '127.0.0.1:3812' },
+    socket: { remoteAddress },
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.from(payload, 'utf8')
+    },
+  } as unknown as IncomingMessage
+  let captured: { status: number; body: { config?: NovelConfig; settingsWarning?: string; error?: string } } | undefined
+  const res = {
+    writeHead: (status: number) => { captured = { status, body: {} } },
+    end: (body: string) => {
+      if (captured !== undefined) captured.body = JSON.parse(body) as typeof captured.body
+    },
+  } as unknown as ServerResponse
+  await route.handler(req, res)
+  if (captured === undefined) throw new Error('/config did not respond')
+  return captured
+}
+
+describe('POST /config', () => {
+  it('段未被宿主登记时不再 400：改动生效并如实声明未持久化', async () => {
+    const config = { chapterChars: 3500 } as unknown as NovelConfig
+    const deps = {
+      ctx: {} as never,
+      getConfig: () => config,
+      // 真实宿主在段不可寻址时的返回：已生效 + 告警。
+      patchConfig: async () => ({ config, settingsWarning: '配置已生效，但未能持久化（宿主 settings 未登记本插件的配置段），重启后会回到原值。' }),
+      rawConfig: () => config,
+      settingsNs: undefined,
+    } as unknown as Parameters<typeof makeRoutes>[0]
+    const { status, body } = await callConfig(deps, { chapterChars: 4000 })
+    expect(status).toBe(200)
+    expect(body.settingsWarning).toContain('未能持久化')
+  })
+
+  it('持久化成功时不带告警（面板显示"设置已保存"）', async () => {
+    const config = { chapterChars: 4000 } as unknown as NovelConfig
+    const deps = {
+      ctx: {} as never,
+      getConfig: () => config,
+      patchConfig: async () => ({ config }),
+      rawConfig: () => config,
+      settingsNs: 'k3f9a1bc',
+    } as unknown as Parameters<typeof makeRoutes>[0]
+    const { status, body } = await callConfig(deps, { chapterChars: 4000 })
+    expect(status).toBe(200)
+    expect(body.settingsWarning).toBeUndefined()
+    expect(body.config?.chapterChars).toBe(4000)
+  })
+
+  it('非 loopback 请求被拒绝（403）', async () => {
+    const { status } = await callConfig(makeDeps(), { chapterChars: 4000 }, '10.0.0.5')
+    expect(status).toBe(403)
   })
 })

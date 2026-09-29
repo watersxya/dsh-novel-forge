@@ -12,7 +12,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { spawn } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, basename, extname } from 'node:path'
-import { homedir } from 'node:os'
 import { randomBytes } from 'node:crypto'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { Context } from '@deepseek-ai/cordis'
@@ -55,6 +54,8 @@ import {
   type ChapterSaveResponse,
   type ChapterTextRequest,
   type ConfigPatch,
+  type ConfigResponse,
+  type GenerateRequest,
   type MoveOutputDirRequest,
   type MoveOutputDirResponse,
   type BookSettings,
@@ -219,6 +220,7 @@ import { detectTimelineIssues } from './timeline.ts'
 import { buildCurveData, detectTensionIssues, TENSION_MAX, TENSION_MIN, TENSION_PRESETS, clampTension } from './tension.ts'
 import { PROMPT_SLOTS, normalizeSlotValue, readPromptSlots } from './prompt-slots.ts'
 import { buildRevisionPlan, describeRevisionPlan, REVISION_ITEM_CAP } from './revision.ts'
+import { dshHomePath } from './home.ts'
 
 /** Cap on JSON request bodies (generous: cover images travel as base64). */
 const MAX_JSON_BODY_BYTES = 64 * 1024 * 1024
@@ -286,14 +288,28 @@ export interface NovelRoutesDeps {
   ctx: Context
   /** Resolve the live plugin config (settings-aware). */
   getConfig: () => NovelConfig
-  /** Persist a config patch through the settings seam. */
-  patchConfig: (patch: ConfigPatch) => Promise<NovelConfig>
+  /** Persist a config patch through the settings seam (memory fallback included). */
+  patchConfig: (patch: ConfigPatch) => Promise<ConfigResponse>
   /** Raw settings config（未与激活书合并）——目录迁移判断默认目录是否需同步用。 */
   rawConfig?: () => { outputDir?: string }
+  /** Loader entry id the settings section is addressed by (undefined when unknown). */
+  settingsNs?: string
 }
 
 /** Default chapter count for planning when the request omits it. */
 const DEFAULT_PLAN_COUNT = 30
+
+/**
+ * The profile this host booted (`--profile <name>` on the dsh CLI invocation).
+ * Profile-scoped paths must not assume a name: the shipped template is `web`,
+ * but a custom profile (`web-alpha`) is the one actually running.
+ * @returns the profile name, or undefined when the flag is absent.
+ */
+function argvProfile(): string | undefined {
+  const flag = process.argv.indexOf('--profile')
+  const value = flag === -1 ? undefined : process.argv[flag + 1]
+  return value !== undefined && !value.startsWith('-') ? value : undefined
+}
 
 /**
  * Build every /api/dsh-novel-forge route.
@@ -302,6 +318,13 @@ const DEFAULT_PLAN_COUNT = 30
  */
 export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
   const { ctx, getConfig, patchConfig } = deps
+
+  /**
+   * 新书默认目录的基准：settings 里配置的输出目录（未经激活书合并，激活书的
+   * outputDir 指向它自己，不能当作新书的父目录）。未配置时 `defaultOutputDirFor`
+   * 回退到 `<DSH_HOME>/novels`。
+   */
+  const defaultBookDir = (bookName: string): string => defaultOutputDirFor(bookName, deps.rawConfig?.().outputDir)
 
   /** 全书质检实时状态（内存态，重启后回到 idle；用于 /status 暴露进度）。 */
   let auditState: AuditStatus = { status: 'idle', totalBatches: 0, completedBatches: 0 }
@@ -585,7 +608,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config0 = getConfig()
-      const body = await readJsonBody<{ chapterNo?: number; skipReview?: boolean; bookId?: string }>(req)
+      const body = await readJsonBody<GenerateRequest & { bookId?: string }>(req)
       const outputDir = resolveOutputDir(config0, body?.bookId)
       const config = { ...config0, outputDir }
       const project = loadProject(outputDir)
@@ -2065,7 +2088,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         }
         const outputDir = body?.outputDir?.trim() !== '' && body?.outputDir !== undefined
           ? body.outputDir
-          : defaultOutputDirFor(bookName)
+          : defaultBookDir(bookName)
         const book = createBook(bookName, outputDir)
         // 开书向导：创建时带大纲 → 立即建立项目（书名以大纲首行为准）。
         const outline = body?.outline?.trim()
@@ -2188,7 +2211,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           const bookName = (body.fileName ?? '').replace(/\.[^.]+$/, '').trim().slice(0, 40) || '导入小说'
           const outDir = body?.outputDir?.trim() !== undefined && body.outputDir.trim() !== ''
             ? body.outputDir.trim()
-            : defaultOutputDirFor(bookName)
+            : defaultBookDir(bookName)
           const result = importBookTextFromText(body.text, outDir, bookName)
           const { book } = importDir(outDir)
           writeJson(res, 200, { ...result, book })
@@ -2207,7 +2230,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         const bookName = basename(filePath, extname(filePath)).slice(0, 40) || '导入小说'
         const outDir = body?.outputDir?.trim() !== undefined && body.outputDir.trim() !== ''
           ? body.outputDir.trim()
-          : defaultOutputDirFor(bookName)
+          : defaultBookDir(bookName)
         const result = importBookText(filePath, outDir)
         const { book } = importDir(outDir)
         writeJson(res, 200, { ...result, book })
@@ -2894,8 +2917,8 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         return
       }
       try {
-        const next = await patchConfig(body)
-        writeJson(res, 200, { config: next })
+        const result = await patchConfig(body)
+        writeJson(res, 200, result satisfies ConfigResponse)
       } catch (error) {
         writeJson(res, 400, { error: (error as Error).message })
       }
@@ -2933,7 +2956,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     path: NOVEL_API.pluginUpdate,
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
-      const profileDir = join(homedir(), '.dsh', 'profiles', 'web')
+      const profileDir = dshHomePath('profiles', argvProfile() ?? 'web')
       const response: PluginUpdateResponse = await new Promise((resolve) => {
         const child = spawn('pnpm', ['add', '@waterwx/dsh-novel-forge@latest'], { cwd: profileDir, shell: true })
         let acc = ''
@@ -3619,7 +3642,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
   }
 
   // ------------------------------------------ theme custom background (upload + serve)
-  const THEME_BG_DIR = join(homedir(), '.dsh', 'dsh-novel-forge-assets')
+  const THEME_BG_DIR = dshHomePath('dsh-novel-forge-assets')
   const MIME_BY_EXT: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' }
 
   const themeBackgroundUploadRoute: WebRoute = {

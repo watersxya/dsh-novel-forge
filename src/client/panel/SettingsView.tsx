@@ -124,7 +124,8 @@ export function SettingsView({ api, variant = 'page', onSettingsTab, onEditorFon
       });
       setConfig(result.config);
       setConfigDraft(result.config);
-      setNotice(tt('settings.saved'));
+      // 未持久化时如实告知：改动只在本进程内生效，不能让作者以为已经存住了。
+      setNotice(result.settingsWarning === undefined ? tt('settings.saved') : tt('settings.savedUnpersisted'));
     } catch (err) { setError((err as Error).message) } finally { setBusy(false) }
   };
 

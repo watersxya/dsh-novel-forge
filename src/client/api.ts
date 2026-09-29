@@ -180,8 +180,8 @@ export class NovelApi {
     return postJson<import('../protocol.ts').ChapterSaveResponse>(NOVEL_API.chapterSave, { chapterNo: no, text, report })
   }
 
-  async patchConfig(patch: ConfigPatch): Promise<{ config: NovelConfig }> {
-    return postJson<{ config: NovelConfig }>(NOVEL_API.config, patch)
+  async patchConfig(patch: ConfigPatch): Promise<{ config: NovelConfig; settingsWarning?: string }> {
+    return postJson<{ config: NovelConfig; settingsWarning?: string }>(NOVEL_API.config, patch)
   }
 
   /** 输出目录迁移：dryRun=true 仅预览目录内容；确认时传 to 搬迁。 */

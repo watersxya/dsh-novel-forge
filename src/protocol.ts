@@ -229,7 +229,7 @@ export interface BookImportTextRequest {
   text?: string
   /** 模式二：原文件名（txt/md），用于推断书名与显示。 */
   fileName?: string
-  /** 输出目录；缺省为 ~/.dsh/novels/书名。 */
+  /** 输出目录；缺省为「输出目录」设置下的书名子目录。 */
   outputDir?: string
 }
 
@@ -350,7 +350,7 @@ export interface AuthorReview {
   reviewedAt: string
 }
 
-/** 审稿维度（结构化定位问题类别；与 review-policy.ts 的 REVIEW_DIMENSIONS 对齐）。 */
+/** 审稿维度（结构化定位问题类别）。权威清单是 reviewSystemPrompt 里的九条维度。 */
 export type ReviewDimension = 'character' | 'setting' | 'redline' | 'writing' | 'pacing' | 'logic' | 'anti-ai' | 'presentation' | 'compliance'
 
 /** One review finding. */
@@ -531,6 +531,13 @@ export interface MarketRadarResult {
   productionFoundation: ProductionFoundation
   /** 开书创意简报（可选；用「用信号创作」接口单独生成）。 */
   creativeBrief?: MarketCreativeBrief
+  /**
+   * 本次分析的报告 id（服务端生成）。
+   *
+   * 前端据此判断「是否换了一份新报告」：只有报告变了才重置信号勾选，否则重渲染/
+   * 轮询会把作者手选的信号冲掉。缺省（旧版产物）时前端按「首次看到」处理。
+   */
+  reportId?: string
 }
 
 /** POST /market-radar request。 */
@@ -1828,6 +1835,16 @@ export interface ConfigPatch {
   savedModels?: SavedModel[]
 }
 
+/** POST /config response: the config the host will read next, plus persistence caveats. */
+export interface ConfigResponse {
+  config: NovelConfig
+  /**
+   * 已生效但**未持久化**时的说明（宿主 settings 段不可寻址：段 id 未知或宿主
+   * 未登记）。有值时设置只在本次进程内有效，重启回退，面板照此提示用户。
+   */
+  settingsWarning?: string
+}
+
 // ------------------------------------------------------------ assistant
 
 /** One assistant conversation message (persisted per project). */
@@ -2339,7 +2356,7 @@ export interface AdaptSaveRequest {
   text: string
   /** 新书名（缺省为「改编新书」；建议用「<原著>·改编版」）。 */
   bookName?: string
-  /** 新书输出目录（缺省 ~/.dsh/novels/书名）。 */
+  /** 新书输出目录（缺省为「输出目录」设置下的书名子目录）。 */
   outputDir?: string
   /** 可附带反推大纲（写进新项目，便于后续续写/编辑）。 */
   outline?: string
@@ -2365,7 +2382,7 @@ export interface AdaptMaterializeRequest {
   text: string
   /** 新书名（缺省为「<源书名>·改编版」）。 */
   bookName?: string
-  /** 新书输出目录（缺省 ~/.dsh/novels/书名）。 */
+  /** 新书输出目录（缺省为「输出目录」设置下的书名子目录）。 */
   outputDir?: string
   /** 反推大纲（来自分析；缺少时用源文章题兜底）。 */
   outline?: string
@@ -2401,7 +2418,7 @@ export interface AdaptMaterializeResponse {
 export interface AdaptMaterializeSaveRequest {
   /** 新书名（缺省为「改编版」）。 */
   bookName?: string
-  /** 新书输出目录（缺省 ~/.dsh/novels/书名）。 */
+  /** 新书输出目录（缺省为「输出目录」设置下的书名子目录）。 */
   outputDir?: string
   /** 改编后总纲。 */
   outline: string

@@ -1,22 +1,21 @@
 /**
  * 作者资产库/总数据（跨书）— 按作者维度聚合的可复用资产。
- * 与书架同惯例持久化到 ~/.dsh/dsh-novel-forge-author-assets.json。
+ * 与书架同惯例持久化到 <DSH_HOME>/dsh-novel-forge-author-assets.json。
  * 提供读取/持久化/新增或更新/删除，以及「导入默认」：把书架书的写作资产/角色 + 
  * 内置全局库（题材/反AI规则/风格模板/推进模式）批量沉淀成资产条目（默认库）。
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import type { AuthorAssetLibrary, AuthorStyleAsset } from './protocol.ts'
 
 import { loadBookshelf } from './bookshelf.ts'
 import { loadProject } from './engine.ts'
+import { dshHome, dshHomePath } from './home.ts'
 
 /** 作者资产库配置文件路径。 */
 export function authorAssetsFile(): string {
-  return join(homedir(), '.dsh', 'dsh-novel-forge-author-assets.json')
+  return dshHomePath('dsh-novel-forge-author-assets.json')
 }
 
 /** 默认空资产库。 */
@@ -44,25 +43,8 @@ export function loadAuthorAssets(): AuthorAssetLibrary {
 /** 持久化作者资产库。 */
 export function saveAuthorAssets(library: AuthorAssetLibrary): void {
   const file = authorAssetsFile()
-  mkdirSync(join(homedir(), '.dsh'), { recursive: true })
+  mkdirSync(dshHome(), { recursive: true })
   writeFileSync(file, JSON.stringify(library, null, 2), 'utf8')
-}
-
-/** 新建一条资产（自动生成 id 与时间戳）。 */
-export function createAuthorAsset(input: Omit<AuthorStyleAsset, 'id' | 'createdAt' | 'updatedAt'>): AuthorStyleAsset {
-  const now = new Date().toISOString()
-  const asset: AuthorStyleAsset = {
-    ...input,
-    id: 'aa-' + Date.now().toString(36) + '-' + randomBytes(3).toString('hex'),
-    sourceBooks: input.sourceBooks ?? [],
-    tags: input.tags ?? [],
-    createdAt: now,
-    updatedAt: now,
-  }
-  const library = loadAuthorAssets()
-  library.items.push(asset)
-  saveAuthorAssets(library)
-  return asset
 }
 
 /** 按 id 更新一条资产；不存在则追加。 */

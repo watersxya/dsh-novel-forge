@@ -212,7 +212,7 @@ body[data-ds-dark-theme] .entry {
   --nf-text: #26221b;
   --nf-text-2: #6f665a;
   --nf-text-2-alpha: rgba(111, 102, 90, 0.7);
-  --nf-text-3: #9c9284;
+  --nf-text-3: #8f8679;
   --nf-accent: #a63e2a;
   --nf-accent-hover: #8c3321;
   --nf-accent-soft: rgba(166, 62, 42, 0.12);
@@ -293,11 +293,11 @@ body[data-ds-dark-theme] .view:not(:has(> .panel[data-nf-mode='light'])) {
   --nf-text-2: #b3a78f;
   --nf-text-2-alpha: rgba(179, 167, 143, 0.7);
   --nf-text-3: #8a7f6c;
-  --nf-accent: #c14a2e;
+  --nf-accent: #c0492d;
   --nf-accent-hover: #d95a3a;
   --nf-accent-soft: rgba(193, 74, 46, 0.14);
   --nf-accent-fg: #fdf3ee;
-  --nf-seal: #c14a2e;
+  --nf-seal: #c0492d;
   --nf-seal-soft: rgba(193, 74, 46, 0.14);
   --nf-ai-soft: rgba(217, 138, 43, 0.12);
   --nf-human-soft: rgba(74, 163, 217, 0.12);
@@ -2703,7 +2703,7 @@ select.input {
   --nf-text: #26221b;
   --nf-text-2: #6f665a;
   --nf-text-2-alpha: rgba(111, 102, 90, 0.72);
-  --nf-text-3: #9c9284;
+  --nf-text-3: #8f8679;
   --nf-accent: #a63e2a;
   --nf-accent-hover: #8c3321;
   --nf-accent-soft: rgba(166, 62, 42, 0.14);

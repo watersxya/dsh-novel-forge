@@ -1,18 +1,18 @@
 /**
  * 书架（Bookshelf）— 多书管理：一本书记录一个独立输出目录。
- * 状态持久化到 ~/.dsh/dsh-novel-forge-bookshelf.json（跟随 dsh 配置惯例）。
+ * 状态持久化到 <DSH_HOME>/dsh-novel-forge-bookshelf.json（跟随 dsh 配置惯例）。
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import type { BookEntry, BookshelfSnapshot } from './protocol.ts'
 import { loadProject } from './engine.ts'
+import { dshHome, dshHomePath } from './home.ts'
 
 /** 书架配置文件路径。 */
 export function bookshelfFile(): string {
-  return join(homedir(), '.dsh', 'dsh-novel-forge-bookshelf.json')
+  return dshHomePath('dsh-novel-forge-bookshelf.json')
 }
 
 interface BookshelfStore {
@@ -44,7 +44,7 @@ export function loadBookshelf(): BookshelfStore {
 /** 持久化书架。 */
 function saveBookshelf(store: BookshelfStore): void {
   const file = bookshelfFile()
-  mkdirSync(join(homedir(), '.dsh'), { recursive: true })
+  mkdirSync(dshHome(), { recursive: true })
   writeFileSync(file, JSON.stringify(store, null, 2), 'utf8')
 }
 
@@ -180,8 +180,14 @@ export function repointBookDirs(from: string, to: string): number {
   return count
 }
 
-/** 默认输出目录推断：~/.dsh/novels/书名。 */
-export function defaultOutputDirFor(bookName: string): string {
+/**
+ * 新书默认输出目录：`<配置的输出目录>/书名`；未配置时回退 `<DSH_HOME>/novels/书名`。
+ * @param bookName - 书名（剔除文件系统非法字符并截断到 40 字）。
+ * @param baseDir - settings 里配置的输出目录（未经激活书合并的原始值）。
+ * @returns 该书应写入的绝对目录。
+ */
+export function defaultOutputDirFor(bookName: string, baseDir?: string): string {
   const clean = bookName.replace(/[\\/:*?"<>|]/g, '').trim().slice(0, 40) || '未命名小说'
-  return join(homedir(), '.dsh', 'novels', clean)
+  const base = baseDir !== undefined && baseDir.trim() !== '' ? baseDir.trim() : dshHomePath('novels')
+  return join(base, clean)
 }

@@ -18,12 +18,6 @@ export interface MarketScanResult {
   groups: MarketRadarGroup[]
 }
 
-let lastScan: MarketScanResult | null = null
-
-export function getLastMarketScan(): MarketScanResult | null {
-  return lastScan
-}
-
 export async function scanMarketRanking(platforms?: string[]): Promise<MarketScanResult> {
   const wanted = new Set<string>(platforms?.length ? platforms : ['fanqie', 'qidian', 'jinjiang'])
   const sources = MARKET_RADAR_SOURCES.filter(s => wanted.has(s.platform))
@@ -36,6 +30,6 @@ export async function scanMarketRanking(platforms?: string[]): Promise<MarketSca
       groups.push({ platform: source.platform, platformLabel: source.platformLabel, listKey: source.listKey, listLabel: source.listLabel, status: 'error', error: (error as Error).message, items: [] })
     }
   }))
-  lastScan = { scannedAt: new Date().toISOString(), groups }
-  return lastScan
+  const result: MarketScanResult = { scannedAt: new Date().toISOString(), groups }
+  return result
 }

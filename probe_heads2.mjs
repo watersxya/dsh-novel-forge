@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+const B = 'H:\\novels\\还债疯了\\第003章_右手不是我的.new.md';
+const st = fs.statSync(B);
+console.log('size', st.size, 'mtime', st.mtime.toISOString());
+const t = fs.readFileSync(B, 'utf8');
+console.log('chars', t.length, 'cn', (t.match(/[\u4e00-\u9fa5]/g) || []).length);
+let l = t.replace(/\r\n/g, '\n').split('\n');
+if (/^#/.test(l[0].trim())) l = l.slice(1);
+const ps = l.map((s) => s.trim()).filter(Boolean);
+ps.forEach((p, i) => { if (p.startsWith('林安')) console.log(i, '|', p.slice(0, 20)); });
+console.log('total 林安-at-start', ps.filter((p) => p.startsWith('林安')).length);

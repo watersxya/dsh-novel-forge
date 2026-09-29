@@ -1554,11 +1554,6 @@ export function effectiveAntiAiRules(assets: ProjectAssets | undefined): AntiAiR
   return [...BUILTIN_ANTI_AI_RULES.filter(r => !customKeys.has(keyOf(r))), ...custom]
 }
 
-/** 安定 key：内置规则全局基线（globalBaselineEnabled）在新书/旧书一律生效。 */
-export function ensureGlobalBaseline(assets: ProjectAssets | undefined): ProjectAssets {
-  return ensureBuiltinAssets(assets, 'missing_only')
-}
-
 /** 内置库种子化 upsert（对齐上游 SystemResourceBootstrapService 精神）。
  *  missing_only 仅补齐缺失的全局基线规则；sync_existing 还会按 key 刷新已内置规则的结构化字段。 */
 export function ensureBuiltinAssets(assets: ProjectAssets | undefined, mode: 'missing_only' | 'sync_existing' = 'missing_only'): ProjectAssets {

@@ -23,7 +23,7 @@ export const COMPLIANCE_REDLINES: ReadonlyArray<string> = [
   '9. 不得出现法律法规禁止的其他内容。',
 ]
 
-/** 审稿维度取值（与 review-policy.ts 的 REVIEW_DIMENSIONS 对齐，用于归一化模型输出的 dimension 字段）。 */
+/** 审稿维度取值：归一化模型输出的 dimension 字段。维度清单以 reviewSystemPrompt 的九条为准。 */
 const REVIEW_DIMENSION_IDS = new Set(['character', 'setting', 'redline', 'writing', 'pacing', 'logic', 'anti-ai', 'presentation', 'compliance'])
 
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, rmSync, renameSync } from 'node:fs'
@@ -35,6 +35,8 @@ import { BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, emptyProjectAssets, r
 import { scanAiFlavor } from './ai-scan.ts'
 import { beginLiveCall, endLiveCall, markFirstToken } from './llm-live.ts'
 import { shouldSwitchModel, withModelFallback } from './llm-retry.ts'
+import { convergeRequestParams } from './model-capability.ts'
+import { renderLengthContract, resolveOutputBudget, STRUCTURED_FIELD_LIMITS } from './output-budget.ts'
 import { renderTensionBlock } from './tension.ts'
 import { renderPromptSlots } from './prompt-slots.ts'
 import { normalizeTimelineEvent, renderTimelineBlock, sortTimeline } from './timeline.ts'
@@ -347,11 +349,64 @@ export function createProject(outline: string, outlinePath?: string): ProjectSta
 
 // ------------------------------------------------------------------- llm
 
+/** 一次非流式 LLM 调用的入参。 */
+interface CompleteOptions {
+  system: string
+  user: string
+  temperature?: number
+  maxTokens?: number
+  reasoning?: 'off' | 'low' | 'high' | 'max'
+  model?: string
+  liveLabel?: string
+  /**
+   * 该调用是否要求严格结构化输出（JSON）。为 true 时，模型参数能力层可以在
+   * 结构化稳定性优先的前提下覆盖用户的思考档位。
+   */
+  structured?: boolean
+}
+
+/**
+ * 把已经拼好的请求过一遍模型参数能力层。
+ *
+ * **凡是自己构造 `GenerateOptions`、不走 {@link complete} 的调用点都必须经过它**，
+ * 否则那条路径会绕过厂商参数约束（固定温度、不支持的 reasoning 等），对 Kimi
+ * 这类模型直接报参数错误 —— 而"测试连通"恰恰是用户用来判断配置对不对的地方。
+ *
+ * 抽成函数而不是在每个调用点内联：流式调用点有 5 处，还要各自处理备用模型切换，
+ * 内联五遍就是同一件事写五份，必然漂移。
+ * @param base - 已拼好的请求（调用方已确定 temperature / reasoningEffort）。
+ * @param model - **本次实际要调用的模型**（切换备用模型后必须重算，故在循环内调用）。
+ * @param options - `structured` 表示严格结构化输出任务。
+ * @returns 收敛后的请求（固定温度的模型会省略 temperature / 不支持的参数会被移除）。
+ */
+function applyModelCapability(
+  base: GenerateOptions,
+  model: string,
+  options: { structured?: boolean } = {},
+): GenerateOptions {
+  const converged = convergeRequestParams(
+    {
+      temperature: base.temperature ?? 0.7,
+      reasoningEffort: base.reasoningEffort === undefined
+        ? undefined
+        : String(base.reasoningEffort) as 'off' | 'low' | 'high' | 'max',
+    },
+    model,
+    { structured: options.structured === true, omitFixedTemperature: true },
+  )
+  return {
+    ...base,
+    model,
+    ...(converged.temperature === undefined ? { temperature: undefined } : { temperature: converged.temperature }),
+    ...(converged.reasoningEffort === undefined ? { reasoningEffort: undefined } : { reasoningEffort: ReasoningEffortId(converged.reasoningEffort) }),
+  }
+}
+
 /** One complete non-streaming LLM call. */
 async function complete(
   ctx: Context,
   config: NovelConfig,
-  options: { system: string; user: string; temperature?: number; maxTokens?: number; reasoning?: 'off' | 'low' | 'high' | 'max'; model?: string; liveLabel?: string },
+  options: CompleteOptions,
 ): Promise<string> {
   const liveLabel = options.liveLabel ?? 'LLM 调用'
   const messages: Message[] = [createUserMessage({
@@ -361,14 +416,31 @@ async function complete(
   /** 用指定模型跑一次完整调用（含实况打点、token 记账与诊断日志）。 */
   const runOnce = async (model: string): Promise<string> => {
     const live = beginLiveCall({ label: liveLabel, model, system: options.system, user: options.user })
+    // 用户偏好先成型，再经能力层按**实际模型**收敛：同一模型走不同 provider/中转
+    // 时约束不变，换备用模型后约束随新模型重算。
+    const converged = convergeRequestParams(
+      {
+        temperature: options.temperature ?? 0.7,
+        reasoningEffort: options.reasoning ?? config.reasoningEffort ?? 'off',
+      },
+      model,
+      {
+        structured: options.structured === true,
+        // 厂商建议固定温度的模型不要显式传入，优先省略，省得多余参数被拒。
+        omitFixedTemperature: true,
+      },
+    )
+    if (converged.adjustments.length > 0) {
+      ctx.logger('novel-forge').info('模型参数收敛（%s @ %s）：%s', liveLabel, model, converged.adjustments.join('；'))
+    }
     const request: GenerateOptions = {
       provider: config.provider,
       model,
       messages,
       system: options.system,
       maxTokens: options.maxTokens ?? config.maxTokens,
-      temperature: options.temperature ?? 0.7,
-      reasoningEffort: ReasoningEffortId(options.reasoning ?? config.reasoningEffort ?? 'off'),
+      ...(converged.temperature === undefined ? {} : { temperature: converged.temperature }),
+      ...(converged.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(converged.reasoningEffort) }),
     }
     const assembler = new BlockAssembler()
     for await (const chunk of ctx.llm.stream(request)) {
@@ -421,7 +493,7 @@ function textFromAssembler(assembler: BlockAssembler): string {
 async function completeJsonArray(
   ctx: Context,
   config: NovelConfig,
-  options: { system: string; user: string; temperature?: number; maxTokens?: number; reasoning?: 'off' | 'low' | 'high' | 'max'; model?: string; liveLabel?: string },
+  options: CompleteOptions,
   parse: (text: string) => unknown[],
 ): Promise<unknown[]> {
   let parsed = parse(await complete(ctx, config, options))
@@ -671,13 +743,21 @@ function volumeSystemPrompt(): string {
     '[{"no": 1, "title": "卷名", "summary": "卷定位与剧情重心", "chapterStart": 1, "chapterEnd": 80}]',
     '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
     '重要：直接输出 JSON 结果本身，不要把思考过程或推理内容写在输出里。',
+    // 长度合同与 resolve 端的截断口径共用一份声明，避免 prompt 与解析漂移。
+    renderLengthContract([
+      ['卷名', STRUCTURED_FIELD_LIMITS.chapterTitle],
+      ['每卷定位', STRUCTURED_FIELD_LIMITS.chapterSummary],
+    ]),
   ].join('\n')
 }
 
 /** Plan volumes from an outline. */
 export async function planVolumes(ctx: Context, config: NovelConfig, outline: string): Promise<Volume[]> {
   const user = `请为下面这部小说划分卷：\n\n${outline}`
-  const text = await complete(ctx, config, { system: volumeSystemPrompt(), user, temperature: 0.4, maxTokens: Math.max(config.maxTokens, 12000) })
+  // 卷数由大纲决定、此处未知，按「大纲暗示的规模」估算：约每 1200 字大纲对应一卷，
+  // 夹在 3-24 卷之间（与卷规划自身的 3-8 卷建议不冲突，只是给预算一个量级）。
+  const expectedVolumes = Math.min(24, Math.max(3, Math.round(outline.length / 1_200)))
+  const text = await complete(ctx, config, { system: volumeSystemPrompt(), user, temperature: 0.4, maxTokens: resolveOutputBudget('volume-strategy', { volumes: expectedVolumes }) })
   const parsed = parseJsonArray<Record<string, unknown>>(text)
   const volumes: Volume[] = []
   for (let i = 0; i < parsed.length; i++) {
@@ -690,8 +770,8 @@ export async function planVolumes(ctx: Context, config: NovelConfig, outline: st
     const end = typeof entry.chapterEnd === 'number' ? entry.chapterEnd : undefined
     volumes.push({
       no,
-      title: title.slice(0, 40),
-      summary: summary.slice(0, 300),
+      title: title.slice(0, STRUCTURED_FIELD_LIMITS.chapterTitle),
+      summary: summary.slice(0, STRUCTURED_FIELD_LIMITS.chapterSummary),
       chapterStart: start ?? 1,
       chapterEnd: end ?? 1,
     })
@@ -981,7 +1061,7 @@ export async function planChapters(
     : '')
   const parsed = (await completeJsonArray(
     ctx, config,
-    { system, user, temperature: 0.7, maxTokens: Math.max(config.maxTokens, 40000), liveLabel: '章节规划' },
+    { system, user, temperature: 0.7, maxTokens: resolveOutputBudget('chapter-list', { chapters: chapterCount }), liveLabel: '章节规划' },
     t => parseJsonArray<Record<string, unknown>>(t),
   )) as Record<string, unknown>[]
   const chapters: ChapterPlan[] = []
@@ -1561,7 +1641,8 @@ export async function extractRoles(
       : '',
     '只输出 JSON 数组。',
   ].join('\n\n')
-  let text = await complete(ctx, config, { system, user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 16000), reasoning: config.analysisReasoning ?? 'low' })
+  // 角色阵容：一次要产出 8-20 个角色，预算按预期角色数推算。
+  let text = await complete(ctx, config, { system, user, temperature: 0.3, maxTokens: resolveOutputBudget('character-cast', { characters: 20 }), structured: true, reasoning: config.analysisReasoning ?? 'low' })
   let raw = parseJsonArray<Record<string, unknown>>(text)
   const hasProtagonist = raw.some(e => typeof e === 'object' && e !== null && e.roleLabel === 'protagonist')
   const tooFew = raw.length > 0 && raw.length < 6
@@ -1572,7 +1653,7 @@ export async function extractRoles(
       : tooFew
         ? '\n上一次输出角色过少（不足 6 个）。这是一部完整故事，请重新核对正文摘录：主角、主要反派、重要配角与所有有名有姓的角色都要收录（宁多勿漏），输出 8-20 个。'
         : '\n上一次输出中缺少主角（roleLabel 为 protagonist 的角色）。请重新输出完整 JSON 数组，务必包含正文中的主角。'
-    text = await complete(ctx, config, { system: system + hint, user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 12000), reasoning: config.analysisReasoning ?? 'low' })
+    text = await complete(ctx, config, { system: system + hint, user, temperature: 0.3, maxTokens: resolveOutputBudget('character-cast', { characters: 24 }), structured: true, reasoning: config.analysisReasoning ?? 'low' })
     raw = parseJsonArray<Record<string, unknown>>(text)
   }
   const labels = new Set(['protagonist', 'female_lead', 'female_support', 'support', 'antagonist', 'extra'])
@@ -2029,13 +2110,16 @@ export async function testLlmModel(ctx: Context, provider: string, model: string
     content: [{ type: 'text', text: '只回复两个字：OK' }],
     source: { kind: 'plugin', plugin: 'dsh-novel-forge' },
   })]
-  const request: GenerateOptions = {
+  // 这里自己构造请求（为省 token 拿到首块即停），所以**必须显式过一遍能力层**：
+  // 否则「测试连通」会原样下发参数，对固定温度的模型必然报错 —— 而测试连通
+  // 正是用户用来判断配置对不对的地方。
+  const request = applyModelCapability({
     provider,
     model,
     messages,
     maxTokens: 16,
     temperature: 0,
-  }
+  }, model)
   // 真实流式调用 + 30 秒超时（GenerateOptions.signal 由适配器响应并中止）。
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 30_000)
@@ -2467,7 +2551,7 @@ export async function* rewriteChapterStream(
     })
     const assembler = new BlockAssembler()
     let produced = 0
-    for await (const chunk of ctx.llm.stream({ ...request, model })) {
+    for await (const chunk of ctx.llm.stream(applyModelCapability(request, model))) {
       assembler.push(chunk)
       if (chunk.type === 'text-delta') { produced += chunk.text.length; markFirstToken(live); yield { frame: 'delta', text: chunk.text } }
     }
@@ -2578,7 +2662,7 @@ export async function* polishChapterStream(
     })
     const assembler = new BlockAssembler()
     let produced = 0
-    for await (const chunk of ctx.llm.stream({ ...request, model })) {
+    for await (const chunk of ctx.llm.stream(applyModelCapability(request, model))) {
       assembler.push(chunk)
       if (chunk.type === 'text-delta') { produced += chunk.text.length; markFirstToken(live); yield { frame: 'delta', text: chunk.text } }
     }
@@ -2754,7 +2838,7 @@ export async function* generateChapterStream(
     })
     const assembler = new BlockAssembler()
     let produced = 0
-    for await (const chunk of ctx.llm.stream({ ...request, model })) {
+    for await (const chunk of ctx.llm.stream(applyModelCapability(request, model))) {
       assembler.push(chunk)
       if (chunk.type === 'text-delta') {
         produced += chunk.text.length
@@ -4152,6 +4236,9 @@ export async function runMarketRadar(
   return {
     signals: signalAs(raw.signals),
     productionFoundation,
+    // 报告 id 让前端能区分「同一份报告的重渲染」与「换了新报告」：只有后者才重置
+    // 作者手选的信号。用短随机 id 即可，无需持久化。
+    reportId: `mr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
   }
 }
 

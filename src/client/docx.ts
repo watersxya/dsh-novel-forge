@@ -30,8 +30,3 @@ export function extractDocxTextFromBuffer(buffer: ArrayBuffer | Uint8Array): str
   }
   return extractDocxTextFromXml(strFromU8(document))
 }
-
-/** Read a File as ArrayBuffer. */
-export function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
-  return file.arrayBuffer()
-}

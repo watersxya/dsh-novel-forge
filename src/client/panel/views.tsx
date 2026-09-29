@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { AuditIssue, Plotline, PlotlineHealthReport, PlotlinePlan, RoleRecord, RoleStatusCard } from '../../protocol.ts'
+import type { Plotline, PlotlineHealthReport, PlotlinePlan, RoleRecord, RoleStatusCard } from '../../protocol.ts'
 import { tt, ROLE_LABELS, roleColor, kindLabel, plotlineStatusLabel, plotlineStatusColor } from './helpers.ts'
 import css from './panel.module.css'
 
@@ -58,75 +58,6 @@ export function SlideNav<T extends string>(props: {
           {it.label}
         </button>
       ))}
-    </div>
-  )
-}
-
-/** 统计格：状态摘要条 / 资产健康通用。 */
-export function StatCell(props: {
-  label: string
-  value: string
-  detail: string
-  /** 值颜色（可选）。 */
-  valueColor?: string
-  /** 值字号覆盖（如长文本用 13）。 */
-  valueFontSize?: number
-  /** detail 悬浮提示（可选）。 */
-  detailTitle?: string
-}): ReactElement {
-  return (
-    <div className={css.assetStat}>
-      <span className={css.assetStatLabel}>{props.label}</span>
-      <span className={css.assetStatValue} style={{ color: props.valueColor, fontSize: props.valueFontSize }}>
-        {props.value}
-      </span>
-      <span className={css.assetStatDetail} title={props.detailTitle}>{props.detail}</span>
-    </div>
-  )
-}
-
-/** 待办队列行。 */
-export function TodoRow(props: {
-  tone: 'danger' | 'warning' | 'info' | 'success'
-  title: string
-  description: string
-  actionLabel: string
-  disabled: boolean
-  onAction: () => void
-}): ReactElement {
-  return (
-    <div className={`${css.todoItem} ${props.tone === 'danger' ? css.todoDanger : props.tone === 'warning' ? css.todoWarning : css.todoInfo}`}>
-      <span className={css.todoText}>
-        {props.title}
-        {props.description !== '' && <span className={css.meta}> — {props.description}</span>}
-      </span>
-      <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={props.disabled} onClick={props.onAction}>
-        {props.actionLabel}
-      </button>
-    </div>
-  )
-}
-
-/** 全书质检问题行。 */
-export function AuditIssueRow(props: {
-  issue: AuditIssue
-  disabled: boolean
-  onFix: () => void
-}): ReactElement {
-  const { issue } = props
-  return (
-    <div className={`${css.todoItem} ${issue.severity === 'high' ? css.todoDanger : issue.severity === 'medium' ? css.todoWarning : css.todoInfo}`}>
-      <span className={css.todoText}>
-        <span>
-          {issue.chapterNo > 0 ? `第 ${issue.chapterNo} 章` : '未定位章节'} · [{issue.severity}] {issue.item}
-        </span>
-        {issue.suggestion !== '' && <span className={css.meta}>建议：{issue.suggestion}</span>}
-      </span>
-      {issue.chapterNo > 0 && (
-        <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={props.disabled} onClick={props.onFix}>
-          去修订
-        </button>
-      )}
     </div>
   )
 }
@@ -380,22 +311,6 @@ export function EmptyState(props: {
       {props.icon !== undefined && <span className={css.emptyStateIcon}>{props.icon}</span>}
       <span className={css.emptyStateTitle}>{props.title}</span>
       {props.hint !== undefined && <span className={css.emptyStateHint}>{props.hint}</span>}
-    </div>
-  )
-}
-
-/** 骨架屏基元：rows 条微光占位行；widths 指定各行宽度档位，循环取用。 */
-export function SkeletonLines(props: {
-  rows?: number
-  widths?: Array<'full' | 'wide' | 'half'>
-}): ReactElement {
-  const rows = props.rows ?? 3
-  const widths = props.widths ?? ['full', 'wide', 'half']
-  return (
-    <div className={css.skeletonLines} aria-hidden="true">
-      {Array.from({ length: rows }, (_, i) => (
-        <span key={i} className={css.skeletonLine} data-w={widths[i % widths.length]} />
-      ))}
     </div>
   )
 }

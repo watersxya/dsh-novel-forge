@@ -222,7 +222,7 @@ export function ImportModal({
 
               {/* 输出目录 + 高级路径选项 */}
               <label className={css.importField}>
-                <span>输出目录（可选，默认 ~/.dsh/novels/书名）</span>
+                <span>输出目录（可选，默认「输出目录」设置下的书名子目录）</span>
                 <input
                   className={css.input}
                   type="text"

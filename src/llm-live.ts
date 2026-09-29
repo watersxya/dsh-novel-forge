@@ -19,8 +19,6 @@ import type {
 
 export type { LlmLiveFrame }
 
-export type LlmLivePhase = 'requesting' | 'streaming' | 'completed' | 'failed'
-
 /** 帧缓冲上限（新连接重放用）。 */
 const MAX_BUFFER = 400
 /** Prompt 记录上限（环形，避免长跑吃内存）。 */
@@ -66,14 +64,6 @@ export function emitLive(frame: LlmLiveFrame): void {
   buffer.push(frame)
   if (buffer.length > MAX_BUFFER) buffer = buffer.slice(-MAX_BUFFER)
   for (const l of listeners) l(frame)
-}
-
-export function liveLatest(): LlmLiveFrame[] {
-  return [...buffer]
-}
-
-export function clearLiveFeed(): void {
-  buffer = []
 }
 
 // ------------------------------------------------------------------ 用量账本
@@ -181,11 +171,6 @@ export function recordPrompt(input: { sessionId: string; label?: string; model?:
 /** 取一条 Prompt 记录（不存在返回 undefined）。 */
 export function livePrompt(sessionId: string): LlmPromptRecord | undefined {
   return prompts.get(sessionId)
-}
-
-/** 清空 Prompt 记录。 */
-export function clearLivePrompts(): void {
-  prompts.clear()
 }
 
 // --------------------------------------------------------------- 调用打点

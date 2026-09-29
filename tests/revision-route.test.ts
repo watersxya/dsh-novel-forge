@@ -28,13 +28,18 @@ const realShelfBefore = readShelfAt(REAL_HOME)
 let dir: string
 let previousHome: string | undefined
 let previousUserProfile: string | undefined
+let previousDshHome: string | undefined
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'nf-revplan-'))
+  // dshHome() 优先读 DSH_HOME（测试进程继承宿主的值，指向真实 ~/.dsh），
+  // 与 HOME/USERPROFILE 一并改写，保证状态文件只落在临时目录。
   previousHome = process.env.HOME
   previousUserProfile = process.env.USERPROFILE
+  previousDshHome = process.env.DSH_HOME
   process.env.HOME = dir
   process.env.USERPROFILE = dir
+  delete process.env.DSH_HOME
 })
 
 afterEach(() => {
@@ -42,6 +47,8 @@ afterEach(() => {
   else process.env.HOME = previousHome
   if (previousUserProfile === undefined) delete process.env.USERPROFILE
   else process.env.USERPROFILE = previousUserProfile
+  if (previousDshHome === undefined) delete process.env.DSH_HOME
+  else process.env.DSH_HOME = previousDshHome
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -67,7 +74,7 @@ function makeDeps(): Parameters<typeof makeRoutes>[0] {
   return {
     ctx: {} as never,
     getConfig: () => config,
-    patchConfig: async () => config,
+    patchConfig: async () => ({ config }),
     rawConfig: () => config,
   } as Parameters<typeof makeRoutes>[0]
 }

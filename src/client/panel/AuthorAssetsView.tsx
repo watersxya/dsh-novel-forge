@@ -1,6 +1,6 @@
 /**
  * 作者资产库/总数据页：跨书可复用的笔法/红线/套路/角色模板/世界观模板。
- * 支持 新增 / 编辑 / 删除；数据持久化到 ~/.dsh/dsh-novel-forge-author-assets.json。
+ * 支持 新增 / 编辑 / 删除；数据持久化到 Harness 数据目录（`$DSH_HOME`，未设时 ~/.dsh）。
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Plus, Trash2, Pencil } from 'lucide-react'

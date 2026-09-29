@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+const B = 'H:\\novels\\还债疯了\\第003章_右手不是我的.new.md';
+const t = fs.readFileSync(B, 'utf8');
+let l = t.replace(/\r\n/g, '\n').split('\n');
+if (/^#/.test(l[0].trim())) l = l.slice(1);
+const ps = l.map((s) => s.trim()).filter(Boolean);
+console.log('total paras', ps.length);
+const uniq = new Set(ps);
+console.log('unique', uniq.size);
+const dup = [...uniq].filter((p) => ps.filter((q) => q === p).length > 1);
+console.log('dups', dup.length, dup.map((d) => d.slice(0, 16)));

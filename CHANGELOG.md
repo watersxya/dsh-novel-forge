@@ -1,5 +1,76 @@
 # Changelog
 
+## [1.3.3-alpha] - 2026-09-30
+
+设置保存链路修复 + 三处工程改进（结构化输出预算、模型参数能力层、雷达产物复用）+ 全仓审计清理 + 来源卫生门禁加固。
+
+> **版本号说明**：`1.3.3-alpha` 相对本仓库上一个已发布版本 `1.3.2-alpha`。npm 上另存在一条 `2.x` 线（`2.0.0-alpha.1` … `2.1.2-alpha`，含已废弃的漫剧工作台），**该线已作废**；它从未占据 `latest`（`dist-tags.latest` 一直是 `1.3.2-alpha`），因此本次发布不会让任何跟随 `latest` 的用户降级。仓库版本高于已发布版本，发布合法。
+
+### 来源卫生门禁加固 + 目录迁移脚本
+
+- **来源卫生门禁（`scripts/check-third-party.mjs`）加固**，原则不变（「只参考功能结构，不搬运文本」），但把几处会让人把门禁关掉、而不是修好的缺陷补掉：
+  - **扫描范围改为仓库内全部文本**（原先是写死的目标清单 → 111 个文件；现为 259 个）。写死清单的隐患是「不在清单里」被当成「已验证」，规则会无声失效。
+  - **豁免改为显式 `ALLOWED` 白名单**，每一项必须写明理由，且每次运行都打印豁免清单——隐式豁免（"它恰好没被扫描到"）不再成立。当前三项：脚本自身、`PROVENANCE.md`（刻意集中的出处记录）、`tests/repo-hygiene.test.ts`（夹具必须逐字构造这些字符串）。
+  - **失败信息给出可操作出路**：改写成本项目说法，或把署名集中登记到 `PROVENANCE.md` 并加白。原提示只有一句"改写"，遇到确有署名需要的场景，人会选择绕过门禁。
+  - **修正一处误报**：原先只要出现英文「来源动词 + from + 任意词」就拦，于是会被「…由 URL 推导而来」这类**中性技术说法**命中；已收窄为「后接来源主体」才拦（后接大写标识符、带分隔符的名字，或 project / repo / codebase / implementation / upstream 这类主体名词）。误报会诱使人放宽规则，比漏报更伤门禁。
+  - 新增 `--list` 模式（`pnpm check:third-party:list`）打印扫描范围、豁免清单与全部拦截特征。
+- **门禁进入强制点**：`scripts/release.mjs` 的发布前置原有 `check-third-party`，本轮补上 `audit-contrast`（无障碍阈值回退肉眼难发现，发布后只能靠新版本修）；CI 同步新增 `Audit colour contrast` 一步。
+- 新增 `tests/repo-hygiene.test.ts`（14 例）锁住门禁自身的判别力：**真署名必须拦下**（中英各 3 例）、**中性技术表达不得误报**（4 例）、豁免必须带理由、成功输出必须报告扫描量与豁免清单。
+- 新增 `scripts/rename-plugin-dir.ps1`：把插件磁盘目录从临时命名 `novel-forge-alpha` 改为 `novel-forge`。`-alpha` 只影响磁盘路径——npm 包名、profile bundle 条目、`cordis.patch.yml` 行 id 都不含它，因此与发布标识无关。脚本按「停 DSH → 改名 → 同步 profile 依赖 → 重建 junction → 重启复查」执行，逐步前置校验、支持 `-WhatIf` 预演、并在结尾打印回滚步骤。**不可热执行**：profile 内指向本目录的 junction 一旦悬空，下次重启会以「bundle 解析失败」跳过整个插件。
+
+### 全仓审计：删除死模块与冗余导出、修复对比度、修正审计口径
+
+用户要求对全代码做一次"是否验证完毕、有无无用冗余代码"的审计。此前几轮只验证了**改动过的部分**，本轮补齐工具面并做了清理：
+
+- **删除死模块 `src/review-policy.ts`**：全仓库**零 import**（只有两条注释提到它），自 1.0.0-alpha 首次提交起就是这个状态，且无测试。它的职责在 `engine.ts` 里**被内联实现**：`reviewSystemPrompt()` 的九条维度与它的 `REVIEW_DIMENSIONS` 一一对应，`REVIEW_DIMENSION_IDS` 与它的 id 集合完全一致。删除前已逐项核对，**不改变任何运行时行为**。它独有的加权评分权重表（0.2/0.15/…）没有任何调用方消费，属设计残留。同时修正两处指向该模块的注释。
+- **清理 13 处零引用导出**（扫描口径：全仓文本检索，含 `scripts/` 与已删模块，避免单一扫描器盲区）：删除 `compareAiScan`（其"前后 AI 味对比"职责已由审稿报告的 `aiFlavor` 承担，属重复实现）、`ensureGlobalBaseline`（只是 `ensureBuiltinAssets(assets,'missing_only')` 的同义包装）、`createAuthorAsset`、`readFileAsArrayBuffer`（一行 `file.arrayBuffer()` 包装）、`StatCell` / `TodoRow` / `AuditIssueRow` / `SkeletonLines` 四个从未渲染的展示组件、`liveLatest` / `clearLiveFeed` / `clearLivePrompts`、`getLastMarketScan`（其结果无人领取）、`LlmLivePhase`、`BookStageId`。
+  - 校验方式：删除后用 `--noUnusedLocals --noUnusedParameters` 复扫（该开关能发现被删组件带走的未用导入，例如 `AuditIssue`），并核对产物中这些符号已消失、而**仍需保留的契约仍在**（侧栏/面板归属属性、兄弟插件条目属性、`subscribeLiveFeed`、`resetLiveUsage`、`reviewSystemPrompt`）。
+  - 归属标记常量 `ENTRY_SELECTOR` / `PANEL_VIEW_SELECTOR` **保留但降为模块内私有**，并改为在唯一落点用 `setAttribute(SELECTOR.slice(1,-1), 'true')` 消费 —— 这样字符串只写一遍、不做任何解析推断（曾试过从选择器反解 dataset 键，属于用一个技巧换一个重复，已放弃）。
+  - `GenerateRequest` 由"无人引用的协议类型"改为**真正用于** `POST /generate` 的请求体解析，消掉一处内联匿名类型。
+  - 保留 3 处"仅测试引用"的导出（`starterProfileToAsset`、`outputBudgetSpec`、`summarizeChapters`）：它们是测试用于断言行为与规格边界的入口，属于刻意导出的可测面。
+- **修复浅色主题辅助文字对比度不达标**：`--nf-text-3` 在浅色种子与 `.panel[data-nf-mode='light']` 覆盖块中的值都是 `#9c9284`，对浅色底只有 **2.76:1**（目标 ≥ 3）。按 WCAG 公式**反推目标亮度**后只调明度（色相不变）：`#9c9284 → #8f8679`，六个浅色底全部转为达标（最紧的 clay 底 3.00:1）。另将深色 `--nf-accent` 由 `#c14a2e` 微调为 `#c0492d`，并把因此变得不一致的 `--nf-seal` 一并对齐。
+- **修正对比度审计的口径错误（比上面两处更重要）**：`scripts/audit-contrast.mjs` 的 `blockContext()` 会跳过 `.panel[data-nf-mode='light'|'dark']` 这类**复合选择器块**，于是它量的是 `.view` 种子值，而**运行时真正生效的是 panel 覆盖块** —— 存在"审计通过、界面仍不达标"的风险。现把这两个块识别为对应明暗的种子（按文件顺序覆盖）。修正后 11 个上下文**全部实际计算、0 跳过**，并暴露出：修正前报告"深色 accent-fg/accent = 4.49"其实是**拿浅色 accent 值算的**，深色块从未被检查；用正确口径量得的深色比值为 5.75:1。同时给脚本加了覆盖率小结，避免把"跳过"读成"通过"。
+- 工程：`check-third-party` 门禁此前**未在本轮改动中被执行过**，实际处于失败状态（4 个文件里写了外部项目名与不相容许可标记），已按该门禁的标准改写为自研表述；出处取证集中到根目录 `PROVENANCE.md`（不在门禁清单内，是刻意安排）。全部门禁现均通过：`check-third-party`（111 文件）、`check-theme-sizes`、`check-fallback-tiers`、`audit-contrast`（0 失败 / 0 跳过）、`tsc --noEmit`（含 `--noUnusedLocals --noUnusedParameters`）。
+
+改动已落地并通过全套测试，但**版本号暂不提升**：`package.json` 的 version 是 Harness 的插件身份，profile 里的版本豁免（`compatibility.json`）按**精确 `包名@版本`** 登记。本插件在 dsh 0.2.0-rc.2 上依赖一条 `@waterwx/dsh-novel-forge@1.3.2-alpha` 的豁免，一旦把版本提到 1.3.4-alpha，键就对不上 —— 启动时整个 bundle 会被 `dsh: skipping profile bundle` 跳过，**routes 与 UI 入口一起消失**（实测：改版本 + 重启后小说工坊入口消失）。要发布此版本，必须先为新的精确版本授予豁免：
+
+```
+node J:\harness\apps\cli\lib\bin.js plugin --profile web-alpha allow-version \
+  @waterwx/dsh-novel-forge@<新版本> --dsh-version 0.2.0-rc.2 --accept-risk
+```
+
+（`--accept-risk` 是对「可能崩溃或丢数据」的显式确认，必须由使用者本人决定。）
+
+保存设置不再误报失败：settings 段按 **entry id** 寻址，段不可寻址时降级为「已生效但未持久化」并如实告知。
+
+- **修复「保存设置」必然 400（Harness 0.2 下的段寻址错误）**：Harness 0.2 起由 Loader 从本插件导出的 `Config` 推导 settings 段，**段 id = 该 entry 的 id**，插件方不可假定它等于包名或声明的常量；而 `patchConfig` 一直把 `'dsh-novel-forge'` 写死。段对不上时 `settings.update` 抛 `No configurable plugin entry "dsh-novel-forge"`，`/config` 把它当校验错误返 **400**，设置页显示成"保存失败"——实际是寻址错了。现改为从 `ctx.fiber.entry?.options.id` 读取真实段 id（与 `llm-pi-ai` / `llm-deepseek-*` 同一惯例），声明常量只作 0.1.x 接线的回退。
+- **改动的持久化失败不再等于保存失败**：新增 `src/settings-persist.ts`，把「应用 → 持久化」拆开。`resolveSettingsTarget()` 只在宿主**确实登记了**该段时才写（entry id 优先、声明名次之），**绝不拿猜到的段名去写别人的配置**；无法寻址或写入抛错时，改动照样在进程中生效，返回 `settingsWarning` 说明原因（面板显示「设置已生效，但未能持久化…重启后会回到原值」），而不是把编辑丢掉再报 400。
+- **同一 ctx 内立即生效**：写入走宿主后旧的 `current()` 仍是挂载时的快照，故 `patchConfig` 同时把结果并入实时状态，保存后立刻读回新值（不必等宿主重挂载）。实现用**显式状态对象**（`currentState` + `const current()`），而不是 `current = () => ({ ...current(), ...patch })` 这种引用自身的闭包 —— 后者赋值后函数体内读到的就是它自己，**保存必爆栈**。端到端实测抓到了这一点：`POST /config` → `{"error":"Maximum call stack size exceeded"}`；这也说明**路由级/端到端验证不能省**，桩测看不见接线错误。
+- **修复「保存设置」必然失败（Harness 0.2 的 volatile 契约）**：宿主只把**声明了 volatile** 的字段纳入设置表单，其余字段被当成「挂载期配置」，写入时直接拒绝：`Plugin entry "novel-forge" has no volatile fields`。此前 Config 一个字段都没标，所以面板保存永远失败。现给全部 23 个字段打上标记。标记走 `live()` 辅助函数：优先用 schemastery 的 `.volatile()` 构造器，缺失时回退到 `extra('volatile', true)` —— 该构造器**只存在于 Harness 的 fork**（`@deepseek-ai/schemastery`），本包依赖的 npm 版 `schemastery@3.18.x` 没有它，两者最终都落在同一个 `meta.volatile` 上（实测：npm 版 `typeof Config.volatile === 'function'` 为 false，回退路径把 23 个字段全部标记成功）。
+- **过期文案对齐**：模型可见的插件自述（`NOVEL_GUIDANCE`）此前写死「默认输出到用户主目录 ~/.dsh/novels」，现改为描述「跟随『输出目录』设置、未配置时落到 Harness 数据目录的 novels/书名」，不再写死绝对路径；协议注释、作者资产库页与导入弹窗里的同款过期说明一并修正。
+- 工程：新增 `tests/settings-persist.test.ts`（13 例：entry id 读取、段选择优先级、绝不猜段名、无 settings 服务/写入抛错时的降级与告警文案、patch 合并语义）、`POST /config` 路由级 3 例（段未登记不再 400、成功时不带告警、非 loopback 403），以及 `tests/apply-config.test.ts`（直接驱动真实 `apply()`，连打两次保存以覆盖接线与合并语义；另锁住「每个 Config 字段都必须带 volatile」以防再次漏标）。套件 184 → 205 个用例。
+
+### 三处工程做法改进
+
+同一类工具在长链路里踩过的坑（结构化输出被截断、换模型报参数错误、扫榜丢掉已完成分析），本插件此前也有对应问题。本轮把这三处改成更稳的做法：
+
+- **结构化输出预算按规模推算（`src/output-budget.ts`）**：此前全库约 40 处写死 `Math.max(config.maxTokens, N)`，其中 `config.maxTokens` 默认 12000，导致 N<12000 时该常量**完全不起作用**（短任务与长任务拿同一额度）。现新增 `resolveOutputBudget(kind, scope)`：`base + 单位数 × perUnit` 并夹在 `[floor, ceiling]` 内。已接入三个**有规模知识**的调用点：分卷（按大纲长度估卷数）、章节规划（`chapters = chapterCount`，单章 ≈350 token）、角色阵容（`characters`）。同时给分卷加了长度合同（`renderLengthContract()` 生成的提示词声明 + 解析端同一张 `STRUCTURED_FIELD_LIMITS`），提示词与解析共用一份上限，避免漂移。**数值口径按本插件真实字段体积折算**（直接套用其它产品的卷战略口径会造成新的截断；`tests/output-budget.test.ts` 锁住"单章额度覆盖真实字段体积"）。纪律：**不用 JSON repair 补被截断的结构**——repair 只能修已有结构，补不出尚未输出的条目。
+- **模型参数能力兼容层（`src/model-capability.ts`）**：界面上保存的温度/思考档位是**用户偏好**，不是最终请求值；构造请求前按**模型身份**收敛。接线在 `complete()` 的 `runOnce` 内，因此**换备用模型后约束会按新模型重算**。Kimi 全系规则来自厂商官方《模型参数参考》并写进规则的 `source` 字段（`https://platform.kimi.com/docs/api/models-overview.md`）：k3 / k2.7-code 温度固定 1.0 且支持 `reasoning_effort`；k2.6 思考 1.0、非思考 0.6；**k2.x 用 `thinking`、不支持 `reasoning_effort`——下发会报错**，故该参数被主动移除。官方建议这类模型不要显式传 temperature，因此默认收敛为**省略该参数**（适配层无法省略时才钳到固定值）。判断必须按模型身份而非 `provider === '某厂商'`，否则走自定义中转会绕过约束。**收敛覆盖全部真实调用点**：除 `complete()` 外还有 3 处流式路径（正文生成 / 修订 / 润色，各自带备用模型切换）与「测试连通」——后者为省 token 自己构造请求，此前会原样下发 `temperature: 0`，对固定温度的模型必然报参数错误，而它恰恰是用户用来判断配置对不对的地方。共享实现为 `applyModelCapability()`（一次收敛、多处复用，不在每个调用点内联 5 遍）。
+- **雷达分析产物复用（`src/client/panel/market-radar-state.ts`）**：此前 `scan()` 会 `setResult(null)`/`setBrief(null)`——**重新扫榜就把上一份分析丢掉**。现改为扫榜只重置候选勾选、保留已完成产物；信号勾选改由**换了一份报告**驱动（`isDifferentReport` + `appliedReportId` ref），重渲染不再冲掉作者手选；三个入口的可用性由纯函数 `radarControls` 统一判定（此前同一条件散落多处），并支持"生成新分析"（无需重扫）。服务端 `MarketRadarResult.reportId` 提供这个 id。
+- **来源卫生**：本仓库源码、测试与本文档**不出现任何外部项目名、组织名或来源标注**（由 `scripts/check-third-party.mjs` 作为发布门禁强制）。本轮实现同样遵守：所有描述都是本插件自己的说法，约束类事实只引用厂商官方文档。雷达状态函数最初写成与同类实现**函数名近乎同名、入参字段同名**，属不可接受，已重写为 `radarControls` / `isDifferentReport`，并把需求改写成独立表述的验收条件（R1-R4）写进文件头，测试直接断言条件。必要的取证记录（含外部项目名与许可信息）单独放在仓库根 `PROVENANCE.md`——该文件不在门禁清单内，因为**代码与随包文档里只留自研表述，出处记录集中一处**。
+- 工程：新增 `tests/output-budget.test.ts`（10 例）、`tests/model-capability.test.ts`（20 例，含 3 例直接捕获 `testLlmModel` 实际下发请求的集成用例）、`tests/market-radar-state.test.ts`（8 例）。套件 205 → 244 个用例。
+
+
+## [1.3.3-alpha] - 2026-09-14
+
+状态文件改走 `DSH_HOME`，新书目录遵循「输出目录」设置 —— 不再把用户数据钉死在 `~/.dsh`。
+
+- **状态文件改走 DSH_HOME（跨安装共用一份数据的问题）**：书架、作者资产库、全局资源库、主题背景目录此前一律 `join(homedir(), '.dsh', …)`，绕开了 Harness 的单一 HOME 约定。后果有两个：**任何一套 HOME 被清理，插件数据跟着全灭**（实测：一次安装器卸载连带删掉该目录，书架登记与存在其中的书稿一并丢失、磁盘零残留）；以及 `DSH_HOME` 指向自有根目录的构建与命令行构建**读写同一份状态**，互相看见对方的书。现新增 `src/home.ts`：`dshHome()` / `dshHomePath()`，优先级 `$DSH_HOME` > `~/.dsh`，空白 `DSH_HOME` 视为未设置（不解析到当前工作目录）；`bookshelf.ts` / `author-assets.ts` / `global-assets.ts` / `index.ts` / `routes.ts` 共 **11 处**调用点全部改走它。未设置 `DSH_HOME` 时路径与旧版完全一致，既有数据原位不动。
+- **新书目录遵循「输出目录」设置**：`defaultOutputDirFor(bookName)` 此前完全无视 settings 的 `outputDir`，永远返回 `~/.dsh/novels/书名` —— 于是设置页那个「输出目录」对**新建书 / txt·md 全文导入 / 改编成新书**三条路径全部无效，用户以为改好了，新书照样落进系统盘。现签名改为 `defaultOutputDirFor(bookName, baseDir?)`，以 settings 中配置的 `outputDir`（**未经激活书合并**的原始值：激活书的目录指向它自己，不能当新书的父目录）为父目录，仅在未配置时回退 `<DSH_HOME>/novels`；6 个调用点统一走 `defaultBookDir()`。
+- **修复「插件自更新」在自定义 profile 下必然失败**：`POST /plugin/update` 的 `profileDir` 写死 `~/.dsh/profiles/web`，而随附模板之外的 profile（如 `web-alpha`）根本没有这个目录，`pnpm add` 必然报错。现从 `--profile` 参数读取实际 profile 名（缺失时回退 `web`），并与 `DSH_HOME` 组合。
+- 工程：新增 `src/home.ts` 与 `tests/home.test.ts`（7 例：`DSH_HOME` 优先于 `~/.dsh`、空白视为未设置、未设置时回退、以配置目录为父目录、未配置与空串均回退、文件名非法字符剔除）。三个把 `HOME`/`USERPROFILE` 重定向到临时目录的路由级测试必须**同时摘掉 `DSH_HOME`**：测试进程会继承宿主设置的值，不摘就绕过了重定向，状态文件会写进用户真实目录。顺带修正 `tests/run-recovery.test.ts` 的 `readShelfAt()` 少写一段 `.dsh`、使「不触碰用户真实书架」断言恒真的问题。套件 177 → 184 个用例。
+- 工程：把上面两处行为变更后过期的路径说明对齐到实际行为 —— 模型可见的插件自述（`NOVEL_GUIDANCE`）此前写死「默认输出到用户主目录 ~/.dsh/novels」，会误导后续会话对落盘位置的判断，现改为描述「跟随『输出目录』设置、未配置时落到 Harness 数据目录的 novels/书名」，**不再写死绝对路径**（写死会让注入文本随环境变化，失去提示词稳定性）；一并修正协议注释、作者资产库页与导入弹窗里的同款过期说明。`package.json` 版本号从 `1.3.2-alpha` 对齐到本条目，备份文件（`*.bak-*`、`*.before-*`）纳入 `.gitignore`。
+
 ## [1.3.2-alpha] - 2026-09-13
 
 芯片显示偏好（三态）+ 生产单运行说明与批次归属显式化。

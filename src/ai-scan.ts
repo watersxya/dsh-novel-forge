@@ -153,27 +153,3 @@ function countOccurrences(text: string, word: string): number {
   }
   return count
 }
-
-/** 扫描前后对比（润色时用） */
-export function compareAiScan(before: AiScanResult, after: AiScanResult): {
-  improved: boolean
-  deltaScore: number
-  details: string[]
-} {
-  const deltaScore = before.aiScore - after.aiScore
-  const details: string[] = []
-  if (deltaScore > 0) details.push(`AI 味指数下降 ${deltaScore} 分（${before.aiScore} → ${after.aiScore}）`)
-  else if (deltaScore < 0) details.push(`AI 味指数上升 ${-deltaScore} 分（${before.aiScore} → ${after.aiScore}），需检查`)
-  else details.push(`AI 味指数持平（${before.aiScore}）`)
-
-  const beforeCliches = before.clicheHits.reduce((a, b) => a + b.count, 0)
-  const afterCliches = after.clicheHits.reduce((a, b) => a + b.count, 0)
-  if (afterCliches < beforeCliches) details.push(`套话减少 ${beforeCliches - afterCliches} 处`)
-  else if (afterCliches > beforeCliches) details.push(`套话增加 ${afterCliches - beforeCliches} 处`)
-
-  return {
-    improved: deltaScore > 0,
-    deltaScore,
-    details,
-  }
-}

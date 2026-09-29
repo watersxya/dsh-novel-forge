@@ -14,10 +14,7 @@
 
 import type { ChapterPlan, ProjectState, StageInfo } from './protocol.ts'
 
-/** 创作阶段标识（线上形状见 protocol.ts 的 StageInfo）。 */
-export type BookStageId = StageInfo['id']
-
-/** 一个阶段契约。 */
+/** 一个阶段契约（assistant 侧需要作为类型使用）。 */
 export type BookStage = StageInfo
 
 /** 大纲视为「已开书」的最短长度。 */

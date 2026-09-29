@@ -1,11 +1,18 @@
 /**
- * 「热门题材雷达」：对齐上游市场雷达页（真实榜单扫榜 → 候选勾选 → 分析 → 信号卡片 → 影响模式 → 用信号创作）。
+ * 「热门题材雷达」：真实榜单扫榜 → 候选勾选 → AI 分析 → 信号卡片 → 影响模式 → 用信号创作。
+ *
+ * 界面状态规则见 `market-radar-state.ts`（其中写明了 R1-R4 四条验收条件）：
+ *  - 扫榜**不销毁**已完成的产物：上一份分析与创意简报在新分析产出前继续可用，
+ *    作者不必为了改选范围而重扫一遍；
+ *  - 信号勾选只在**换了报告**时重置，重渲染不得冲掉手选；
+ *  - 三个入口的可用性统一由一个纯函数判定，避免多处各写一份条件而漂移。
  */
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import type { MarketRadarResult, MarketCreativeBrief, IdeaInspirationResult } from '../../protocol.ts'
 import css from './panel.module.css'
 import { SubPage } from './SubPage.tsx'
+import { isDifferentReport, radarControls } from './market-radar-state.ts'
 
 const PLATFORMS = ['fanqie', 'qidian', 'jinjiang']
 const PLATFORM_LABELS: Record<string, string> = { fanqie: '番茄小说', qidian: '起点中文网', jinjiang: '晋江文学城' }
@@ -43,6 +50,22 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
   const [applied, setApplied] = useState('')
   const [syncBusy, setSyncBusy] = useState(false)
   const [syncedMsg, setSyncedMsg] = useState('')
+  /**
+   * 已应用报告 id。用 ref 而不是 state：它只用于「要不要复位勾选」的判断，
+   * 放进 state 会让每次分析都多一次重渲染，且可能触发不必要的复位。
+   */
+  const appliedReportId = useRef('')
+
+  /** 三个入口的可用性统一由纯函数判定，避免多处条件漂移。 */
+  const controls = useMemo(
+    () => radarControls({
+      scanning,
+      analyzing,
+      pickedCount: selectedCandidates.size,
+      hasReport: result !== null,
+    }),
+    [scanning, analyzing, selectedCandidates, result],
+  )
 
   const candKey = (g: ScanGroup, item: ScanItem): string => `${g.platform}:${g.listKey}:${item.rank}`
   const togglePlatform = (p: string): void => {
@@ -56,15 +79,14 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
   const scan = async (): Promise<void> => {
     setScanning(true)
     setError('')
-    setResult(null)
-    setBrief(null)
     try {
       const r = await api.marketRadarScan({ platforms })
       const groups = r.result.groups
       setScanGroups(groups)
       const firstP = PLATFORMS.find(p => groups.some(g => g.platform === p))
       if (firstP !== undefined) setViewPlatform(firstP)
-      // 默认不自动全选，交给用户手动勾选或用「全选」按钮。
+      // 勾选在扫榜后清空（换了候选范围），但**已完成的 AI 分析与创意简报保留**：
+      // 作者改选范围时不必丢掉上一份结论重新分析一次。
       setSelectedCandidates(new Set())
     } catch (err) {
       setError((err as Error).message)
@@ -104,12 +126,19 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
     for (const g of scanGroups) if (g.status === 'ok') for (const it of g.items) if (selectedCandidates.has(candKey(g, it))) candidates.push({ title: it.title, author: it.author, tags: it.tags, synopsis: it.synopsis, category: it.category })
     setAnalyzing(true)
     setError('')
-    setBrief(null)
     try {
       const r = await api.marketRadar({ candidates, feedText: feedText.trim() })
-      setResult(r.result)
-      const rec = r.result.signals.filter(s => s.recommended === true).map(s => s.id)
-      setSelectedIds(new Set(rec.slice(0, MAX_SIGNALS)))
+      const nextResult = r.result
+      // 只有换了报告才重置信号勾选：重渲染/重复分析不得冲掉作者手选。
+      if (isDifferentReport(appliedReportId.current, nextResult.reportId ?? '')) {
+        appliedReportId.current = nextResult.reportId ?? ''
+        const rec = nextResult.signals.filter(s => s.recommended === true).map(s => s.id)
+        setSelectedIds(new Set(rec.slice(0, MAX_SIGNALS)))
+      }
+      setResult(nextResult)
+      // 简报是绑定旧报告结论的产物，报告一换即失效（避免与信号不匹配）。
+      setBrief(null)
+      setIdeas(null)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -211,16 +240,25 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
           <textarea className={css.input} style={{ minHeight: 90, resize: 'vertical' }} value={feedText} onChange={e => setFeedText(e.target.value)} placeholder="粘贴一份公开榜单文本…" />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className={`${css.button} ${css.buttonPrimary}`} disabled={scanning} onClick={() => { void scan() }}>
+          <button type="button" className={`${css.button} ${css.buttonPrimary}`} disabled={!controls.canScan} onClick={() => { void scan() }}>
             {scanning ? '正在扫榜…' : '扫榜'}
           </button>
           {scanning && <span style={{ fontSize: 12, color: 'var(--nf-text-2)' }}>正在抓取公开榜单（{platforms.map(p => PLATFORM_LABELS[p]).join('、')}），多平台并行，约 10–30 秒…</span>}
           {scanGroups !== null && (
-            <button type="button" className={css.button} style={{ marginLeft: 8 }} disabled={analyzing || selectedCandidates.size === 0} onClick={() => { void analyze() }}>
-              {analyzing ? '分析中…' : `开始 分析（${selectedCandidates.size} 本）`}
+            <button type="button" className={css.button} style={{ marginLeft: 8 }} disabled={!controls.canAnalyze} onClick={() => { void analyze() }}>
+              {analyzing
+                ? '分析中…'
+                : controls.analyzeLabel === 'again'
+                  ? `生成新分析（${selectedCandidates.size} 本）`
+                  : `开始 分析（${selectedCandidates.size} 本）`}
             </button>
           )}
         </div>
+        {scanGroups !== null && controls.analyzeLabel === 'pick' && (
+          <span style={{ fontSize: 12, color: 'var(--nf-text-2)' }}>
+            {result !== null ? '上一份分析仍在下方可查看；改选作品后可生成新的分析（无需重新扫榜）。' : '请先勾选要分析的作品。'}
+          </span>
+        )}
       </div>
 
       {error !== '' && <div style={{ color: 'var(--nf-error)', fontSize: 13 }}> {error}</div>}
@@ -241,8 +279,8 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
             })}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={selectAll}>全选当前平台</button>
-            <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={clearSelection}>清空</button>
+            <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={!controls.canSelectCandidates} onClick={selectAll}>全选当前平台</button>
+            <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={!controls.canSelectCandidates} onClick={clearSelection}>清空</button>
             <span style={{ fontSize: 11, color: 'var(--nf-text-2)' }}>已选 {selectedCandidates.size} 条</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 'var(--nf-space-10)' }}>
@@ -251,7 +289,7 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
                   {g.listLabel}
                   <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 99, color: g.status === 'ok' ? 'var(--nf-success)' : 'var(--nf-error)', background: g.status === 'ok' ? 'rgba(79,191,139,0.14)' : 'rgba(212,99,79,0.16)' }}>{g.status === 'ok' ? `${g.items.length} 条` : '读取失败'}</span>
-                  {g.status === 'ok' && <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => selectGroup(g)}>全选本榜</button>}
+                  {g.status === 'ok' && <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={!controls.canSelectCandidates} onClick={() => selectGroup(g)}>全选本榜</button>}
                 </div>
                 {g.status === 'error' && <div style={{ fontSize: 11, color: 'var(--nf-error)', marginTop: 4 }}>{g.error}</div>}
                 {g.status === 'ok' && (
@@ -260,8 +298,8 @@ export default function MarketRadarView({ api, bookId }: { api: NovelApi; bookId
                       const key = candKey(g, it)
                       const sel = selectedCandidates.has(key)
                       return (
-                        <label key={key} onClick={e => { if ((e.target as HTMLElement).tagName !== 'INPUT') toggleCandidate(key) }} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, padding: '5px 2px', fontSize: 13.5, cursor: 'pointer' }}>
-                          <input type="checkbox" checked={sel} onChange={() => toggleCandidate(key)} onClick={e => e.stopPropagation()} style={{ marginTop: 3 }} />
+                        <label key={key} onClick={e => { if (!controls.canSelectCandidates) return; if ((e.target as HTMLElement).tagName !== 'INPUT') toggleCandidate(key) }} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, padding: '5px 2px', fontSize: 13.5, cursor: controls.canSelectCandidates ? 'pointer' : 'not-allowed', opacity: controls.canSelectCandidates ? 1 : 0.6 }}>
+                          <input type="checkbox" checked={sel} disabled={!controls.canSelectCandidates} onChange={() => toggleCandidate(key)} onClick={e => e.stopPropagation()} style={{ marginTop: 3 }} />
                           <span style={{ lineHeight: 1.5 }}>
                             <b style={{ fontSize: 14 }}>{it.rank}. {it.title}</b>
                             {it.author !== undefined && it.author !== '' ? <span style={{ color: 'var(--nf-text-2)', fontSize: 12.5 }}>（{it.author}）</span> : null}

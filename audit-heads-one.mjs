@@ -1,0 +1,14 @@
+import fs from 'node:fs';
+const f = process.argv[2] || 'H:\\novels\\还债疯了\\第018章_唤醒木匠.md';
+const t = fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n');
+let lines = t.split('\n');
+if (/^#/.test(lines[0].trim())) lines = lines.slice(1);
+const paras = lines.map((s) => s.trim()).filter(Boolean);
+const nar = paras.filter((p) => !/^[\u201C\u300C"]/.test(p));
+const heads = nar.map((p) => p.replace(/^[\u201C\u300C"]/, '').slice(0, 2));
+const c = heads.reduce((a, h) => ((a[h] = (a[h] || 0) + 1), a), {});
+const rep = Object.values(c).reduce((s, v) => s + (v >= 3 ? v : 0), 0);
+console.log('总段', paras.length, '｜叙述段', nar.length, '｜叙述段起句同构率', (rep / nar.length).toFixed(3));
+console.log('重复 >=3 次的段首：');
+for (const [h, n] of Object.entries(c).sort((a, b) => b[1] - a[1])) if (n >= 3) console.log('  「' + h + '」x' + n);
+console.log('\n全部叙述段首：' + heads.join(' '));

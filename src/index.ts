@@ -7,18 +7,18 @@
  * changes.
  */
 
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-settings'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import type { ConfigPatch, NovelConfig } from './protocol.ts'
+import type { ConfigPatch, NovelConfig, ConfigResponse } from './protocol.ts'
 import { makeRoutes } from './routes.ts'
 import { activeBookOutputDir } from './bookshelf.ts'
 import { loadProject } from './engine.ts'
+import { dshHomePath } from './home.ts'
+import { novelSettingsNamespace, persistConfigPatch, type SettingsLike } from './settings-persist.ts'
 
 /** Stable cordis plugin name. */
 export const name = 'novel-forge'
@@ -28,10 +28,17 @@ export const inject = ['webServer', 'llm', 'systemPrompt', 'settings']
 
 /**
  * Settings namespace of the novel-forge capability — the section the web
- * settings surface edits. Spelled here rather than imported: the browser half
- * spells the same value and must not depend on a Host package.
+ * settings surface edits.
+ *
+ * Legacy fallback only: from Harness 0.2 the Loader derives the section from this
+ * plugin's exported `Config`, and addresses it by the **entry id** it assigned in
+ * the active profile. That id is not guaranteed to be this name (bundle rows may
+ * be given a generated id), so the live id is read from the context instead —
+ * see {@link novelSettingsNamespace}. The constant stays for the browser half and
+ * for installations whose entry id really is this spelling.
  */
 export const NOVEL_SETTINGS_NAMESPACE = 'dsh-novel-forge' as const
+
 
 /** Plugin config, validated by the same-named schemastery schema. */
 export interface Config {
@@ -83,36 +90,70 @@ export interface Config {
   enableAdaptMode?: boolean
 }
 
+/**
+ * Mark a config field as live-editable.
+ *
+ * From Harness 0.2 the settings surface builds its editable form from this
+ * plugin's exported `Config` and only exposes fields whose nearest ancestor
+ * declares volatility (`SettingsForms.schema` + `volatileForm`). Without the
+ * marker the host refuses a write with `Plugin entry "…" has no volatile
+ * fields`, so the plugin's own 保存设置 route could never persist anything.
+ *
+ * The canonical form is schemastery's `.volatile()` builder, but that builder
+ * ships only in the Harness fork (`@deepseek-ai/schemastery`); the npm
+ * `schemastery` this package depends on exposes the same switch as metadata
+ * (`extra('volatile', true)`), which is what the fork's builder sets anyway.
+ * Prefer the builder when the loaded copy has it, fall back to the metadata so
+ * the schema is correct on either copy.
+ * @param schema - the field schema.
+ * @returns the same field marked live-editable.
+ */
+function live<T>(schema: T): T {
+  const candidate = schema as unknown as {
+    volatile?: () => unknown
+    extra?: (key: string, value: boolean) => unknown
+  }
+  if (typeof candidate.volatile === 'function') return candidate.volatile() as T
+  if (typeof candidate.extra === 'function') return candidate.extra('volatile', true) as T
+  return schema
+}
+
+/**
+ * Plugin config schema.
+ *
+ * Every field is live-editable (see {@link live}): the plugin re-reads the
+ * settings section on every request, so a change must apply without remounting.
+ */
 export const Config: z<Config> = z.object({
-  announceToAgent: z.boolean().default(true),
-  enabled: z.boolean().default(true),
-  outlinePath: z.string().default(''),
-  outputDir: z.string().default(join(homedir(), '.dsh', 'novels')),
-  provider: z.string().default('deepseek-official'),
-  model: z.string().default('deepseek-flash'),
-  generateModel: z.string().default(''),
-  reviewModel: z.string().default(''),
-  auditModel: z.string().default(''),
-  fallbackModel: z.string().default(''),
-  autoTimeline: z.boolean().default(true),
-  reasoningEffort: z.union(['off', 'low', 'high', 'max']).default('off'),
-  analysisReasoning: z.union(['off', 'low', 'high', 'max']).default('low'),
-  chapterChars: z.number().default(3500),
-  maxTokens: z.number().default(12000),
-  reviewPassScore: z.number().default(70),
-  autoReview: z.boolean().default(true),
-  autoAuthorReview: z.boolean().default(true),
-  autoReviewAfterRevise: z.boolean().default(true),
-  themeBackground: z.string().default(''),
-  themeBackgroundBlur: z.number().default(0),
-  themeOpacity: z.number().default(100),
-  enableAdaptMode: z.boolean().default(true),
+  announceToAgent: live(z.boolean().default(true)),
+  enabled: live(z.boolean().default(true)),
+  outlinePath: live(z.string().default('')),
+  outputDir: live(z.string().default(dshHomePath('novels'))),
+  provider: live(z.string().default('deepseek-official')),
+  model: live(z.string().default('deepseek-flash')),
+  generateModel: live(z.string().default('')),
+  reviewModel: live(z.string().default('')),
+  auditModel: live(z.string().default('')),
+  fallbackModel: live(z.string().default('')),
+  autoTimeline: live(z.boolean().default(true)),
+  reasoningEffort: live(z.union(['off', 'low', 'high', 'max']).default('off')),
+  analysisReasoning: live(z.union(['off', 'low', 'high', 'max']).default('low')),
+  chapterChars: live(z.number().default(3500)),
+  maxTokens: live(z.number().default(12000)),
+  reviewPassScore: live(z.number().default(70)),
+  autoReview: live(z.boolean().default(true)),
+  autoAuthorReview: live(z.boolean().default(true)),
+  autoReviewAfterRevise: live(z.boolean().default(true)),
+  themeBackground: live(z.string().default('')),
+  themeBackgroundBlur: live(z.number().default(0)),
+  themeOpacity: live(z.number().default(100)),
+  enableAdaptMode: live(z.boolean().default(true)),
 })
 
 /** Schema defaults, re-read for hand-built test contexts. */
 const DEFAULT_ANNOUNCE = true
 const DEFAULT_OUTLINE_PATH = ''
-const DEFAULT_OUTPUT_DIR = join(homedir(), '.dsh', 'novels')
+const DEFAULT_OUTPUT_DIR = dshHomePath('novels')
 const DEFAULT_PROVIDER = 'deepseek-official'
 const DEFAULT_MODEL = 'deepseek-flash'
 const DEFAULT_REASONING_EFFORT = 'off' as const
@@ -130,7 +171,7 @@ const DEFAULT_AUTO_REVIEW_AFTER_REVISE = true
 const SECTION_ORDER = 160
 
 /** Model-facing announcement: plugin presence, capabilities, and limits. */
-export const NOVEL_GUIDANCE = '本机已安装 dsh-novel-forge 插件（AI 编译小说工作台）：侧边栏「小说工坊」入口。能力：读取 docx 大纲、粘贴大纲文本或把 txt 全本拆章导入；用 LLM 提炼道藏（人设/世界观/金手指规则/写作红线）与大世界（境界/区域/势力）；生成卷计划与结构化章节计划（本章目标/剧情要点/必达项/义务合约/章末钩子）；逐章生成 3000-4000 字正文并保存为 Markdown（默认输出到用户主目录 ~/.dsh/novels）；每章自动生成摘要与编年录事实、抽取故事时间线（故事内时间/地点/在场角色/事件）、自动 AI 审稿（人设/设定/红线/文笔/爽点/逻辑/反 AI/呈现/合规九维）与作者复盘；支持按审稿意见合并修订（审稿 high + 时间线矛盾 + 张力偏差合成一轮，每章最多两轮后转人工）、去 AI 味润色、章节历史版本回滚、暗线（伏笔）管理、剧情线与角色库、张力曲线、全书一致性质检与敏感词扫描、分范围导出与项目备份、批量连写（生产单，可暂停/续跑）。限制：所有 AI 操作消耗 LLM API 额度；输出目录与模型可在插件设置中修改；章节正文质量取决于大纲完整度；张力/时间线问题默认只是建议（写日志与待办），不会自动改正文。用户提到「小说 / 大纲 / 写小说 / 章节 / 审稿 / 润色」时即指本插件，请据此协作。'
+export const NOVEL_GUIDANCE = '本机已安装 dsh-novel-forge 插件（AI 编译小说工作台）：侧边栏「小说工坊」入口。能力：读取 docx 大纲、粘贴大纲文本或把 txt 全本拆章导入；用 LLM 提炼道藏（人设/世界观/金手指规则/写作红线）与大世界（境界/区域/势力）；生成卷计划与结构化章节计划（本章目标/剧情要点/必达项/义务合约/章末钩子）；逐章生成 3000-4000 字正文并保存为 Markdown（默认输出到插件设置里「输出目录」指定的位置，未配置时落到 Harness 数据目录下的 novels/书名）；每章自动生成摘要与编年录事实、抽取故事时间线（故事内时间/地点/在场角色/事件）、自动 AI 审稿（人设/设定/红线/文笔/爽点/逻辑/反 AI/呈现/合规九维）与作者复盘；支持按审稿意见合并修订（审稿 high + 时间线矛盾 + 张力偏差合成一轮，每章最多两轮后转人工）、去 AI 味润色、章节历史版本回滚、暗线（伏笔）管理、剧情线与角色库、张力曲线、全书一致性质检与敏感词扫描、分范围导出与项目备份、批量连写（生产单，可暂停/续跑）。限制：所有 AI 操作消耗 LLM API 额度；输出目录与模型可在插件设置中修改；章节正文质量取决于大纲完整度；张力/时间线问题默认只是建议（写日志与待办），不会自动改正文。用户提到「小说 / 大纲 / 写小说 / 章节 / 审稿 / 润色」时即指本插件，请据此协作。'
 
 /** Resolve a config-like value into the full runtime config. */
 export function resolveConfig(value: Partial<Config> | undefined): NovelConfig {
@@ -165,9 +206,13 @@ export function resolveConfig(value: Partial<Config> | undefined): NovelConfig {
  * @param config - resolved plugin config (schema defaults applied by the loader).
  */
 export function apply(ctx: Context, config?: Config): void {
-  // The live source the routes read: the settings section once the web
-  // settings surface is served, the composition entry otherwise.
-  let current: () => Config = () => config ?? {}
+  // The live source the routes read. Held as an explicit state object, not a
+  // self-referential closure: `current = () => ({ ...current(), ...patch })`
+  // re-reads `current` inside the function it is assigning, so the first save
+  // recurses until the stack blows (`Maximum call stack size exceeded`).
+  let currentState: Config = config ?? {}
+  const current = (): Config => currentState
+  const setCurrent = (next: Config): void => { currentState = next }
   const resolve = (): NovelConfig => {
     const resolved = resolveConfig(current())
     // 书架激活的书优先决定输出目录（settings 仍可改默认值）。
@@ -190,7 +235,25 @@ export function apply(ctx: Context, config?: Config): void {
     return book
   }
 
-  const patchConfig = async (patch: ConfigPatch): Promise<NovelConfig> => {
+  /**
+   * The settings section this instance is addressed by, resolved once at mount.
+   * Undefined when the host exposes neither an entry id nor a registered section,
+   * in which case config edits stay in memory (see {@link patchConfig}).
+   */
+  const settingsNs = novelSettingsNamespace(ctx)
+
+  /**
+   * Persist one config patch.
+   *
+   * Applies to the live config either way. Persistence goes through the host
+   * settings section when that section is addressable; when it is not (unknown
+   * entry id, or the section never registered), the patch is kept in memory and
+   * the caller is told it will not survive a restart — a config save must never
+   * fail the request just because the host does not offer persistence.
+   * @param patch - the subset to merge.
+   * @returns the config the host will read next, plus a persistence caveat.
+   */
+  const patchConfig = async (patch: ConfigPatch): Promise<ConfigResponse> => {
     const next: ConfigPatch = {}
     if (patch.outlinePath !== undefined) next.outlinePath = patch.outlinePath
     if (patch.outputDir !== undefined) next.outputDir = patch.outputDir
@@ -213,16 +276,24 @@ export function apply(ctx: Context, config?: Config): void {
     if (patch.themeBackgroundBlur !== undefined) next.themeBackgroundBlur = patch.themeBackgroundBlur
     if (patch.themeOpacity !== undefined) next.themeOpacity = patch.themeOpacity
     if (patch.enableAdaptMode !== undefined) next.enableAdaptMode = patch.enableAdaptMode
-    // Persist through the settings seam when available; otherwise keep in memory.
-    // (ctx.get is the non-strict service access — no inject requirement, same
-    // pattern installSettingsSection itself uses.)
-    const settings = ctx.get('settings')
-    if (settings !== undefined) {
-      await settings.update(NOVEL_SETTINGS_NAMESPACE, next as Record<string, unknown>)
-    } else {
-      current = () => ({ ...current(), ...next })
+    // Apply + persist via the shared helper: the host section is addressed by the
+    // entry id the Loader assigned, never by a guessed constant. (ctx.get is the
+    // non-strict service access — same pattern the 0.1.x wiring used.)
+    const settings = ctx.get('settings') as SettingsLike | undefined
+    const persisted = await persistConfigPatch(
+      current() as unknown as Record<string, unknown>,
+      next as Record<string, unknown>,
+      settings,
+      settingsNs,
+      NOVEL_SETTINGS_NAMESPACE,
+    )
+    // Keep the live source in sync even when persistence went through the host:
+    // until the host reloads the plugin, the state object is still the old snapshot.
+    setCurrent(persisted.config as Config)
+    if (persisted.settingsWarning !== undefined) {
+      ctx.logger('novel-forge').warn('%s', persisted.settingsWarning)
     }
-    return resolve()
+    return { config: resolve(), ...(persisted.settingsWarning === undefined ? {} : { settingsWarning: persisted.settingsWarning }) }
   }
 
   let disposeSection: (() => void) | undefined
@@ -246,7 +317,7 @@ export function apply(ctx: Context, config?: Config): void {
         text: NOVEL_GUIDANCE,
       })
     }
-    const routes = makeRoutes({ ctx, getConfig: resolve, patchConfig, rawConfig: () => current() })
+    const routes = makeRoutes({ ctx, getConfig: resolve, patchConfig, rawConfig: () => current(), settingsNs })
     disposeRoutes = ctx.effect(
       () => {
         const disposers = routes.map(route => ctx.webServer.register(route))
@@ -257,13 +328,27 @@ export function apply(ctx: Context, config?: Config): void {
     void value
   }
 
-  ctx.settings.installSection(ctx, NOVEL_SETTINGS_NAMESPACE, Config, config ?? {}, {
-    setSource: (source) => {
-      current = source
-      sync()
-    },
-    onChange: sync,
-  })
+  // settings 接线做跨版本兼容（2026-09-30 适配 dsh 0.2.0-rc.2）：
+  // 0.1.x 提供 installSection（注册配置段并回调 setSource/onChange），段 id 由
+  // 调用方指定，因此用声明的常量；
+  // 0.2.x 移除了它，改由 Loader 从本插件导出的 Config schema 推导配置段（段 id
+  // = 该 entry 的 id），settings 服务只剩 configure/describe/update/replace/mutate。
+  // 缺失时必须静默跳过，不能让整棵插件挂载失败（此前 novel-forge 因此整包不加载）。
+  const settingsService = ctx.get('settings') as unknown as
+    | { installSection?: (c: unknown, ns: string, schema: unknown, cfg: unknown, hooks: unknown) => void }
+    | undefined
+  if (settingsService !== undefined && typeof settingsService.installSection === 'function') {
+    settingsService.installSection(ctx, settingsNs ?? NOVEL_SETTINGS_NAMESPACE, Config, config ?? {}, {
+      setSource: (source: () => Config) => {
+        // Snapshot the host-provided source. The live source is one state object
+        // now, so a source that recomputed per call would have to be polled;
+        // 0.1.x wiring is legacy and the composition entry is authoritative here.
+        setCurrent(source())
+        sync()
+      },
+      onChange: sync,
+    })
+  }
 
   // 运行时 skill：章节批量生产与值守处理（只在本插件环境可用）。
   // 通过 ctx.get('skills') 获取注册表（服务存在时注册，缺失则跳过，不影响其他能力）。

@@ -136,6 +136,7 @@ export const zh = {
   'settings.autoReviewAfterReviseHint': '按意见修订/润色产出草稿后自动附带一次 AI 审查，直接显示新稿评分与剩余问题（每章约 2-3k token，可关）',
   'settings.save': '保存设置',
   'settings.saved': '设置已保存',
+  'settings.savedUnpersisted': '设置已生效，但未能持久化（宿主未登记本插件的配置段），重启后会回到原值。',
   'settings.openFolder': '打开输出文件夹',
   'settings.exportTxt': '导出 TXT',
   'settings.exportMd': '导出 Markdown',

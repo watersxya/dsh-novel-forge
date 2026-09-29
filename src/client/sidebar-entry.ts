@@ -8,7 +8,7 @@ import { tt } from './panel/helpers.ts'
 import css from './panel/panel.module.css'
 
 /** Stable data attribute identifying the injected entry row. */
-export const ENTRY_SELECTOR = '[data-dsh-novelforge-entry]'
+const ENTRY_SELECTOR = '[data-dsh-novelforge-entry]'
 
 /** Inline icon: an open book / writing glyph. */
 const ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.67 19a2 2 0 0 0 1.416-.588l6.154-6.172a6 6 0 0 0-8.49-8.49L5.586 9.914A2 2 0 0 0 5 11.328V18a1 1 0 0 0 1 1z"/><path d="M16 8 2 22"/><path d="M17.5 15H9"/></svg>'
@@ -35,7 +35,7 @@ function newSessionButton(root: HTMLElement): HTMLButtonElement | undefined {
 function createEntry(controller: PanelController): HTMLButtonElement {
   const entry = document.createElement('button')
   entry.type = 'button'
-  entry.dataset.dshNovelforgeEntry = 'true'
+  entry.setAttribute(ENTRY_SELECTOR.slice(1, -1), 'true')
   entry.className = css.entry
   entry.setAttribute('aria-label', tt('entry.label'))
   entry.setAttribute('title', tt('entry.tooltip'))
@@ -52,7 +52,7 @@ function placeEntry(root: HTMLElement, entry: HTMLButtonElement): boolean {
     const row = button.closest('[class*="logoRow"]')
     const base = (row !== null && row.parentElement === root) ? row : button
     const family = Array.from(root.children).filter(
-      (el): el is HTMLElement => el instanceof HTMLElement && el.matches('[data-dsh-taskboard-entry], [data-dsh-ssh-entry], [data-dsh-novelforge-entry]'),
+      (el): el is HTMLElement => el instanceof HTMLElement && el.matches(`[data-dsh-taskboard-entry], [data-dsh-ssh-entry], ${ENTRY_SELECTOR}`),
     )
     const last = family.length > 0 ? family[family.length - 1] : undefined
     const anchor = last !== undefined ? last.nextElementSibling : base.nextElementSibling

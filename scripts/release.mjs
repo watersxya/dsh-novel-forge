@@ -34,7 +34,10 @@ function shLive(cmd) {
 
 // ---- 1) parse CHANGELOG top entry ----------------------------------------
 const changelog = await readFile(changelogPath, 'utf8')
-const m = /^## \[(\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\] - ([\d-]+)\r?\n\r?\n([\s\S]*?)(?=^## \[|$)/m.exec(changelog)
+// `m` 是 `^## \[` 需要的，但它同时让 `$` 匹配到**每一行**行尾，于是懒惰的正文捕获
+// 会在摘要行就停下 —— 发布正文只剩第一行，条目里的明细全部丢失。`(?![\s\S])` 是
+// JS 里"文档绝对末尾"的写法（无 `\z`），用它替代 `$`。
+const m = /^## \[(\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?)\] - ([\d-]+)\r?\n\r?\n([\s\S]*?)(?=^## \[|(?![\s\S]))/m.exec(changelog)
 if (!m) {
   console.error('✗ 无法从 CHANGELOG.md 顶部解析版本。请在顶部添加 "## [x.y.z[-prerelease]] - date" 条目。')
   process.exit(1)
@@ -65,10 +68,13 @@ shLive('node scripts/check-theme-sizes.mjs')
 shLive('node scripts/check-fallback-tiers.mjs')
 // 来源卫生：防止把外部来源的代码/文案带进本产物（细则见 scripts/check-third-party.mjs 头部说明）。
 shLive('node scripts/check-third-party.mjs')
+// 对比度：无障碍阈值一旦回退很难被肉眼发现，且发布后只能靠新版本修。
+// 口径说明见 scripts/audit-contrast.mjs 头部（只审计运行时真正生效的令牌块）。
+shLive('node scripts/audit-contrast.mjs')
 shLive('pnpm build')
 // 测试与 CI 对齐：带着失败用例发布过一次就很难收回（npm 版本号不可复用）。
 shLive('pnpm test')
-console.log('  · typecheck / check-styles / third-party / build / test 全部通过')
+console.log('  · typecheck / check-styles / third-party / contrast / build / test 全部通过')
 
 // ---- 4) commit + tag -----------------------------------------------------
 console.log(NL + '▶ 提交与打 tag')

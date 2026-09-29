@@ -10,7 +10,7 @@ import { NovelPanel } from './panel/NovelPanel.tsx'
 import css from './panel/panel.module.css'
 
 /** The injected panel container. */
-export const PANEL_VIEW_SELECTOR = '[data-dsh-novelforge-view]'
+const PANEL_VIEW_SELECTOR = '[data-dsh-novelforge-view]'
 
 const CONVERSATION_COLUMN_SELECTOR = '[data-pane="conversation"], [class*="centerCol"]'
 const ACTIVE_ATTR = 'data-dsh-novelforge-active'
@@ -44,7 +44,8 @@ export function mountPanel(controller: PanelController, api: NovelApi): () => vo
     const column = conversationColumn()
     if (column === undefined) return
     container = document.createElement('div')
-    container.dataset.dshNovelforgeView = 'true'
+    // 归属标记只在这里落地；取值与 PANEL_VIEW_SELECTOR 同源，字符串不写第二遍。
+    container.setAttribute(PANEL_VIEW_SELECTOR.slice(1, -1), 'true')
     container.className = css.view
     column.appendChild(container)
     root = createRoot(container)

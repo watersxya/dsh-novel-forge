@@ -126,10 +126,17 @@ const contexts = [
 ]
 
 /** 判断一个规则块属于哪个 (theme, dark) 的「根」令牌块；不属于返回 null。
- *  根块 = 每个逗号分段都以 .panel/.view 自身结尾（子规则如 `.panel[…] .button` 被排除）。 */
+ *  根块 = 每个逗号分段都以 .panel/.view 自身结尾（子规则如 `.panel[…] .button` 被排除）。
+ *
+ *  注意 `.panel[data-nf-mode='light'|'dark']` 是**显式模式覆盖块**：它们比 `.view` 种子
+ *  更具体，运行时真正生效的是它们。这里把它们识别为对应明暗的种子，按文件顺序覆盖，
+ *  这样审计量到的就是界面实际使用的值 —— 否则会出现「审计通过、界面仍不达标」。 */
 function blockContext(selector) {
   if (selector === '.view') return { theme: null, dark: false }
   if (/endfield-accent/.test(selector)) return null // wuling 变体单独体系，本审计按默认 valley 档
+  // 显式模式覆盖块：只在整块就是该选择器时认（带子选择器的排除）。
+  if (/^\.panel\[data-nf-mode='light'\]$/.test(selector.trim())) return { theme: null, dark: false }
+  if (/^\.panel\[data-nf-mode='dark'\]$/.test(selector.trim())) return { theme: null, dark: true }
   for (const compound of selector.split(',')) {
     const last = compound.trim().split(' ').pop() ?? ''
     if (!last.startsWith('.panel') && !last.startsWith('.view')) return null
@@ -214,5 +221,16 @@ for (const r of results) {
     console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name.padEnd(20)} ${ratio.toFixed(2)} : 1  (目标 ≥ ${target})`)
   }
 }
-console.log('\n--------\nFAIL 总数: ' + fail)
+
+// 覆盖率说明：避免"通过"被误读成"所有主题都验过了"。
+const audited = results.filter(r => r.rows.length > 0).length
+const skipped = results.length - audited
+console.log('\n--------')
+console.log(`覆盖：${audited} 套实际算过；${skipped} 套因令牌不全跳过（未验证）。`)
+if (skipped > 0) {
+  console.log('  跳过的上下文不是"通过"——它们的对比度尚未被验证。')
+  console.log('  常见原因：该主题没有独立的令牌覆盖块（此时它继承种子值），')
+  console.log('  或令牌链引用了本脚本无法解析的颜色写法（如 oklch）。')
+}
+console.log(`FAIL 总数: ${fail}${fail === 0 && skipped > 0 ? '（注意：仍有未验证的上下文）' : ''}`)
 process.exit(fail > 0 ? 1 : 0)
