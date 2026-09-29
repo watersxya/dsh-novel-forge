@@ -108,7 +108,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "postinstall": "node scripts/patch-schemastery.mjs",
-    "build": "tsc -p tsconfig.build.json && tsdown",
+    "build": "node scripts/clean-types.mjs && tsc -p tsconfig.build.json && tsdown",
     "bundle": "tsdown",
     "watch": "tsdown --watch",
     "typecheck": "tsc --noEmit",

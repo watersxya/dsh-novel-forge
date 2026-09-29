@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### 发布工具加固：消除「幽灵声明」
+
+发布 `1.3.3-alpha` 时在包清单里发现 `lib/types/` 下仍有源码早已删除的声明文件（`review-policy.d.ts`、`prompt-utils.d.ts`、`BookshelfBar.d.ts`、`ProgressHomeView.d.ts`）。成因：`tsc` 不清理输出目录，而 `lib/` 被 gitignore、无人察觉残留；`files` 又包含 `lib` 下全部 `.d.ts`，于是它们**被一起发布**。
+
+- 新增 `scripts/clean-types.mjs`，并把 `build` 改为 `node scripts/clean-types.mjs && tsc -p tsconfig.build.json && tsdown`：声明产物每次从零重建。只用 Node 的 `fs`，不依赖 shell 命令，Windows 与 CI 行为一致。
+- `scripts/release.mjs` 增加 `assertNoStaleDeclarations()` 预检：`.d.ts` 与源码路径一一对应，因此可反查；发现没有对应源文件的声明就**中止发布**并提示重跑构建。
+- 两处踩坑记录（避免重犯）：① 块注释里写 glob 时出现 `星号+斜杠` 组合会提前结束注释，脚本直接语法错误且**静默不执行**（第一版就是这么坏的）；② `new URL('..', import.meta.url)` 在**目录名以 `-alpha` 结尾**时会把 `..` 接在尾部路径段之后，解析结果比预期高一级，导致脚本报告「目录不存在」而跳过清理 —— 改用 `import.meta.dirname`。
+
 ## [1.3.3-alpha] - 2026-09-30
 
 设置保存链路修复 + 三处工程改进（结构化输出预算、模型参数能力层、雷达产物复用）+ 全仓审计清理 + 来源卫生门禁加固。

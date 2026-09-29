@@ -12,7 +12,7 @@
  *
  * 用法：node scripts/release.mjs [--dry-run]
  */
-import fs from 'node:fs'
+import fs, { existsSync } from 'node:fs'
 import path from 'node:path'
 import { execSync, spawnSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
@@ -30,6 +30,36 @@ function sh(cmd, opts = {}) {
 function shLive(cmd) {
   if (DRY_RUN) { console.log('  [dry]', cmd); return }
   execSync(cmd, { cwd, stdio: 'inherit' })
+}
+
+/**
+ * 断言 lib/types 下没有「源码已不存在」的声明文件。
+ *
+ * `.d.ts` 的路径与源码一一对应（lib/types/**.d.ts ← src/**.ts|tsx），因此可以据此反查。
+ * 这是发布前的最后一道网：这些文件不会被任何人注意到，但会被打进 npm 包。
+ * @throws 发现幽灵声明时抛出（中止发布）。
+ */
+function assertNoStaleDeclarations() {
+  const typesDir = path.join(cwd, 'lib', 'types')
+  if (!existsSync(typesDir)) return
+  const stale = []
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const abs = path.join(dir, entry.name)
+      if (entry.isDirectory()) { walk(abs); continue }
+      if (!entry.name.endsWith('.d.ts')) continue
+      const rel = path.relative(typesDir, abs).replace(/\.d\.ts$/, '')
+      const candidates = [path.join(cwd, 'src', `${rel}.ts`), path.join(cwd, 'src', `${rel}.tsx`)]
+      if (!candidates.some(candidate => existsSync(candidate))) stale.push(`lib/types/${rel}.d.ts`)
+    }
+  }
+  walk(typesDir)
+  if (stale.length > 0) {
+    console.error('✗ 发现幽灵声明（源码已删除，但 .d.ts 仍在，且会随 files 发布）：')
+    for (const s of stale) console.error('  ' + s)
+    console.error('  处理：重新执行 `pnpm build`（构建脚本会先清空 lib/types）后重试。')
+    process.exit(1)
+  }
 }
 
 // ---- 1) parse CHANGELOG top entry ----------------------------------------
@@ -74,7 +104,10 @@ shLive('node scripts/audit-contrast.mjs')
 shLive('pnpm build')
 // 测试与 CI 对齐：带着失败用例发布过一次就很难收回（npm 版本号不可复用）。
 shLive('pnpm test')
-console.log('  · typecheck / check-styles / third-party / contrast / build / test 全部通过')
+// 幽灵声明：`files` 包含 lib/**/*.d.ts，若 tsc 的旧产物没被清掉，源码已删除的模块
+// 会以 .d.ts 形式**发布出去**（实测发生过）。构建脚本已先清 lib/types，这里再验一次。
+assertNoStaleDeclarations()
+console.log('  · typecheck / check-styles / third-party / contrast / build / test / 声明一致性 全部通过')
 
 // ---- 4) commit + tag -----------------------------------------------------
 console.log(NL + '▶ 提交与打 tag')
