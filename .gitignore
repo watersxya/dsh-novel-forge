@@ -31,7 +31,23 @@ coverage/
 .workbuddy/
 docs/
 
-# 一次性补丁脚本（agent 临时产物）
-__*.py
-__*.mjs
-__*.txt
+# 一次性分析 / 修补脚本及其产物（agent 临时产物，只作用于仓库根）
+/__*
+/audit-*
+/microfix*
+/probe_*
+/rewrite-*
+/sync-check.*
+/gate*
+/status.mjs
+/similes.mjs
+/diff-paras.mjs
+/batch-promote.mjs
+/heads-batch.mjs
+/rework-order.mjs
+/lesion-card.mjs
+/metrics-lib.mjs
+/stage-validate.mjs
+/stage_c_ref.md
+/validate-lib.mjs
+/focus-ch1.txt
