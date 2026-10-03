@@ -907,7 +907,6 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     setThemeDensity(next)
   }, [setThemeDensity])
   const editorFontSize = editorFontSizeRaw
-  const setEditorFontSize = setEditorFontSizeRaw
   /** 本书参数（novel-project.json.bookSettings；未设字段 = 回退全局默认）。 */
   const [bookCfg, setBookCfg] = useState<BookSettings | null>(null)
   const [bookCfgLoaded, setBookCfgLoaded] = useState(false)
