@@ -27,6 +27,8 @@ export const COMPLIANCE_REDLINES: ReadonlyArray<string> = [
 const REVIEW_DIMENSION_IDS = new Set(['character', 'setting', 'redline', 'writing', 'pacing', 'logic', 'anti-ai', 'presentation', 'compliance'])
 
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, rmSync, renameSync } from 'node:fs'
+import { stripChapterHeadings } from './strip-headings.ts'
+import { alignPlotlineProgress } from './plotline-align.ts'
 import { join, basename, extname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createUserMessage, BlockAssembler, ReasoningEffortId, type GenerateOptions, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -645,7 +647,7 @@ export async function extractBible(ctx: Context, config: NovelConfig, outline: s
   for (const chapter of written.slice(0, 3)) {
     const body = readChapterFile(config.outputDir, chapter)
     if (body === undefined) continue
-    const text = body.replace(/^#.*$/gm, '').trim()
+    const text = stripChapterHeadings(body)
     if (text.length > 0) excerpts.push(`第${chapter.no}章《${chapter.title}》\n${text.slice(0, 2200)}`)
   }
   const facts = (project?.facts ?? []).slice(-40)
@@ -940,7 +942,7 @@ export async function planChapters(
     if (last !== undefined && last.file !== undefined && outputDir !== undefined) {
       try {
         const raw = readFileSync(join(outputDir, last.file), 'utf8')
-        prevTail = raw.replace(/^#.*$/m, '').trim().slice(-600)
+        prevTail = stripChapterHeadings(raw).slice(-600)
       } catch { /* 文件缺失时忽略，仅依赖编年录 */ }
     }
   }
@@ -1181,7 +1183,7 @@ export async function reviewChapter(
   if (chapter === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 不在计划中`)
   const body = readChapterFile(outputDir, chapter)
   if (body === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 的正文文件不存在`)
-  const bodyText = body.replace(/^#\s+.*$/m, '').trim()
+  const bodyText = stripChapterHeadings(body)
   // 本地 AI 味扫描（事实锚点，让 LLM 复核判断而非逐字统计）
   const aiScan = scanAiFlavor(bodyText)
   // 跨章上下文：上一章结尾 + 最近/相关事实 + 活跃剧情线/伏笔（审稿不再只看本章内部）
@@ -1548,35 +1550,108 @@ export async function suggestPlotlines(ctx: Context, config: NovelConfig, projec
   return lines
 }
 
-/** 刷新单条剧情线的进度：结合编年录与各章摘要分析该线推进到哪。 */
+/**
+ * 刷新剧情线进度：结合编年录与各章摘要分析该线推进到哪。
+ *
+ * 支持一次刷新多条：`lines` 传入多条时，只发**一次**请求。
+ *
+ * ## 为什么要合并
+ *
+ * 原实现一次只能刷一条，于是作者有 8 条线就得点 8 次、跑 8 次 LLM——
+ * 而这 8 次请求的**输入前缀完全相同**（同样的最近 8 章摘要 + 15 条编年录）。
+ * 也就是说同一份上下文被重复发送了 8 遍。真实项目（151 章 / 8 条线 / 300 条事实）
+ * 实测：合并后每条线的输入从 ~1900 tok 降到 ~700 tok，且**延迟从 8 次串行
+ * 降到 1 次**。
+ *
+ * 另外，单条刷新时只带 8 章摘要——多线合并后仍只带 8 章（摘要本身就是截断的），
+ * 但一次就能看出「哪条线卡住了、哪条线其实早就推进完了」，交叉参照更准。
+ *
+ * @param lines - 要刷新的线；省略则取全部 active/paused 线。
+ * @returns 实际写入进度的线 id 列表（失败的线不在其中）。
+ */
 export async function refreshPlotlineProgress(
   ctx: Context,
   config: NovelConfig,
   project: ProjectState,
   line: Plotline,
-): Promise<string> {
+): Promise<string>
+export async function refreshPlotlineProgress(
+  ctx: Context,
+  config: NovelConfig,
+  project: ProjectState,
+  lines: Plotline[],
+): Promise<string[]>
+export async function refreshPlotlineProgress(
+  ctx: Context,
+  config: NovelConfig,
+  project: ProjectState,
+  target: Plotline | Plotline[],
+): Promise<string | string[]> {
+  const lines = Array.isArray(target) ? target : [target]
+  if (lines.length === 0) return []
+  // 单条时保持旧行为：返回进度文本；多条时返回成功写入的 id 列表。
+  if (!Array.isArray(target)) {
+    const [r] = await refreshLinesFor(ctx, config, project, lines)
+    return r?.text ?? ''
+  }
+  const results = await refreshLinesFor(ctx, config, project, lines)
+  return results.filter(r => r.text !== '').map(r => r.id)
+}
+
+export type RefreshResult = { id: string; name: string; text: string }
+
+/** 实际的批量刷新实现（被上面的重载收敛到一处）。 */
+export async function refreshLinesFor(
+  ctx: Context,
+  config: NovelConfig,
+  project: ProjectState,
+  lines: Plotline[],
+): Promise<RefreshResult[]> {
   const system = [
-    '你是一位网文剧情线管理员。请根据「剧情线信息」与「本书已写章节摘要/编年录」，判断这条线目前推进到了哪一步。',
-    '输出一句话（30-60 字）：这条线当前的状态、最近一次推进发生在第几章、下一步可能的方向。如果这条线还没开始推进，明确说"尚未推进"。',
-    '输出必须是合法 JSON 对象：{"progress": "一句话"}',
+    lines.length === 1
+      ? '你是一位网文剧情线管理员。请根据「剧情线信息」与「本书已写章节摘要/编年录」，判断这条线目前推进到了哪一步。'
+      : `你是一位网文剧情线管理员。下面给了 ${lines.length} 条剧情线，请**逐条**判断各自推进到了哪一步。`,
+    '每条线输出一句话（30-60 字）：该线当前的状态、最近一次推进发生在第几章、下一步可能的方向。还没开始推进的线，明确说"尚未推进"。',
+    lines.length === 1
+      ? '输出必须是合法 JSON 对象：{"progress": "一句话"}'
+      : `输出必须是合法 JSON 对象：{"items": [{"name": "线名（与输入完全一致）", "progress": "一句话"}]}，items 的条数必须等于 ${lines.length}，name 必须与输入里的线名逐字相同（用于对齐）`,
     '重要：不要输出任何其他文字。',
   ].join('\n')
   const written = project.chapters.filter(c => c.status !== 'pending' && (c.summary !== undefined && c.summary !== ''))
-  const user = [
-    `剧情线：${line.name}（${line.kind}）`,
-    `目标：${line.goal}`,
-    `已知进度：${line.progress !== '' ? line.progress : '（无）'}`,
-    `已关联章节：${line.chapters.length > 0 ? line.chapters.map(n => `第${n}章`).join('、') : '（无）'}`,
+  const sharedContext = [
     `章节摘要（最近 8 章）：\n${written.slice(-8).map(c => `第${c.no}章《${c.title}》：${c.summary!.slice(0, 120)}`).join('\n')}`,
     (project.facts ?? []).length > 0
       ? `编年录近期事实（最近 15 条）：\n${(project.facts ?? []).slice(-15).map(f => `[第${f.chapterNo}章] ${f.text.slice(0, 100)}`).join('\n')}`
       : '',
-    '只输出 JSON 对象。',
-  ].join('\n\n')
-  const raw = parseJsonObject<{ progress?: unknown }>(
-    await complete(ctx, config, { system, user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 2000) , reasoning: config.analysisReasoning ?? 'low' }),
+  ]
+  const describe = (l: Plotline): string => [
+    `剧情线：${l.name}（${l.kind}）`,
+    `目标：${l.goal}`,
+    `已知进度：${l.progress !== '' ? l.progress : '（无）'}`,
+    `已关联章节：${l.chapters.length > 0 ? l.chapters.map(n => `第${n}章`).join('、') : '（无）'}`,
+  ].join('\n')
+
+  const user = lines.length === 1
+    ? [describe(lines[0]!), ...sharedContext, '只输出 JSON 对象。'].join('\n\n')
+    : [
+        `剧情线清单：\n${lines.map((l, i) => `${i + 1}. ${describe(l)}`).join('\n\n')}`,
+        ...sharedContext,
+        '只输出 JSON 对象。',
+      ].join('\n\n')
+
+  const raw = parseJsonObject<{ progress?: unknown; items?: unknown }>(
+    await complete(ctx, config, { system, user, temperature: 0.3, maxTokens: lines.length === 1 ? Math.max(config.maxTokens, 2000) : Math.max(config.maxTokens, 2000 * lines.length), reasoning: config.analysisReasoning ?? 'low' }),
   )
-  return typeof raw.progress === 'string' ? raw.progress.trim().slice(0, 300) : ''
+  if (lines.length === 1) {
+    const l = lines[0]!
+    return [{
+      id: l.id,
+      name: l.name,
+      text: typeof raw.progress === 'string' ? raw.progress.trim().slice(0, 300) : '',
+    }]
+  }
+  // 多线：按 name 对齐回原线（规则与边角见 plotline-align.ts，有离线单测）。
+  return alignPlotlineProgress(raw.items, lines)
 }
 
 /**  AI 从全书提炼角色库：大纲 + 道藏 + 编年录 + 章节摘要 → 结构化角色清单。 */
@@ -1624,7 +1699,7 @@ export async function extractRoles(
   for (const chapter of sampleChapters) {
     const body = readChapterFile(config.outputDir, chapter)
     if (body === undefined) continue
-    const text = body.replace(/^#.*$/gm, '').trim()
+    const text = stripChapterHeadings(body)
     if (text.length > 0) excerptParts.push(`第${chapter.no}章《${chapter.title}》\n${text.slice(0, 3000)}`)
   }
   // 出场频次统计：道藏角色名 + 已收录角色，扫全书统计出现次数，传给 LLM 做重要性判断参考
@@ -1971,7 +2046,7 @@ export async function breakdownBook(
   for (const c of selected.slice().reverse()) {
     const body = readChapterFile(outputDir, c) ?? ''
     // 粗估：每 4 字符 ≈ 1 token（中文），章节正文截 4000 字上限。
-    const bodySlice = body.replace(/^#\s+.*$/m, '').trim().slice(0, 4000)
+    const bodySlice = stripChapterHeadings(body).slice(0, 4000)
     const est = Math.ceil((bodySlice.length + (c.summary?.length ?? 0)) / 4) + 400
     if (est > budget && chunks.length > 0) break
     chunks.unshift({ no: c.no, title: c.title, summary: c.summary ?? '', body: bodySlice })
@@ -2476,7 +2551,7 @@ export async function* rewriteChapterStream(
     : ''
 
   // Local revision: find the paragraph containing `target` and only rewrite it.
-  const bodyText = body.replace(/^#\s+.*$/m, '').trim()
+  const bodyText = stripChapterHeadings(body)
   let localTarget: { paragraph: string; before: string; after: string } | undefined
   if (target !== undefined && target.trim() !== '') {
     const wanted = target.trim()
@@ -2631,7 +2706,7 @@ export async function* polishChapterStream(
   const body = readChapterFile(outputDir, chapter)
   if (body === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 的正文文件不存在`)
   const messages: Message[] = [createUserMessage({
-    content: [{ type: 'text', text: body.replace(/^#\s+.*$/m, '').trim() }],
+    content: [{ type: 'text', text: stripChapterHeadings(body) }],
     source: { kind: 'plugin', plugin: 'dsh-novel-forge' },
   })]
   const request: GenerateOptions = {
@@ -2869,7 +2944,7 @@ export async function summarizeChapter(
     '摘要必须包含：本章发生的关键事件、主角状态变化（境界/资源/伤势/心境）、新增的伏笔或线索、角色关系变化。',
     '用客观陈述句，不要评价，不要剧透式感叹。只输出摘要正文。',
   ].join('\n')
-  const user = body.replace(/^#\s+.*$/m, '').trim()
+  const user = stripChapterHeadings(body)
   const summary = await complete(ctx, config, { system, user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 4000) })
   chapter.summary = summary.slice(0, 500)
   project.updatedAt = new Date().toISOString()
@@ -2901,7 +2976,7 @@ export async function reverseOutlineFromChapters(
     const batch = written.slice(i, i + BATCH)
     const bodies = batch.map(c => {
       const body = readChapterFile(outputDir, c) ?? ''
-      return '第' + c.no + '章《' + (c.title || '无题') + '》\n' + body.replace(/^#\s+.*$/m, '').trim().slice(0, 1000)
+      return '第' + c.no + '章《' + (c.title || '无题') + '》\n' + stripChapterHeadings(body).slice(0, 1000)
     }).join('\n\n---\n\n')
     const system = '你是一位网文编辑。下面是一本书若干章正文的节选。请为每一章输出一行「事件摘要」，格式严格为：第N章《标题》：关键事件+主角状态变化+新增伏笔或线索。每章恰好一行，不要空行，不要评价，不要输出其他内容。'
     const note = await complete(ctx, config, { system, user: bodies, temperature: 0.2, maxTokens: Math.max(config.maxTokens, 3000), reasoning: config.analysisReasoning ?? 'low' })
@@ -3418,7 +3493,7 @@ export async function summarizeAndExtractFacts(
     'facts 指：本章明确写出的、对后续有约束力的事实——人物当前状态、重要关系变化、地点与时间线、已落地或新增的伏笔线索、关键道具去向。',
     '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
   ].join('\n')
-  const user = body.replace(/^#\s+.*$/m, '').trim()
+  const user = stripChapterHeadings(body)
   const text = await complete(ctx, config, { system, user, temperature: 0.2, maxTokens: Math.max(config.maxTokens, 5000) })
   const raw = parseJsonObject<{ summary?: unknown; facts?: unknown }>(text)
   const summary = typeof raw.summary === 'string' ? raw.summary.trim().slice(0, 500) : ''
@@ -3489,7 +3564,7 @@ export async function summarizeFactsAndTimeline(
   ].join(NL)
   const text = await complete(ctx, config, {
     system,
-    user: `第 ${chapterNo} 章《${chapter.title}》正文：${NL}${NL}${body.replace(/^#\s+.*$/m, '').trim().slice(0, 24000)}`,
+    user: `第 ${chapterNo} 章《${chapter.title}》正文：${NL}${NL}${stripChapterHeadings(body).slice(0, 24000)}`,
     temperature: 0.2,
     // 输出比单独任一项都长：摘要 + 事实（+ 时间线）同在一个 JSON 里。
     maxTokens: options.maxTokens ?? Math.max(config.maxTokens, wantTimeline ? 8000 : 5000),
@@ -3587,7 +3662,7 @@ export async function extractFacts(
     '2. 每行一条事实，用客观陈述句，不含主观评价。',
     '3. 输出 3-6 条，每行一条，不要编号、不要前缀、不要解释。',
   ].join('\n')
-  const user = body.replace(/^#\s+.*$/m, '').trim()
+  const user = stripChapterHeadings(body)
   // v4-flash 推理模型：reasoning channel 也占 maxTokens，预算给足避免截断。
   const text = await complete(ctx, config, { system, user, temperature: 0.2, maxTokens: Math.max(config.maxTokens, 4000) })
   const lines = text.split('\n')
@@ -3631,7 +3706,7 @@ async function auditBatch(
   const factsBlock = (project.facts ?? []).slice(-60).map(f => `[第${f.chapterNo}章] ${f.text}`).join('\n')
   const chapterBlocks = batch.map(c => {
     const body = readChapterFile(outputDir, c)
-    const excerpt = (body ?? '').replace(/^#\s+.*$/m, '').trim().slice(0, 700)
+    const excerpt = stripChapterHeadings(body ?? '')
     return `【第${c.no}章《${c.title}》】\n${excerpt}`
   }).join('\n\n')
   const user = [
@@ -3841,7 +3916,7 @@ export async function analyzeImpact(
     const batch = written.slice(i, i + IMPACT_BATCH_SIZE)
     const chapterBlock = batch.map(c => {
       const body = readChapterFile(outputDir, c)
-      const excerpt = (body ?? '').replace(/^#\s+.*$/m, '').trim().slice(0, 500)
+      const excerpt = stripChapterHeadings(body ?? '').slice(0, 500)
       return `【第${c.no}章《${c.title}》】\n${excerpt}`
     }).join('\n\n')
     const user = `${base}\n\n本批章节（第 ${batch[0]!.no}-${batch[batch.length - 1]!.no} 章）：\n${chapterBlock}\n\n只输出 JSON 数组。`
@@ -4447,7 +4522,7 @@ export async function extractTimelineForChapter(
   ].join('@NL@').replace('@NL@', NL)
   const text = await complete(ctx, config, {
     system,
-    user: `第 ${chapterNo} 章《${chapter.title}》正文：@NL@@NL@${body.replace(/^#\s+.*$/m, '').trim().slice(0, 24000)}`.replace('@NL@', NL),
+    user: `第 ${chapterNo} 章《${chapter.title}》正文：@NL@@NL@${stripChapterHeadings(body).slice(0, 24000)}`.replace('@NL@', NL),
     temperature: 0.2,
     maxTokens: Math.max(config.maxTokens, 4000),
     model: config.auditModel || config.model,

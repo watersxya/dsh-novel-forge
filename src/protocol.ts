@@ -887,6 +887,12 @@ export interface PlotlinesResponse {
   health?: PlotlineHealthReport
   /** op=plan 时的剧情方案。 */
   plan?: PlotlinePlan
+  /**
+   * 部分失败时的说明（如批量刷新里有线没返回进度）。
+   * HTTP 仍是 200：整体成功，只是有遗漏——**如实上报**比静默留空好，
+   * 否则作者会以为"刷新过了但内容没变"。
+   */
+  error?: string
 }
 
 /** 一条敏感词命中。 */

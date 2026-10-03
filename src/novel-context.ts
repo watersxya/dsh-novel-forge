@@ -6,6 +6,7 @@
  */
 
 import type { ProjectState, ChapterPlan, StoryBible, RoleRecord, ChapterFact, Foreshadow, Plotline } from './protocol'
+import { stripChapterHeadings } from './strip-headings.ts'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -182,7 +183,7 @@ export function buildChapterContext(
       const prevPath = join(outputDir, prev.file)
       if (existsSync(prevPath)) {
         const text = readFileSync(prevPath, 'utf8')
-        prevChapterTail = text.replace(/^#\s+.*$/m, '').trim().slice(-900)
+        prevChapterTail = stripChapterHeadings(text).slice(-900)
       }
     } catch { /* 文件缺失时忽略 */ }
   }

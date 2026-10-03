@@ -6,6 +6,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, copyFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { stripChapterHeadings } from './strip-headings.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ChapterPlan, NovelConfig, ProjectState, ReviewReport, RunState } from './protocol.ts'
 import {
@@ -354,7 +355,7 @@ export class ProductionRunner {
             let prevTail = ''
             if (no > 1) {
               const prev = project.chapters.find(c => c.no === no - 1)
-              if (prev !== undefined) prevTail = (readChapterFile(outputDir, prev) ?? '').replace(/^#.*$/m, '').trim().slice(-600)
+              if (prev !== undefined) prevTail = stripChapterHeadings(readChapterFile(outputDir, prev) ?? '').slice(-600)
             }
             const review = await authorReviewChapter(ctx, config, project, no, body, prevTail)
             chapter.authorReview = review

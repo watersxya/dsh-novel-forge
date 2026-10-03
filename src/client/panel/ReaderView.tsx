@@ -156,11 +156,15 @@ export function ReaderView({
   const themeMeta = THEMES.find(t => t.id === theme) ?? THEMES[0]
   const fontMeta = FONT_SIZES.find(f => f.id === font) ?? FONT_SIZES[1]
 
-  /** 轻量渲染：去标题行、按行分段（网文每行一段）。 */
+  /** 轻量渲染：去标题行、按行分段（网文每行一段）。
+   *
+   *  注意：这里用「至少一个空白」的 `+` 形式，不是「零个或多个」的星号形式——
+   * 后者会把正文行首的「# 号」也吃掉，对「# 标签」和「#注释」一视同仁。
+   * 剥离规则与 stripChapterHeadings 保持一致。 */
   const paragraphs = useMemo(() => {
     return markdown
       .split(/\r?\n/)
-      .map(l => l.replace(/^#{1,6}\s*/, '').trim())
+      .map(l => l.replace(/^#{1,6}\s+/, '').trim())
       .filter(Boolean)
   }, [markdown])
 

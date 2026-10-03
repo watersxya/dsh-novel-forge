@@ -9,6 +9,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { stripChapterHeadings } from './strip-headings.ts'
 import { spawn } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, basename, extname } from 'node:path'
@@ -182,6 +183,7 @@ import {
   readChapterFile,
   refreshCharacters,
   refreshPlotlineProgress,
+  refreshLinesFor,
   reviewChapter,
   reviewChapterText,
   rewriteChapterStream,
@@ -703,7 +705,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
             if (no > 1) {
               const prev = project.chapters.find(c => c.no === no - 1)
               if (prev !== undefined) {
-                prevTail = (readChapterFile(config.outputDir, prev) ?? '').replace(/^#.*$/m, '').trim().slice(-600)
+                prevTail = stripChapterHeadings(readChapterFile(config.outputDir, prev) ?? '').slice(-600)
               }
             }
             if (currentBody !== undefined) {
@@ -2623,6 +2625,35 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           writeJson(res, 500, { error: `建议失败：${(error as Error).message}` })
           return
         }
+      } else if (op === 'refresh' && body?.id === undefined) {
+        // 批量刷新（不传 id）：一次 LLM 调用处理全部 active/paused 线。
+        // 原先只能逐条刷，8 条线要 8 次请求且每次重发同一份章节摘要+编年录。
+        const targets = (project.plotlines ?? []).filter(l => l.status === 'active' || l.status === 'paused')
+        if (targets.length === 0) {
+          writeJson(res, 200, { plotlines: project.plotlines } satisfies PlotlinesResponse)
+          return
+        }
+        try {
+          const results = await refreshLinesFor(ctx, config, project, targets)
+          const failed: string[] = []
+          for (const r of results) {
+            const line = project.plotlines.find(l => l.id === r.id)
+            if (line === undefined) continue
+            if (r.text === '') { failed.push(r.name); continue }
+            line.progress = r.text
+          }
+          project.updatedAt = new Date().toISOString()
+          saveProject(config.outputDir, project)
+          writeJson(res, 200, {
+            plotlines: project.plotlines,
+            // 未返回内容的线如实上报：静默留空会让作者以为"刷新过了但没变化"。
+            ...(failed.length > 0 ? { error: `以下 ${failed.length} 条线未返回进度：${failed.join('、')}` } : {}),
+          } satisfies PlotlinesResponse & { error?: string })
+          return
+        } catch (error) {
+          writeJson(res, 500, { error: `批量刷新失败：${(error as Error).message}` })
+          return
+        }
       } else if (op === 'refresh' && body?.id !== undefined) {
         const line = project.plotlines.find(l => l.id === body.id)
         if (line === undefined) {
@@ -2832,7 +2863,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         if (chapter.no > 1) {
           const prev = project.chapters.find(c => c.no === chapter.no - 1)
           if (prev !== undefined) {
-            prevTail = (readChapterFile(config.outputDir, prev) ?? '').replace(/^#.*$/m, '').trim().slice(-600)
+            prevTail = stripChapterHeadings(readChapterFile(config.outputDir, prev) ?? '').slice(-600)
           }
         }
         return authorReviewChapter(ctx, config, project, chapter.no, currentBody, prevTail)

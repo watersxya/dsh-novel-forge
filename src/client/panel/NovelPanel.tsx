@@ -5,6 +5,7 @@
  * review streams land in the progress console.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { stripChapterHeadings } from '../../strip-headings.ts'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement, ReactNode } from 'react'
 import type { NovelApi } from '../api.ts'
 import { setCurrentBook } from '../api.ts'
@@ -224,7 +225,7 @@ type DiffRow =
  */
 function paragraphDiff(oldText: string, newText: string): DiffRow[] {
   const split = (t: string): string[] =>
-    t.replace(/^#\s+.*$/m, '').trim().split(/\n{2,}/).map(p => p.trim()).filter(p => p !== '')
+    stripChapterHeadings(t).split(/\n{2,}/).map(p => p.trim()).filter(p => p !== '')
   const a = split(oldText)
   const b = split(newText)
   const n = a.length
@@ -1754,6 +1755,29 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     } catch (err) {
       setError((err as Error).message)
       pushProgress(`刷新剧情线进度失败：${(err as Error).message}`, 'error')
+    } finally {
+      setBusy(false)
+      setBusyLabel('')
+    }
+  }
+
+  /** 剧情线：一次刷新全部（不传 id）。原先只能逐条刷，8 条线要 8 次 LLM 调用。 */
+  const handlePlotlineRefreshAll = async (): Promise<void> => {
+    setBusy(true)
+    setBusyLabel(' 刷新全部剧情线进度中…')
+    setError('')
+    try {
+      const result = await api.plotlines({ op: 'refresh' })
+      setProject(prev => prev === null ? prev : { ...prev, plotlines: result.plotlines, updatedAt: new Date().toISOString() })
+      // 后端会把「未返回进度」的线如实报上来——静默留空会让人以为刷新过了但没变化。
+      if (result.error !== undefined && result.error !== '') {
+        pushProgress(`剧情线进度已刷新，但有遗漏：${result.error}`, 'error')
+      } else {
+        pushProgress(`已刷新 ${(result.plotlines ?? []).length} 条剧情线的进度`, 'done')
+      }
+    } catch (err) {
+      setError((err as Error).message)
+      pushProgress(`刷新全部剧情线失败：${(err as Error).message}`, 'error')
     } finally {
       setBusy(false)
       setBusyLabel('')
@@ -4244,6 +4268,15 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                   title="AI 根据大纲/卷计划/已写章节/编年录，提炼候选剧情线"
                 >
                    建议剧情线
+                </button>
+                <button
+                  type="button"
+                  className={`${css.button} ${css.buttonSmall}`}
+                  disabled={busy || (project?.plotlines ?? []).length === 0}
+                  onClick={() => { void handlePlotlineRefreshAll() }}
+                  title="一次 AI 调用刷新全部剧情线进度（原先需逐条点击，每次都要重发同一份章节摘要）"
+                >
+                   全部刷新进度
                 </button>
                 {plotlineDraft === null && (
                   <button
