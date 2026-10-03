@@ -1192,10 +1192,23 @@ const STYLE_BASELINE_MIN_CHAPTERS = 3
  * @param bodyText - 本章正文（已剥标题）。
  * @returns 可注入审稿 prompt 的文本；没有可用参照时为空串。
  */
-function styleFidelityBlock(project: ProjectState, bodyText: string, outputDir?: string): string {
-  // 优先：本书**已过审章节的中位数**当参照。
-  // 单一样本的噪声会整个混进比对（样本碰巧长什么样，后面所有章都在跟它比），
-  // 多章中位数对离群值不敏感，是目前最稳的「本书风格基线」。
+/** 风格基线：参照指纹 + 人话说明。 */
+export interface StyleBaseline {
+  fingerprint: StyleFingerprint
+  /** 供提示词与 UI 显示的来源说明。 */
+  label: string
+}
+
+/**
+ * 解析本书的风格基线 —— **审稿与漂移曲线共用这一份**，保证两条路同源。
+ *
+ * 优先用本书**已过审章节的中位数**：单一样本的噪声会整个混进比对（样本碰巧长什么样，
+ * 后面所有章都在跟它比），多章中位数对离群值不敏感。不足 3 章时退回单一样本。
+ * @param outputDir - 书目录；缺省时只能用写法样本。
+ * @param project - 当前书项目状态。
+ * @returns 基线；既无已过审章节也无带样本文本的写法资产时返回 undefined。
+ */
+export function styleBaseline(outputDir: string | undefined, project: ProjectState): StyleBaseline | undefined {
   if (outputDir !== undefined) {
     const approved = project.chapters.filter(c => c.status === 'approved' && c.file !== '')
     if (approved.length >= STYLE_BASELINE_MIN_CHAPTERS) {
@@ -1210,12 +1223,7 @@ function styleFidelityBlock(project: ProjectState, bodyText: string, outputDir?:
         if (fp.sentences > 0) samples.push(fp)
       }
       if (samples.length >= STYLE_BASELINE_MIN_CHAPTERS) {
-        const reference = mergeFingerprints(samples)
-        const actual = extractStyleFingerprint(bodyText)
-        return renderFingerprintComparison(
-          reference, actual, compareStyleFingerprint(reference, actual),
-          '本书已过审 ' + samples.length + ' 章的中位数',
-        )
+        return { fingerprint: mergeFingerprints(samples), label: '本书已过审 ' + samples.length + ' 章的中位数' }
       }
     }
   }
@@ -1223,12 +1231,20 @@ function styleFidelityBlock(project: ProjectState, bodyText: string, outputDir?:
   for (const style of project.assets?.styleAssets ?? []) {
     const sample = style.sourceText
     if (sample === undefined || sample === '') continue
-    const reference = extractStyleFingerprint(sample)
-    if (reference.sentences === 0) continue
-    const actual = extractStyleFingerprint(bodyText)
-    return renderFingerprintComparison(reference, actual, compareStyleFingerprint(reference, actual))
+    const fingerprint = extractStyleFingerprint(sample)
+    if (fingerprint.sentences === 0) continue
+    return { fingerprint, label: '绑定写法资产的样本文本' }
   }
-  return ''
+  return undefined
+}
+
+function styleFidelityBlock(project: ProjectState, bodyText: string, outputDir?: string): string {
+  const baseline = styleBaseline(outputDir, project)
+  if (baseline === undefined) return ''
+  const actual = extractStyleFingerprint(bodyText)
+  return renderFingerprintComparison(
+    baseline.fingerprint, actual, compareStyleFingerprint(baseline.fingerprint, actual), baseline.label,
+  )
 }
 
 /** Run the AI review on one chapter. */

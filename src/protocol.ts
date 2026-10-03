@@ -34,6 +34,7 @@ export const NOVEL_API = {
   revisionPlan: '/api/dsh-novel-forge/revision/plan',
   /** 张力曲线（GET 数据 / POST 设置）。 */
   tension: '/api/dsh-novel-forge/tension',
+  styleHistory: '/api/dsh-novel-forge/style-history',
   /** 提示词槽位（GET 列表 / POST 写入）。 */
   promptSlots: '/api/dsh-novel-forge/prompt-slots',
   /** 故事时间线（GET 列表 / POST 操作）。 */
@@ -2095,6 +2096,34 @@ export interface PlotBeatTemplate {
   taboos: string[]
   /** 适用题材。 */
   applicableGenres: string[]
+}
+
+/** 风格漂移曲线上的一个点（一章）。 */
+export interface StyleHistoryPoint {
+  no: number
+  title: string
+  /** 该章指纹是否可用（过短的章没有统计意义） */
+  measured: boolean
+  avgSentenceLength: number
+  shortSentenceRatio: number
+  dialogueRatio: number
+  avgParagraphLength: number
+  /** 超出容忍度的指标（指标 key + 方向箭头，如 avgSentenceLength↑；中文名由前端映射） */
+  significant: string[]
+}
+
+/** 风格漂移曲线：逐章指标 + 参照基线。 */
+export interface StyleHistoryResponse {
+  /** 基线说明，如「本书已过审 12 章的中位数」 */
+  baselineLabel: string
+  /** 基线的四项关键指标（供图上画参考线）；无基线时为 null */
+  baseline: {
+    avgSentenceLength: number
+    shortSentenceRatio: number
+    dialogueRatio: number
+    avgParagraphLength: number
+  } | null
+  points: StyleHistoryPoint[]
 }
 
 /** 写法引擎：从样本文本提取的叙事风格资产。 */

@@ -139,6 +139,8 @@ import {
   type IdeaInspirationRequest,
   type DirectorRequest,
   type DirectorTodo,
+  type StyleHistoryPoint,
+  type StyleHistoryResponse,
 } from './protocol.ts'
 import { readOutlineFromDocx } from './docx.ts'
 import { clearAssistantHistory, loadAssistantHistory, runAssistantTurn } from './assistant.ts'
@@ -147,6 +149,7 @@ import { copyDirContents, listDirContents, normalizeDir, removeDir } from './mig
 import { loadAuthorAssets, upsertAuthorAsset, removeAuthorAsset, importDefaultAuthorAssets } from './author-assets.ts'
 import { BUILTIN_ANTI_AI_RULES, BUILTIN_GENRE_LIBRARY, BUILTIN_PLOT_BEATS, BUILTIN_PROGRESSION_MODES, BUILTIN_STARTER_STYLE_PROFILES, BUILTIN_STYLE_TEMPLATES, emptyProjectAssets, ensureBuiltinAssets } from './assets.ts'
 import { scanAiFlavor } from './ai-scan.ts'
+import { compareStyleFingerprint, extractStyleFingerprint } from './style-fingerprint.ts'
 import { emitLive, livePrompt, liveUsage, nextSessionId, resetLiveUsage, subscribeLiveFeed } from './llm-live.ts'
 import { scanMarketRanking } from './market-radar-scan.ts'
 import { addGlobalGenre, addGlobalMode, globalGenreLibrary, globalProgressionLibrary } from './global-assets.ts'
@@ -181,6 +184,7 @@ import {
   planVolumes,
   polishChapterStream,
   readChapterFile,
+  styleBaseline,
   refreshCharacters,
   refreshPlotlineProgress,
   refreshLinesFor,
@@ -1383,6 +1387,63 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
       }
       const scan = scanAiFlavor(text.slice(0, 20000))
       writeJson(res, 200, { scan })
+    },
+  }
+
+  // ------------------------------------------------------- style-history
+  /**
+   * 风格漂移曲线：逐章风格指标 + 参照基线。
+   *
+   * 数据**即时算、不落盘**：语料就是章节文件本身，存一份快照只会带来陈旧问题。
+   * 基线与审稿同源（styleBaseline），所以图上看到的就是审稿时判偏离用的那把尺子。
+   */
+  const styleHistoryRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.styleHistory,
+    handler: (req, res) => {
+      if (!guard(req, res, 'GET')) return
+      const config = getConfig()
+      const qurl = new URL(req.url ?? '/', 'http://localhost')
+      const outputDir = resolveOutputDir(config, qurl.searchParams.get('bookId') ?? undefined)
+      const project = loadProject(outputDir)
+      if (project === undefined) {
+        writeJson(res, 200, { baselineLabel: '', baseline: null, points: [] } satisfies StyleHistoryResponse)
+        return
+      }
+      const baseline = styleBaseline(outputDir, project)
+      const points: StyleHistoryPoint[] = []
+      for (const chapter of project.chapters) {
+        if (chapter.file === undefined || chapter.file === '') continue
+        const raw = readChapterFile(outputDir, chapter)
+        if (raw === undefined) continue
+        const fingerprint = extractStyleFingerprint(stripChapterHeadings(raw))
+        const measured = fingerprint.sentences > 0
+        points.push({
+          no: chapter.no,
+          title: chapter.title,
+          measured,
+          avgSentenceLength: fingerprint.avgSentenceLength,
+          shortSentenceRatio: fingerprint.shortSentenceRatio,
+          dialogueRatio: fingerprint.dialogueRatio,
+          avgParagraphLength: fingerprint.avgParagraphLength,
+          significant: baseline !== undefined && measured
+            ? compareStyleFingerprint(baseline.fingerprint, fingerprint)
+                .filter(d => d.significant)
+                .map(d => d.metric + (d.direction === 'higher' ? '↑' : '↓'))
+            : [],
+        })
+      }
+      const response: StyleHistoryResponse = {
+        baselineLabel: baseline?.label ?? '',
+        baseline: baseline === undefined ? null : {
+          avgSentenceLength: baseline.fingerprint.avgSentenceLength,
+          shortSentenceRatio: baseline.fingerprint.shortSentenceRatio,
+          dialogueRatio: baseline.fingerprint.dialogueRatio,
+          avgParagraphLength: baseline.fingerprint.avgParagraphLength,
+        },
+        points,
+      }
+      writeJson(res, 200, response)
     },
   }
 
@@ -3760,6 +3821,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     bookshelfImportDirRoute,
     bookshelfImportTextRoute,
     bookshelfImportTextPreviewRoute,
+    styleHistoryRoute,
     resetRoute,
     auditRoute,
     charactersRefreshRoute,

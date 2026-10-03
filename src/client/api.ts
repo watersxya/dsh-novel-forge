@@ -594,6 +594,12 @@ export class NovelApi {
     return readJson<import('../protocol.ts').TensionResponse>(response)
   }
 
+  /** 风格漂移曲线：逐章指标 + 参照基线（与审稿同源）。 */
+  async styleHistory(): Promise<import('../protocol.ts').StyleHistoryResponse> {
+    const response = await fetch(withBookId(NOVEL_API.styleHistory))
+    return readJson<import('../protocol.ts').StyleHistoryResponse>(response)
+  }
+
   /** 设置张力曲线预设。 */
   async tensionPreset(preset: import('../protocol.ts').TensionCurvePreset): Promise<void> {
     await postJson(NOVEL_API.tension, { op: 'preset', preset })

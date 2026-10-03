@@ -594,7 +594,11 @@ export const BUILTIN_ANTI_AI_RULES: AntiAiRule[] = [
     name: '句式重复率偏高',
     avoid: '连续使用同构句式（「首先…然后…接着…最后…」），读起来机械。',
     fix: '拉开句长与起句方式，打散结构。',
-    detectPatterns: ['首先', '然后', '接着', '最后'],
+    // 只留「首先」。实测「然后」覆盖 70.1%、「最后」覆盖 72.3% 的已发布章节 —— 它们是中文
+    // 叙事的正常连接词，**单独出现毫无证据力**：不设限时这条规则会在 94.4% 的章上误报，
+    // 等于每章都告诉模型「你违反了这条规则」。「首先」覆盖率 0.000，才是机械序列可信的标记。
+    // 而「比率偏高」这一面本来就由扫描器的 sentenceRepetitionRate 度量，不该靠词表。
+    detectPatterns: ['首先'],
     builtin: true,
     key: 'risk-repeated-sentence-structure',
     severity: 'forbidden',
