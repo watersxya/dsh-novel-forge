@@ -5,9 +5,10 @@
  * review streams land in the progress console.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, ReactElement, ReactNode } from 'react'
 import type { NovelApi } from '../api.ts'
 import { setCurrentBook } from '../api.ts'
+import { parseMarkdown, stripInline, type InlineSpan, type MdBlock, type MdListItem } from './outline-markdown.ts'
 import type { PanelController } from './controller.ts'
 import { tt } from './helpers.ts'
 import { ReasoningSection } from './ReasoningSection.tsx'
@@ -5535,89 +5536,105 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
 
 /* ------------------------------------------------------------------ *
  * 总纲（overview）只读阅读区：把大纲文本结构化渲染为稿纸文档。
- * 轻量解析 #/##/###/#### 标题、--- 分隔、空行分段；自动生成卷折叠 + 目录锚点。
- * 不依赖第三方 markdown 库。
+ * 解析交给 outline-markdown.ts（零依赖纯函数，可离线单测）；
+ * 这里只负责把解析结果映射成 React 元素 + 卷折叠 + 目录锚点跳转。
  * ------------------------------------------------------------------ */
-type OutlineBlock =
-  | { type: 'h'; level: number; text: string; id: string }
-  | { type: 'p'; text: string; id: string }
-  | { type: 'hr'; text: string; id: string }
-type OutlineTocItem = { level: number; text: string; id: string }
-
 const H_CLASS: Record<number, string> = { 1: css.outlineH1, 2: css.outlineH2, 3: css.outlineH3, 4: css.outlineH4 }
 const TOC_CLASS: Record<number, string> = { 1: css.outlineTocL1, 2: css.outlineTocL2, 3: css.outlineTocL3 }
 
-function parseOutline(text: string): { blocks: OutlineBlock[]; toc: OutlineTocItem[]; volumeCount: number } {
-  const lines = text.split(/\r?\n/)
-  const blocks: OutlineBlock[] = []
-  const toc: OutlineTocItem[] = []
-  let buf: string[] = []
-  let idx = 0
-  const slug = (s: string) => 'ol-' + (idx++) + '-' + s.replace(/[^\w一-龥]/g, '').slice(0, 18)
-  const flush = () => {
-    if (buf.length === 0) return
-    const t = buf.join('\n').trim()
-    buf = []
-    if (t) { const id = slug(t); blocks.push({ type: 'p', text: t, id }) }
-  }
-  for (const raw of lines) {
-    const line = raw.replace(/\s+$/, '')
-    const h = /^(#{1,4})\s+(.*\S)\s*$/.exec(line)
-    const hr = /^(?:---|\*\*\*|___)\s*$/.test(line)
-    if (hr) { flush(); blocks.push({ type: 'hr', text: '', id: slug('hr') }); continue }
-    if (h) {
-      flush()
-      const level = h[1].length
-      const t = h[2].trim()
-      const id = slug(t)
-      blocks.push({ type: 'h', level, text: t, id })
-      if (level <= 3) toc.push({ level, text: t, id })
-      continue
-    }
-    if (line.trim() === '') { flush(); continue }
-    buf.push(line)
-  }
-  flush()
-  let volumeCount = 0
-  for (const b of blocks) {
-    if (b.type === 'h' && (b.level ?? 4) <= 2 && /卷/.test(b.text)) volumeCount++
-  }
-  return { blocks, toc, volumeCount }
+/** 把行内片段渲染成元素序列（不用 dangerouslySetInnerHTML）。 */
+function renderSpans(spans: InlineSpan[]): ReactNode[] {
+  return spans.map((s, i) => {
+    if (s.kind === 'strong') return <strong key={i}>{s.text}</strong>
+    if (s.kind === 'em') return <em key={i}>{s.text}</em>
+    if (s.kind === 'code') return <code key={i} className={css.outlineCode}>{s.text}</code>
+    return <span key={i}>{s.text}</span>
+  })
 }
 
-function renderHeading(b: Extract<OutlineBlock, { type: 'h' }>): ReactElement {
-  const cls = `${css.outlineH} ${H_CLASS[b.level] ?? css.outlineH4}`
-  if (b.level === 1) return <h1 key={b.id} id={b.id} className={cls}>{b.text}</h1>
-  if (b.level === 2) return <h2 key={b.id} id={b.id} className={cls}>{b.text}</h2>
-  if (b.level === 3) return <h3 key={b.id} id={b.id} className={cls}>{b.text}</h3>
-  return <h4 key={b.id} id={b.id} className={cls}>{b.text}</h4>
+/** 列表项（含一层嵌套子项）。 */
+function renderListItem(item: MdListItem): ReactElement {
+  return (
+    <li key={stripInline(item.spans.map(s => s.text).join(''))} className={css.outlineLi}>
+      {renderSpans(item.spans)}
+      {item.children.length > 0 && (
+        <ul className={css.outlineList}>{item.children.map(c => renderListItem(c))}</ul>
+      )}
+    </li>
+  )
+}
+
+function renderMdBlock(b: MdBlock): ReactElement {
+  switch (b.type) {
+    case 'heading': {
+      const cls = `${css.outlineH} ${H_CLASS[b.level] ?? css.outlineH4}`
+      const inner = renderSpans(b.spans)
+      if (b.level === 1) return <h1 key={b.id} id={b.id} className={cls}>{inner}</h1>
+      if (b.level === 2) return <h2 key={b.id} id={b.id} className={cls}>{inner}</h2>
+      if (b.level === 3) return <h3 key={b.id} id={b.id} className={cls}>{inner}</h3>
+      return <h4 key={b.id} id={b.id} className={cls}>{inner}</h4>
+    }
+    case 'list':
+      return (
+        b.ordered
+          ? <ol key={b.id} id={b.id} className={css.outlineList}>{b.items.map(renderListItem)}</ol>
+          : <ul key={b.id} id={b.id} className={css.outlineList}>{b.items.map(renderListItem)}</ul>
+      )
+    case 'quote':
+      return <blockquote key={b.id} id={b.id} className={css.outlineQuote}>{renderSpans(b.spans)}</blockquote>
+    case 'code':
+      return (
+        <pre key={b.id} id={b.id} className={css.outlineCodeBlock}>
+          {b.lang !== '' && <span className={css.outlineCodeLang}>{b.lang}</span>}
+          <code>{b.text}</code>
+        </pre>
+      )
+    case 'table':
+      return (
+        <div key={b.id} id={b.id} className={css.outlineTableWrap}>
+          <table className={css.outlineTable}>
+            <thead>
+              <tr>{b.header.map((h, i) => <th key={i}>{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {b.rows.map((row, ri) => (
+                <tr key={ri}>{b.header.map((_, ci) => <td key={ci}>{row[ci] ?? ''}</td>)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+    case 'hr':
+      return <hr key={b.id} className={css.outlineHr} />
+    case 'para':
+      return <p key={b.id} id={b.id} className={css.outlineP}>{renderSpans(b.spans)}</p>
+  }
 }
 
 function OutlineDocument({ text }: { text: string }): ReactElement {
-  const { blocks, toc, volumeCount } = useMemo(() => parseOutline(text), [text])
+  const { blocks, toc } = useMemo(() => parseMarkdown(text), [text])
+  const volumeCount = useMemo(
+    () => blocks.filter(b => b.type === 'heading' && b.level <= 2 && /卷/.test(stripInline(b.spans.map(s => s.text).join('')))).length,
+    [blocks],
+  )
   const scrollTo = useCallback((id: string) => {
     const el = document.getElementById(id)
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
 
-  const renderBlocks = (list: OutlineBlock[]) =>
-    list.map(b => {
-      if (b.type === 'hr') return <hr key={b.id} className={css.outlineHr} />
-      if (b.type === 'h') return renderHeading(b)
-      return <p key={b.id} id={b.id} className={css.outlineP}>{b.text}</p>
-    })
-
-  // 按卷分组：level<=2 且含“卷”的标题作为卷起点，其余归入当前卷
-  type Volume = { title: string; id: string; blocks: OutlineBlock[] }
+  // 按卷分组：level<=2 且含「卷」的标题作为卷起点，其余归入当前卷
+  type Volume = { title: string; id: string; blocks: MdBlock[] }
   const volumes: Volume[] = []
-  let cur: Volume | null = null
-  for (const b of blocks) {
-    if (b.type === 'h' && (b.level ?? 4) <= 2 && /卷/.test(b.text)) {
-      cur = { title: b.text, id: b.id, blocks: [] }
-      volumes.push(cur)
-    } else {
-      if (cur === null) { cur = { title: '', id: '', blocks: [] }; volumes.push(cur) }
-      cur.blocks.push(b)
+  {
+    let cur: Volume | null = null
+    for (const b of blocks) {
+      if (b.type === 'heading' && b.level <= 2 && /卷/.test(stripInline(b.spans.map(s => s.text).join('')))) {
+        cur = { title: stripInline(b.spans.map(s => s.text).join('')), id: b.id, blocks: [] }
+        volumes.push(cur)
+      } else {
+        if (cur === null) { cur = { title: '', id: '', blocks: [] }; volumes.push(cur) }
+        cur.blocks.push(b)
+      }
     }
   }
 
@@ -5635,12 +5652,12 @@ function OutlineDocument({ text }: { text: string }): ReactElement {
         </nav>
       )}
       {volumes.length <= 1 ? (
-        <article className={css.outlineDoc}>{renderBlocks(blocks)}</article>
+        <article className={css.outlineDoc}>{blocks.map(renderMdBlock)}</article>
       ) : (
         volumes.map((v, i) => (
           <details key={v.id || 'vol' + i} className={css.outlineVol} open>
             {v.title && <summary className={css.outlineVolSummary} id={v.id}>{v.title}</summary>}
-            <article className={css.outlineDoc}>{renderBlocks(v.blocks)}</article>
+            <article className={css.outlineDoc}>{v.blocks.map(renderMdBlock)}</article>
           </details>
         ))
       )}
