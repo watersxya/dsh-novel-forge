@@ -35,7 +35,7 @@ import { createUserMessage, BlockAssembler, ReasoningEffortId, type GenerateOpti
 import type { Context } from '@deepseek-ai/cordis'
 import { BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, effectiveAntiAiRules, emptyProjectAssets, recommendStylePreset, renderAllAssets, styleEngineSystemPrompt, styleFormulaSystemPrompt } from './assets.ts'
 import { scanAiFlavor } from './ai-scan.ts'
-import { compareStyleFingerprint, extractStyleFingerprint, renderFingerprintComparison } from './style-fingerprint.ts'
+import { compareStyleFingerprint, extractStyleFingerprint, mergeFingerprints, renderFingerprintComparison, type StyleFingerprint } from './style-fingerprint.ts'
 import { beginLiveCall, endLiveCall, markFirstToken } from './llm-live.ts'
 import { withModelFallback } from './llm-retry.ts'
 import { streamWithFallback } from './stream-fallback.ts'
@@ -1174,7 +1174,17 @@ function reviewSystemPrompt(project: ProjectState): string {
 }
 
 /**
- * 风格符合度事实块：拿本章指标与**绑定写法样本**的指标对照。
+ * 风格基线的取样上限与取法。
+ *
+ * **等距抽样，不取最近 N 章**：实测「最近 12 章」在《还债疯了》上把段落均长的误报从 33
+ * 抬到 98 —— 最近那一卷的行文与全书不同时，中位数就不代表全书。等距抽样覆盖整本。
+ */
+const STYLE_BASELINE_CHAPTERS = 12
+/** 低于此章数时中位数没有代表性，退回单一样本参照。 */
+const STYLE_BASELINE_MIN_CHAPTERS = 3
+
+/**
+ * 风格符合度事实块：拿本章指标与**本书已过审章节的中位数**（或绑定写法样本）对照。
  *
  * 取第一个带 sourceText 的写法资产做参照（提取时 routes.ts 会存下样本前 3000 字）。
  * 样本过短（指标无统计意义）时返回空串——宁可不给，也不给噪声。
@@ -1182,7 +1192,34 @@ function reviewSystemPrompt(project: ProjectState): string {
  * @param bodyText - 本章正文（已剥标题）。
  * @returns 可注入审稿 prompt 的文本；没有可用参照时为空串。
  */
-function styleFidelityBlock(project: ProjectState, bodyText: string): string {
+function styleFidelityBlock(project: ProjectState, bodyText: string, outputDir?: string): string {
+  // 优先：本书**已过审章节的中位数**当参照。
+  // 单一样本的噪声会整个混进比对（样本碰巧长什么样，后面所有章都在跟它比），
+  // 多章中位数对离群值不敏感，是目前最稳的「本书风格基线」。
+  if (outputDir !== undefined) {
+    const approved = project.chapters.filter(c => c.status === 'approved' && c.file !== '')
+    if (approved.length >= STYLE_BASELINE_MIN_CHAPTERS) {
+      // 等距抽样覆盖整本（见 STYLE_BASELINE_CHAPTERS 的说明）。
+      const step = Math.max(1, Math.floor(approved.length / STYLE_BASELINE_CHAPTERS))
+      const picked = approved.filter((_, index) => index % step === 0).slice(0, STYLE_BASELINE_CHAPTERS)
+      const samples: StyleFingerprint[] = []
+      for (const chapter of picked) {
+        const raw = readChapterFile(outputDir, chapter)
+        if (raw === undefined) continue
+        const fp = extractStyleFingerprint(stripChapterHeadings(raw))
+        if (fp.sentences > 0) samples.push(fp)
+      }
+      if (samples.length >= STYLE_BASELINE_MIN_CHAPTERS) {
+        const reference = mergeFingerprints(samples)
+        const actual = extractStyleFingerprint(bodyText)
+        return renderFingerprintComparison(
+          reference, actual, compareStyleFingerprint(reference, actual),
+          '本书已过审 ' + samples.length + ' 章的中位数',
+        )
+      }
+    }
+  }
+  // 兜底：绑定写法资产的样本文本。
   for (const style of project.assets?.styleAssets ?? []) {
     const sample = style.sourceText
     if (sample === undefined || sample === '') continue
@@ -1212,7 +1249,7 @@ export async function reviewChapter(
   // 审稿时直接引用事实，不必让模型逐条复核规则清单。
   const aiScan = scanAiFlavor(bodyText, effectiveAntiAiRules(project.assets))
   // 风格符合度：本章指标 vs 绑定写法样本的指标（确定性事实）
-  const styleBlock = styleFidelityBlock(project, bodyText)
+  const styleBlock = styleFidelityBlock(project, bodyText, outputDir)
   // 跨章上下文：上一章结尾 + 最近/相关事实 + 活跃剧情线/伏笔（审稿不再只看本章内部）
   const chapterCtx = buildChapterContext(project, chapter, outputDir, { stage: 'review' })
   const blocks = renderContextBlocks(chapterCtx)

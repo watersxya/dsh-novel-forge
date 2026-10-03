@@ -19,6 +19,7 @@ import { describe, it, expect } from 'vitest'
 import {
   compareStyleFingerprint,
   extractStyleFingerprint,
+  mergeFingerprints,
   renderFingerprintComparison,
   renderFingerprintTargets,
 } from '../src/style-fingerprint.ts'
@@ -170,5 +171,39 @@ describe('目标区间：不能写出荒谬的边界', () => {
 
   it('绝对阈值型指标参照为 0 时不出这一行（否则会得到「0.00–0.00」）', () => {
     expect(renderFingerprintTargets(extractStyleFingerprint(makeText(30, 20)))).not.toContain('意象密度')
+  })
+})
+
+describe('多章合并：用本书已过审章节的中位数当基线', () => {
+  it('逐指标取中位数', () => {
+    const merged = mergeFingerprints([
+      extractStyleFingerprint(makeText(30, 10)),
+      extractStyleFingerprint(makeText(30, 20)),
+      extractStyleFingerprint(makeText(30, 30)),
+    ])
+    expect(merged.avgSentenceLength).toBe(20)
+    expect(merged.sentences).toBe(90)
+  })
+
+  it('离群章不拉偏中位数（同样输入若取平均值会变成 68）', () => {
+    const normal = [10, 20, 20, 20].map(n => extractStyleFingerprint(makeText(30, n)))
+    const outlier = extractStyleFingerprint(makeText(30, 300))
+    expect(mergeFingerprints([...normal, outlier]).avgSentenceLength).toBe(20)
+  })
+
+  it('过短的指纹被剔除，不参与合并', () => {
+    const merged = mergeFingerprints([extractStyleFingerprint(makeText(30, 20)), extractStyleFingerprint('太短。')])
+    expect(merged.sentences).toBe(30)
+  })
+
+  it('没有可用输入时返回零值指纹（不抛错）', () => {
+    expect(mergeFingerprints([extractStyleFingerprint('短。')]).sentences).toBe(0)
+  })
+
+  it('参照说明可自定义（中位数基线 vs 单一样本）', () => {
+    const ref = extractStyleFingerprint(makeText(30, 20))
+    const actual = extractStyleFingerprint(makeText(30, 40))
+    const text = renderFingerprintComparison(ref, actual, compareStyleFingerprint(ref, actual), '本书已过审 12 章的中位数')
+    expect(text).toContain('本书已过审 12 章的中位数')
   })
 })

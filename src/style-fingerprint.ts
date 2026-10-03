@@ -97,7 +97,26 @@ const TOLERANCE: Readonly<Record<StyleMetricKey, number>> = {
  * 意象密度必须走这条：实测同一本书内**多数章节根本没有意象标记词**，相对偏差恒为
  * -100%，完全退化；而绝对差 p90 = 1.39 次/千字是有区分度的。
  */
-const ABSOLUTE_ONLY: ReadonlySet<StyleMetricKey> = new Set<StyleMetricKey>(['imageryPer1000'])
+const TARGET_ABSOLUTE_ONLY: ReadonlySet<StyleMetricKey> = new Set<StyleMetricKey>(['imageryPer1000'])
+
+/**
+ * 判定用的**绝对下限**（单位同指标；0 = 不用下限，只看相对偏差）。
+ *
+ * 为什么需要它：参照值接近 0 时相对容忍度会退化。实测《归墟玉主》——中位数基线的对话
+ * 占比约 0.5%，于是一章写到 3% 就是「+500%」，误报从 115 章涨到 175 章；而 2.5 个百分
+ * 点在创作上毫无意义。**参照值可能接近 0 的指标**（两个比率 + 意象密度）必须叠加绝对下限。
+ *
+ * 取值 = 实测（1279 章）各指标绝对偏差的 p90：短句占比 0.198、对话占比 0.164、意象密度 1.39。
+ * 句均长 / 段落均长 / 句长起伏的参照值结构性不可能接近 0，保持纯相对判定。
+ */
+const DEVIATION_FLOOR: Readonly<Record<StyleMetricKey, number>> = {
+  avgSentenceLength: 0,
+  sentenceLengthCv: 0,
+  shortSentenceRatio: 0.198,
+  dialogueRatio: 0.164,
+  avgParagraphLength: 0,
+  imageryPer1000: 1.39,
+}
 
 /** 指标中文名（提示词里直接用）。 */
 const LABEL: Readonly<Record<StyleMetricKey, string>> = {
@@ -214,13 +233,55 @@ export function compareStyleFingerprint(reference: StyleFingerprint, actual: Sty
       actual: act,
       relative: round(relative, 3),
       direction: relative >= 0 ? 'higher' : 'lower',
-      // 稀疏指标（意象密度）用绝对阈值：相对偏差在参照值接近 0 时退化。
-      significant: ABSOLUTE_ONLY.has(metric)
-        ? Math.abs(act - ref) > TOLERANCE[metric]
-        : Math.abs(relative) > TOLERANCE[metric],
+      // 相对与绝对取较宽者：参照值接近 0 的指标（见 DEVIATION_FLOOR）靠绝对下限兜住。
+      significant: Math.abs(act - ref) > Math.max(TOLERANCE[metric] * ref, DEVIATION_FLOOR[metric]),
     })
   }
   return out
+}
+
+/** 取中位数。
+ * @param values - 数值数组。
+ * @returns 中位数；空数组返回 0。
+ */
+function median(values: number[]): number {
+  if (values.length === 0) return 0
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+}
+
+/** 指标的小数位数（与 extractStyleFingerprint 的取整保持一致）。 */
+function digitsOf(metric: StyleMetricKey): number {
+  if (metric === 'sentenceLengthCv' || metric === 'imageryPer1000') return 2
+  if (metric === 'shortSentenceRatio' || metric === 'dialogueRatio') return 3
+  return 1
+}
+
+/**
+ * 合并多份指纹：逐指标取**中位数**。
+ *
+ * 为什么是中位数而不是平均值：单章指标会被极端章拉偏（一个通篇无对话的章能把平均对话
+ * 占比拽下去），中位数对离群值不敏感。这也正是「用本书已过审章节当中位数基线」比
+ * 「用单一样本」更稳的原因 —— 样本自身长什么样会整个混进参照里。
+ * @param items - 多章指纹（过短的会被剔除，见 sentences === 0）。
+ * @returns 合并后的参照指纹；没有可用输入时返回零值指纹。
+ */
+export function mergeFingerprints(items: readonly StyleFingerprint[]): StyleFingerprint {
+  const usable = items.filter(fp => fp.sentences > 0)
+  if (usable.length === 0) return emptyFingerprint(0)
+  if (usable.length === 1) return usable[0]
+  const pick = (metric: StyleMetricKey): number => round(median(usable.map(fp => fp[metric])), digitsOf(metric))
+  return {
+    chars: usable.reduce((sum, fp) => sum + fp.chars, 0),
+    sentences: usable.reduce((sum, fp) => sum + fp.sentences, 0),
+    avgSentenceLength: pick('avgSentenceLength'),
+    sentenceLengthCv: pick('sentenceLengthCv'),
+    shortSentenceRatio: pick('shortSentenceRatio'),
+    dialogueRatio: pick('dialogueRatio'),
+    avgParagraphLength: pick('avgParagraphLength'),
+    imageryPer1000: pick('imageryPer1000'),
+  }
 }
 
 /** 按指标类型格式化数值（比率型用百分比）。 */
@@ -241,7 +302,7 @@ export function renderFingerprintTargets(reference: StyleFingerprint): string {
   const add = (metric: StyleMetricKey, suffix: string): void => {
     const value = reference[metric]
     const tolerance = TOLERANCE[metric]
-    if (ABSOLUTE_ONLY.has(metric)) {
+    if (TARGET_ABSOLUTE_ONLY.has(metric)) {
       // 绝对阈值型：参照为 0 时给不出有意义的带宽，直接不出这一行。
       if (value <= 0) return
       items.push('- ' + LABEL[metric] + '：0–' + formatMetric(metric, value + tolerance) + suffix)
@@ -281,11 +342,12 @@ export function renderFingerprintComparison(
   reference: StyleFingerprint,
   actual: StyleFingerprint,
   deviations: StyleDeviation[],
+  sourceLabel?: string,
 ): string {
   if (reference.chars < MIN_CHARS || actual.sentences === 0) return ''
   const lines = [
     '==================== 风格指纹比对（确定性事实） ====================',
-    '参照物：绑定写法资产的样本文本（' + reference.chars + ' 字）；本章正文 ' + actual.chars + ' 字。',
+    '参照物：' + (sourceLabel ?? '绑定写法资产的样本文本') + '（' + reference.chars + ' 字）；本章正文 ' + actual.chars + ' 字。',
   ]
   const significant = deviations.filter(d => d.significant)
   if (significant.length === 0) {
