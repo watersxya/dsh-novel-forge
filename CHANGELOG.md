@@ -63,7 +63,7 @@
 
 ### 已知限制
 
-7 个测试文件在收集阶段失败（`apply-config` / `assistant-prompt` / `home` / `model-capability` / `revision-route` / `run-recovery` / `status-route`）。原因是它们顶层 import `engine.ts`，而插件本地 `node_modules/@deepseek-ai/` 下只有 `dsh-web-app`、缺 `dsh-llm` / `cordis`。属**环境问题而非代码缺陷**，不影响发布产物的运行；修法见 `修复.md`。
+7 个测试文件在收集阶段失败（`apply-config` / `assistant-prompt` / `home` / `model-capability` / `revision-route` / `run-recovery` / `status-route`）。原因是它们顶层 import `engine.ts`，而插件本地 `node_modules/@deepseek-ai/` 下只有 `dsh-web-app`、缺 `dsh-llm` / `cordis`。属**环境问题而非代码缺陷**，不影响发布产物的运行。（后续已解决：在 profile 补装 `dsh-llm` / `cordis` 等宿主包后，这 7 个文件正常收集，全量 377 用例通过。）
 
 ## [2.0.0] - 2026-09-30
 
