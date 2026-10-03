@@ -156,3 +156,73 @@ describe('健壮性', () => {
     expect(typeof r.paragraphLengthCv).toBe('number')
   })
 })
+
+describe('规则命中：把「让 LLM 逐条核对」换成确定的事实', () => {
+  const rules = [
+    { name: '不许直接解说心理', severity: 'forbidden' as const, detectPatterns: ['他感到', '她感到'] },
+    { name: '不许滥用套话', severity: 'risk' as const, detectPatterns: ['微微', '轻轻'] },
+    { name: '本章不该命中的规则', severity: 'risk' as const, detectPatterns: ['生活就是'] },
+  ]
+
+  it('按规则逐条给出命中模式与次数', () => {
+    const r = scanAiFlavor('他感到冷。她感到热。他感到累。', rules)
+    expect(r.ruleHits).toHaveLength(1)
+    expect(r.ruleHits[0].name).toBe('不许直接解说心理')
+    expect(r.ruleHits[0].severity).toBe('forbidden')
+    expect(r.ruleHits[0].matches).toEqual([{ pattern: '他感到', count: 2 }, { pattern: '她感到', count: 1 }])
+  })
+
+  it('未命中的规则不出现在结果里（否则模型会把没命中的读成命中）', () => {
+    const r = scanAiFlavor('他感到冷。', rules)
+    expect(r.ruleHits.map(h => h.name)).not.toContain('本章不该命中的规则')
+  })
+
+  it('不传规则时 ruleHits 为空，但度量照常（度量与规则刻意解耦）', () => {
+    const withRules = scanAiFlavor('微微，他轻轻地说。', rules)
+    const without = scanAiFlavor('微微，他轻轻地说。')
+    expect(without.ruleHits).toEqual([])
+    expect(without.aiScore).toBe(withRules.aiScore)
+  })
+
+  it('命中写进摘要，作为可注入审稿的事实锚点', () => {
+    const r = scanAiFlavor('他感到冷。', rules)
+    expect(r.summary).toContain('确定性规则命中 1 条')
+    expect(r.summary).toContain('不许直接解说心理')
+  })
+
+  it('规则缺 detectPatterns 时不抛错', () => {
+    expect(scanAiFlavor('正文。', [{ name: '空规则' }]).ruleHits).toEqual([])
+  })
+
+  it('常见连接词不构成证据（否则「句式重复率偏高」会在 94% 的章上误报）', () => {
+    const r = scanAiFlavor('然后他就走了，最后没有回来。', [
+      { name: '句式重复率偏高', detectPatterns: ['首先', '然后', '接着', '最后'] },
+    ])
+    expect(r.ruleHits).toEqual([])
+  })
+
+  it('罕见模式才算命中', () => {
+    const r = scanAiFlavor('生活就是一场修行。', [{ name: '不许段尾拔高', detectPatterns: ['生活就是'] }])
+    expect(r.ruleHits).toHaveLength(1)
+  })
+
+  it('表里没有的自定义模式按「未知 = 可能少见」上报（不因缺少基线而漏报）', () => {
+    const r = scanAiFlavor('他忽然低声说了一句。', [{ name: '作者自定义规则', detectPatterns: ['忽然低声'] }])
+    expect(r.ruleHits).toHaveLength(1)
+  })
+})
+
+describe('模式表：并集口径下的高价值信号', () => {
+  it('结构性升华句（语料覆盖率 0.000）权重为满值', () => {
+    const hit = scanAiFlavor('生活就是一场修行。').clicheHits.find(h => h.word === '生活就是')
+    expect(hit?.weight).toBe(1)
+  })
+
+  it('「然后」「最后」这类连接词权重为 0（覆盖率 70%+，不该算 AI 味）', () => {
+    const r = scanAiFlavor('然后他就走了，最后没有回来。')
+    for (const w of ['然后', '最后']) {
+      expect(r.clicheHits.find(h => h.word === w)?.weight).toBe(0)
+    }
+    expect(r.summary).not.toContain('套话/模板句偏多')
+  })
+})

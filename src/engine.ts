@@ -33,7 +33,7 @@ import { join, basename, extname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createUserMessage, BlockAssembler, ReasoningEffortId, type GenerateOptions, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
-import { BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, emptyProjectAssets, recommendStylePreset, renderAllAssets, styleEngineSystemPrompt, styleFormulaSystemPrompt } from './assets.ts'
+import { BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, effectiveAntiAiRules, emptyProjectAssets, recommendStylePreset, renderAllAssets, styleEngineSystemPrompt, styleFormulaSystemPrompt } from './assets.ts'
 import { scanAiFlavor } from './ai-scan.ts'
 import { beginLiveCall, endLiveCall, markFirstToken } from './llm-live.ts'
 import { withModelFallback } from './llm-retry.ts'
@@ -1138,7 +1138,7 @@ function reviewSystemPrompt(project: ProjectState): string {
     '4. 文笔质量：语病、翻译腔、AI 套话（"不禁""仿佛""一时间"等高频词滥用）、流水账。',
     '5. 节奏与爽点：本章是否有推进、有钩子，是否拖沓灌水。',
     '6. 逻辑漏洞：前后矛盾、时间线错误、对话失真。',
-    '7. 反 AI 规则：逐条核对下方「反 AI 规则」清单——禁止类命中即列为问题，鼓励类只作低优先级建议、不阻塞通过。',
+    '7. 反 AI 规则：下方「本地 AI 味扫描」里已给出**本轮确定性命中的规则与次数**，直接以它为事实依据判级（禁止类命中即列为问题；鼓励类只作低优先级建议、不阻塞通过）。未列出的规则说明本章无确定性命中，不必逐条复述，也不要凭印象补报。',
     '8. 呈现方式：整章是否纯内心推理铺陈（无对话/无对抗，推理全靠解说）；反派是否纯背景板无行动；重要配角是否无名标签化（瘦高个/灰衣人全程代称）——命中即列为问题。',
     '9. 内容合规（最高优先级）：逐条核对下方「内容合规红线」，任何一条命中（含影射、暗示、详细描写）必须列为 high，并给出改写建议。',
     '输出必须是合法 JSON 对象，不要输出任何其他文字：',
@@ -1185,7 +1185,9 @@ export async function reviewChapter(
   if (body === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 的正文文件不存在`)
   const bodyText = stripChapterHeadings(body)
   // 本地 AI 味扫描（事实锚点，让 LLM 复核判断而非逐字统计）
-  const aiScan = scanAiFlavor(bodyText)
+  // 传入作者**生效**的反 AI 规则：扫描器据此给出确定性的规则命中，
+  // 审稿时直接引用事实，不必让模型逐条复核规则清单。
+  const aiScan = scanAiFlavor(bodyText, effectiveAntiAiRules(project.assets))
   // 跨章上下文：上一章结尾 + 最近/相关事实 + 活跃剧情线/伏笔（审稿不再只看本章内部）
   const chapterCtx = buildChapterContext(project, chapter, outputDir, { stage: 'review' })
   const blocks = renderContextBlocks(chapterCtx)
@@ -1261,7 +1263,9 @@ export async function reviewChapterText(
   previousReport?: ReviewReport,
 ): Promise<ReviewReport> {
   const bodyText = text.slice(0, 20000)
-  const aiScan = scanAiFlavor(bodyText)
+  // 传入作者**生效**的反 AI 规则：扫描器据此给出确定性的规则命中，
+  // 审稿时直接引用事实，不必让模型逐条复核规则清单。
+  const aiScan = scanAiFlavor(bodyText, effectiveAntiAiRules(project.assets))
   const user = [
     `书名：《${project.bookName}》`,
     previousReport !== undefined

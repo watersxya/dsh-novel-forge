@@ -21,7 +21,7 @@
  *    语料 CV：p5 0.55 / p50 0.69 / p95 0.87。
  * 4. **套话按稀有度加权**：历史实现把「重度 / 轻度」两档等同计分，而实测「知道」覆盖
  *    78.4% 的已发布章节、「微微」48.2%，「难以言喻」0.0%、「不由得」0.1%。把前者与后者
- *    等同，会让所有正常章节的基线虚高。现按相对语料的覆盖率给权重（见 CLICHE_COVERAGE）。
+ *    等同，会让所有正常章节的基线虚高。现按相对语料的覆盖率给权重（见 PATTERN_COVERAGE）。
  * 5. **短章不再爆炸**：密度分母取 max(字数, 2000) —— 历史实现里同样「1 次套话」，在
  *    444 字的章值 18 分、在 3576 字的章值 2.2 分，同一现象 8 倍权重差。
  *
@@ -49,6 +49,8 @@ export interface AiScanResult {
   shortParagraphCount: number
   /** 对话占比（0-1） */
   dialogueRatio: number
+  /** 作者生效规则里的确定性命中（按规则逐条统计；未传规则时为空） */
+  ruleHits: AiScanRuleHit[]
   /** 各分项得分：便于自查「这章凭什么这么多分」，也是标定与单测的抓手 */
   scoreParts: AiScanScoreParts
   /** 问题摘要，可直接注入审稿提示词 */
@@ -57,7 +59,7 @@ export interface AiScanResult {
 
 /** 评分分项（每项满分与语料分位点的对应见 SCORE_SPEC）。 */
 export interface AiScanScoreParts {
-  /** 套话：满分对应语料加权密度 p99（2.16/千字） */
+  /** 套话/模式：满分对应语料加权密度 p99（2.478/千字，63 模式并集口径） */
   cliche: number
   /** 段落过于整齐（CV 低于语料 p5） */
   uniformParagraphs: number
@@ -69,23 +71,63 @@ export interface AiScanScoreParts {
   lowDialogue: number
 }
 
+/** 扫描器需要的规则输入（结构类型，避免 ai-scan 反向依赖协议层）。 */
+export interface AiScanRuleInput {
+  name: string
+  severity?: 'forbidden' | 'risk' | 'encourage'
+  detectPatterns?: readonly string[]
+}
+
+/** 一条规则在本章的确定性命中（只报命中的规则）。 */
+export interface AiScanRuleHit {
+  name: string
+  severity?: 'forbidden' | 'risk' | 'encourage'
+  matches: Array<{ pattern: string; count: number }>
+}
+
 /**
- * 套话词 -> 它在「已发布书稿语料」中被多少比例的章节命中过。
+ * 命中模式 -> 它在「已发布书稿语料」中被多少比例的章节命中过。
  *
- * 这张表是**基线**，不是观点：覆盖率越高，说明该词越接近作者/题材的常用表达，
- * 越不适合当作 AI 味证据。更换语料或题材后应重新统计（脚本思路见注释末尾）。
+ * ## 这张表是什么
+ *
+ * 它是**度量基线**，不是观点：覆盖率越高，说明该写法越接近作者/题材的常态表达，
+ * 越不适合当作 AI 味证据。覆盖率 >= 50% 记权重 0（视为功能词），0% 记 1。
+ *
+ * ## 模式从哪来
+ *
+ * 并集共 **63 个** = 反 AI 规则里作者声明的 detectPatterns（42 个）+ 度量基线词表。
+ * 实测「最后」(72.3%)、「然后」(70.1%) 的覆盖率比「微微」(48.2%) 还高 —— 它们是中文
+ * 叙事的正常连接词，权重为 0；而「生活就是」「归根结底」「人总要学会」这类结构性升华句
+ * 覆盖率是 **0.000**，才是真正的高价值信号。原先的实现根本没在看后者。
+ *
+ * ## 与规则的关系（刻意解耦）
+ *
+ * aiScore 是**独立标定的测量**：用户删掉一条规则，并不会让正文的 AI 味变少，
+ * 所以度量不依赖规则的当前状态。规则命中另走 {@link AiScanResult.ruleHits}，
+ * 按作者**生效的规则**逐条确定性统计。两者都注入审稿，但互不污染。
+ *
+ * 覆盖率为 0 的 17 个模式也显式列出，避免「表里没有 = 没在看」的误读。
+ * 更换语料或题材后应重新统计。
  */
-const CLICHE_COVERAGE: Readonly<Record<string, number>> = {
-  知道: 0.784, 微微: 0.482, 轻轻: 0.481, 感觉: 0.449, 气息: 0.392,
-  终于: 0.306, 缓缓: 0.303, 嘴角: 0.292, 眼神: 0.174, 明白: 0.167,
-  眉头: 0.145, 似乎: 0.144, 身影: 0.142, 力量: 0.127, 光芒: 0.087,
-  仿佛: 0.075, 其实: 0.070, 显然: 0.068, 脑海: 0.050, 然而: 0.027,
-  默默: 0.025, 一时间: 0.019, 心中: 0.010, 不由自主: 0.007, 顿时: 0.005,
-  不禁: 0.005, 无法形容: 0.002, 不由得: 0.001, 难以言喻: 0,
+const PATTERN_COVERAGE: Readonly<Record<string, number>> = {
+  '知道': 0.784, '最后': 0.723, '然后': 0.701, '微微': 0.482, '轻轻': 0.481,
+  '感觉': 0.449, '气息': 0.392, '终于': 0.306, '接着': 0.304, '缓缓': 0.303,
+  '嘴角': 0.292, '眼神': 0.174, '明白': 0.167, '眉头': 0.145, '似乎': 0.144,
+  '身影': 0.142, '力量': 0.127, '光芒': 0.087, '好像': 0.084, '仿佛': 0.075,
+  '其实': 0.07, '显然': 0.068, '脑海': 0.05, '这就是': 0.045, '告诉你': 0.041,
+  '然而': 0.027, '默默': 0.025, '这说明': 0.02, '一时间': 0.019, '他感到': 0.011,
+  '这意味着': 0.011, '心中': 0.01, '脑海中': 0.008, '不由自主': 0.007, '顿时': 0.005,
+  '不禁': 0.005, '说到底': 0.005, '其实就是': 0.005, '心里想': 0.005, '他明白了': 0.003,
+  '无法形容': 0.002, '他意识到': 0.002, '她意识到': 0.002, '她明白了': 0.002, '宛如': 0.002,
+  '不由得': 0.001,
+  '她感到': 0, '生活就是': 0, '命运总会': 0, '归根结底': 0, '我们都应该': 0,
+  '人总要学会': 0, '真正重要的是': 0, '我们现在要': 0, '接下来就': 0, '首先': 0,
+  '心中暗道': 0, '暗自思忖': 0, '心中暗想': 0, '心里暗道': 0, '犹如': 0,
+  '好似': 0, '难以言喻': 0,
 }
 
 /** 覆盖率 -> 权重：覆盖率 >= 50% 记为功能词（权重 0），0% 记 1。 */
-function clicheWeight(coverage: number): number {
+function patternWeight(coverage: number): number {
   return Math.max(0, 1 - coverage / 0.5)
 }
 
@@ -104,14 +146,14 @@ const EXPOSITORY_STARTS = [
 /**
  * 分项满分与语料分位点的对应关系（重新标定时只改这里）。
  *
- * - clicheFullDensity 2.16 = 语料加权套话密度 p99；p50 为 0.51
+ * - clicheFullDensity 2.478 = 语料加权密度 p99（63 模式并集口径）；p50 为 0.61、p75 为 1.02
  * - cvTooUniform 0.45 低于语料 CV p5（0.55），即只把最整齐的 0.6% 判为问题
  * - repetitionZeroAt 0.37 = 语料句首重复率 p50；repetitionFullAt 0.63 = p99
  *   （中文「句首二字」天然高频，原来的固定阈值 0.15 几乎每章都命中、形同虚设）
  */
 const SCORE_SPEC = {
   clicheMax: 40,
-  clicheFullDensity: 2.16,
+  clicheFullDensity: 2.478,
   cvTooUniform: 0.45,
   cvMax: 15,
   expositoryMax: 20,
@@ -122,6 +164,15 @@ const SCORE_SPEC = {
   lowDialogueThreshold: 0.05,
   lowDialogueMax: 10,
   densityFloorChars: 2000,
+  /**
+   * 规则命中的区分度门槛：只报「对该作者而言不常见」的模式。
+   *
+   * 实测必要性：「句式重复率偏高」这条规则的 detectPatterns 是
+   * ['首先','然后','接着','最后']，而「最后」覆盖 72.3%、「然后」覆盖 70.1% 的已发布
+   * 章节 —— 不设门槛时它会在 **94.4%** 的章上命中，等于每章都告诉模型「你违反了这条
+   * 规则」，比不报还糟。该规则的本质是「比率偏高」，应由 sentenceRepetitionRate 度量。
+   */
+  ruleHitCoverageMax: 0.1,
 }
 
 /**
@@ -154,21 +205,37 @@ function ratio(x: number, zeroAt: number, fullAt: number): number {
   return Math.max(0, Math.min(1, (x - zeroAt) / (fullAt - zeroAt)))
 }
 
-export function scanAiFlavor(text: string): AiScanResult {
+export function scanAiFlavor(text: string, rules?: readonly AiScanRuleInput[]): AiScanResult {
   const paragraphs = paragraphsOf(text)
   const totalChars = text.length
 
-  // 1. 套话统计（按语料稀有度加权）
+  // 1. 模式统计（按语料稀有度加权；模式并集见 PATTERN_COVERAGE）
   const clicheHits: Array<{ word: string; count: number; weight: number }> = []
   let weightedTotal = 0
-  for (const word of Object.keys(CLICHE_COVERAGE)) {
+  for (const word of Object.keys(PATTERN_COVERAGE)) {
     const count = countOccurrences(text, word)
     if (count === 0) continue
-    const weight = clicheWeight(CLICHE_COVERAGE[word] ?? 0.5)
+    const weight = patternWeight(PATTERN_COVERAGE[word] ?? 0)
     clicheHits.push({ word, count, weight })
     weightedTotal += count * weight
   }
   clicheHits.sort((a, b) => b.count * b.weight - a.count * a.weight)
+
+  // 1b. 作者生效规则的确定性命中
+  //     把「让 LLM 逐条核对规则清单」换成本地算出来的事实：更确定，也更省 token。
+  const ruleHits: AiScanRuleHit[] = []
+  for (const rule of rules ?? []) {
+    const matches: Array<{ pattern: string; count: number }> = []
+    for (const pattern of rule.detectPatterns ?? []) {
+      const count = countOccurrences(text, pattern)
+      if (count === 0) continue
+      // 常见的连接词/高频词不构成证据（理由见 SCORE_SPEC.ruleHitCoverageMax）。
+      // 表里没有的模式按覆盖率 0 处理（未知 = 可能少见），照常上报。
+      if ((PATTERN_COVERAGE[pattern] ?? 0) >= SCORE_SPEC.ruleHitCoverageMax) continue
+      matches.push({ pattern, count })
+    }
+    if (matches.length > 0) ruleHits.push({ name: rule.name, severity: rule.severity, matches })
+  }
 
   // 2. 段落长度：方差（保留）+ 变异系数（判定用）
   const paraLengths = paragraphs.map(p => p.length)
@@ -228,16 +295,21 @@ export function scanAiFlavor(text: string): AiScanResult {
 
   // 8. 问题摘要（注入审稿提示词的事实锚点）
   const issues: string[] = []
-  if (clicheDensity > 0.75) {
+  if (clicheDensity > 1.0) {
     const top = clicheHits.filter(h => h.weight > 0).slice(0, 5)
       .map(h => h.word + 'x' + h.count).join('、')
-    issues.push('套话偏多（按语料稀有度加权 ' + clicheDensity.toFixed(2) + '/千字，p50 为 0.51）：' + top)
+    issues.push('套话/模板句偏多（按语料稀有度加权 ' + clicheDensity.toFixed(2) + '/千字，p50 为 0.61）：' + top)
   }
   if (scoreParts.uniformParagraphs > 0) issues.push('段落长度过于整齐（CV ' + cv.toFixed(2) + ' < ' + SCORE_SPEC.cvTooUniform + '，已发布语料 p5 为 0.55）')
   if (maxConsecutive >= 3) issues.push('连续 ' + maxConsecutive + ' 段解释性叙事，缺少对话/动作')
   if (sentenceRepetitionRate > 0.5) issues.push('句式重复率 ' + (sentenceRepetitionRate * 100).toFixed(0) + '%，开头句式单一')
   if (longParagraphCount > 3) issues.push(longParagraphCount + ' 段超过 300 字，段落过长')
   if (scoreParts.lowDialogue > 0) issues.push('对话占比过低（' + (dialogueRatio * 100).toFixed(1) + '%），整章偏叙述')
+  if (ruleHits.length > 0) {
+    const brief = ruleHits.slice(0, 5)
+      .map(h => h.name + '（' + h.matches.map(m => m.pattern + 'x' + m.count).join('、') + '）').join('；')
+    issues.push('确定性规则命中 ' + ruleHits.length + ' 条：' + brief)
+  }
 
   const head = '本地 AI 味扫描（AI 味指数 ' + aiScore + '/100，共 ' + paragraphs.length + ' 个自然段）'
   const summary = issues.length > 0
@@ -255,6 +327,7 @@ export function scanAiFlavor(text: string): AiScanResult {
     longParagraphCount,
     shortParagraphCount,
     dialogueRatio: Math.round(dialogueRatio * 100) / 100,
+    ruleHits,
     scoreParts,
     summary,
   }
