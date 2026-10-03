@@ -28,6 +28,7 @@ import {
 import { countHanzi } from './engine.ts'
 import { loadBookshelf } from './bookshelf.ts'
 import { buildRevisionPlan, describeRevisionPlan, MAX_REVISION_ROUNDS, revisionTodoText } from './revision.ts'
+import { pickNextChapter, MAX_CHAPTER_FAILURES } from './run-selection.ts'
 
 /** 生产单 checkpoint 文件名（放在书目录下）。 */
 function runStateFile(outputDir: string): string {
@@ -111,6 +112,36 @@ export class ProductionRunner {
     this.state.updatedAt = new Date().toISOString()
   }
 
+  /** 累计某章的连续失败次数，返回累计值。 */
+  private bumpFailure(no: number): number {
+    if (this.state === null) return 0
+    const table = this.state.failedAttempts ?? {}
+    const next = (table[String(no)] ?? 0) + 1
+    // 旧 run-state.json 无此字段，懒初始化而非在 start() 里强制补齐。
+    this.state.failedAttempts = { ...table, [String(no)]: next }
+    return next
+  }
+
+  /**
+   * 把连败超限的章降级为「待人工」并让主循环跳过它。
+   *
+   * 不中断整批：作者配错一次不该让剩下几十章全部停摆，所以该章只是被划掉，
+   * 写进 `pendingManual` 等作者处理（与 `handleRejected` 的降级思路一致）。
+   */
+  private skipFailedChapter(chapter: ChapterPlan, attempts: number): void {
+    if (this.state === null) return
+    if (!this.state.pendingManual.includes(chapter.no)) {
+      this.state.pendingManual.push(chapter.no)
+      this.state.pendingManual.sort((a, b) => a - b)
+    }
+    // 章节状态保持 error：面板据此显示失败原因，而不再被主循环视为可处理。
+    this.log(
+      `第${chapter.no}章 连续 ${attempts} 次失败，已跳过并列入待人工：${chapter.error ?? '未知原因'}（可修正配置后单独重试该章）`,
+    )
+    this.state.currentNo = chapter.no + 1
+    this.persist()
+  }
+
   /** 启动/续跑生产单：startNo..endNo 区间，endNo 超出计划时先自动补计划。 */
   async start(startNo: number, endNo: number, runDir?: string): Promise<RunState> {
     const config = this.deps.getConfig()
@@ -146,6 +177,7 @@ export class ProductionRunner {
       currentNo: startNo,
       stats: { generated: 0, revised: 0, exempted: 0, regenerated: 0, error: 0 },
       pendingManual: [],
+      failedAttempts: {},
       log: [],
       startedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -203,23 +235,18 @@ export class ProductionRunner {
           this.persist()
           break
         }
-        // 找下一个需要处理的章（approved 快进）。
-        let next: ChapterPlan | undefined
-        for (let no = this.state.currentNo; no <= this.state.endNo; no++) {
-          const ch = project.chapters.find(c => c.no === no)
-          if (ch === undefined) continue
-          if (ch.status === 'approved') { this.state.currentNo = no; continue }
-          next = ch
-          break
-        }
-        if (next === undefined) {
+        // 找下一个需要处理的章（approved 快进；连败超限的章跳过不重试）。
+        const picked = pickNextChapter(project.chapters, this.state.currentNo, this.state.endNo, this.state.failedAttempts ?? {})
+        if (picked.advanceTo >= this.state.currentNo) this.state.currentNo = picked.advanceTo
+        for (const skipped of picked.circuitBroken) this.skipFailedChapter(skipped.chapter, skipped.attempts)
+        if (picked.next === undefined) {
           this.state.status = 'done'
           this.log(`生产单完成：${this.state.startNo}-${this.state.endNo} 章处理完毕`)
           this.persist()
           break
         }
-        this.state.currentNo = next.no
-        await this.processChapter(project, next)
+        this.state.currentNo = picked.next.no
+        await this.processChapter(project, picked.next)
         this.persist()
       }
     } catch (error) {
@@ -311,6 +338,11 @@ export class ProductionRunner {
         mergeVolatileFromDisk(outputDir, project)
         saveProject(outputDir, project)
       }
+      // 本章走完完整质量门 → 熔断计数清零。
+      // 不清会让「失败两次、第三次成功」的章带着旧计数在后续批次被误判为超限而跳过。
+      if (this.state?.failedAttempts !== undefined && this.state.failedAttempts[String(no)] !== undefined) {
+        delete this.state.failedAttempts[String(no)]
+      }
       if (config.autoAuthorReview ?? true) {
         try {
           const body = readChapterFile(outputDir, chapter)
@@ -339,8 +371,14 @@ export class ProductionRunner {
       chapter.error = (error as Error).message
       mergeVolatileFromDisk(outputDir, project)
       saveProject(outputDir, project)
+      const attempts = this.bumpFailure(no)
       if (this.state !== null) this.state.stats.error++
-      this.log(`第${no}章 失败：${(error as Error).message}`)
+      // 达到熔断上限时本章不再重试（见 loop() 的跳过逻辑），给出可操作的提示。
+      if (attempts >= MAX_CHAPTER_FAILURES) {
+        this.log(`第${no}章 失败（${attempts}/${MAX_CHAPTER_FAILURES}，已达上限将跳过）：${(error as Error).message}`)
+      } else {
+        this.log(`第${no}章 失败（${attempts}/${MAX_CHAPTER_FAILURES}）：${(error as Error).message}`)
+      }
     }
   }
 

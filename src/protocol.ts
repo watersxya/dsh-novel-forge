@@ -1613,6 +1613,15 @@ export interface RunState {
   }
   /** 两轮修订仍不过、保留草稿待人工的章号。 */
   pendingManual: number[]
+  /**
+   * 连续失败次数：章号 → 已失败几次。用于熔断，避免同一章反复烧 token。
+   *
+   * 为什么需要它：主循环只跳过 `approved` 章，失败章的 `status` 是 `error`，
+   * 下一轮扫描仍会选中它 → 失败→重跑→失败形成死循环，每轮白烧一次正文生成。
+   * 达 {@link MAX_CHAPTER_FAILURES} 次后该章转入 `pendingManual` 并跳过。
+   * 落盘以保证 web 重启（`status()` 会把 running 降级为 paused）后熔断计数不丢。
+   */
+  failedAttempts?: Record<string, number>
   /** 运行日志（保留最近 300 条）。 */
   log: Array<{ at: string; text: string }>
   startedAt: string

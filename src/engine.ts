@@ -1294,7 +1294,18 @@ export async function reviewChapterText(
   // 验证模式：携带上一轮报告时，逐条核对原意见是否解决 + 只挑新增 high，不再全新找茬。
   const system = previousReport !== undefined ? verifySystemPrompt(project) : reviewSystemPrompt(project)
   const raw = parseJsonObject<{ score?: unknown; riskScore?: unknown; verdict?: unknown; issues?: unknown; resolvedIds?: unknown; unresolvedIds?: unknown }>(
-    await complete(ctx, config, { system, user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 8000) }),
+    // 必须与 reviewChapter（首轮审稿）用**同一个模型与思考档位**，否则修订验证会
+    // 静默回落到主模型：作者配置 reviewModel 的意图（更强的审稿专用模型）失效，
+    // 且两轮结论不同源——等于拿自己的尺子量自己改过的稿。reasoning 同样对齐。
+    await complete(ctx, config, {
+      system,
+      user,
+      temperature: 0.3,
+      maxTokens: Math.max(config.maxTokens, 8000),
+      reasoning: config.analysisReasoning ?? 'low',
+      model: config.reviewModel,
+      liveLabel: previousReport !== undefined ? '修订验证审稿' : '审稿',
+    }),
   )
   const issues = Array.isArray(raw.issues)
     ? raw.issues
@@ -1368,8 +1379,42 @@ function verifySystemPrompt(project: ProjectState): string {
     '完整格式：{"resolvedIds": [1,3], "unresolvedIds": [2], "score": 75, "verdict": "一句话", "issues": [{"severity": "high", "dimension": "character|setting|redline|writing|pacing|logic|anti-ai|presentation|compliance", "item": "未解决(2)：xxx", "suggestion": "xxx"}]}',
     '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
     '重要：直接输出 JSON 结果本身，不要把思考过程写在输出里。',
-    `本书道藏（核对设定冲突用）：\n${project.bible !== undefined ? JSON.stringify(project.bible).slice(0, 3000) : '（无）'}`,
+    renderBibleForVerify(project),
   ].join('\n')
+}
+
+/**
+ * 验证模式下注入道藏。
+ *
+ * 原实现是 `JSON.stringify(project.bible).slice(0, 3000)`——有两个问题：
+ * 1. **腰斩的 JSON 不是 JSON**：`slice` 从中间切断，审稿员会看到语法残缺的
+ *    对象（字符串没闭合、数组没结尾），既浪费 token 又可能误读设定。
+ * 2. **静默截断设定**：世界规则/角色卡排在后面的字段最先被切掉，而那恰恰是
+ *    核对设定冲突最需要的部分。
+ *
+ * 改为结构化渲染 + 按「世界规则/角色/红线」分配独立预算。
+ */
+function renderBibleForVerify(project: ProjectState): string {
+  const bible = project.bible
+  if (bible === undefined) return '本书道藏（核对设定冲突用）：\n（无）'
+  const parts: string[] = []
+  if (bible.worldRules.length > 0) parts.push(`世界规则：\n${bible.worldRules.map(r => `- ${r}`).join('\n')}`)
+  if (bible.characters.length > 0) {
+    parts.push(`角色卡：\n${bible.characters.map(c => {
+      const goals = c.goals !== '' ? `；目标：${c.goals}` : ''
+      const rel = c.relations !== '' ? `；关系：${c.relations}` : ''
+      return `- ${c.name}：${c.traits.join('、')}${goals}${rel}`
+    }).join('\n')}`)
+  }
+  if (bible.redLines.length > 0) parts.push(`红线：\n${bible.redLines.map(r => `- ${r}`).join('\n')}`)
+  if (parts.length === 0) return '本书道藏（核对设定冲突用）：\n（无）'
+  // 总预算兜底：道藏极端庞大时仍要防止撑爆上下文，但截断显式化而非静默腰斩。
+  const block = parts.join('\n')
+  const limit = 6000
+  const body = block.length > limit
+    ? block.slice(0, limit) + `\n…（道藏过长已节选，但角色名/世界规则已尽量保留；如需完整设定请查总纲页）`
+    : block
+  return `本书道藏（核对设定冲突用）：\n${body}`
 }
 
 /** Build the author-review system prompt (narrative structure, not prose). */

@@ -766,7 +766,20 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const [themeBgBlur, setThemeBgBlur] = useState(0)
   const [project, setProject] = useState<ProjectState | null>(null)
   const [generatedFiles, setGeneratedFiles] = useState<string[]>([])
-  const [outlineText, setOutlineText] = useState('')
+  const [outlineText, setOutlineTextState] = useState('')
+  /**
+   * 大纲最新值的镜像。`refresh` 需要读「当前是否为空」来判断要不要同步服务端大纲，
+   * 但把 `outlineText` 放进 useCallback 依赖会让每敲一个字都重建 refresh 引用，
+   * 连带重建所有依赖 refresh 的 handler —— 整棵子树跟着输入框重渲染。
+   * 用 ref 读最新值即可切断这条依赖链。
+   */
+  const outlineTextRef = useRef('')
+  /** 统一写入口：保证 state 与 ref 始终同步（漏同步会让 refresh 判错空值）。 */
+  const setOutlineText = useCallback((next: string) => {
+    outlineTextRef.current = next
+    setOutlineTextState(next)
+  }, [])
+
   const [shelf, setShelf] = useState<BookshelfSnapshot | null>(null)
   /**
    * 当前绑定书 id（与 api.setCurrentBook 同步）。
@@ -1031,6 +1044,20 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     })
     return () => { cancelled = true }
   }, [rightDrawer, shelf?.activeBookId, api])
+  /**
+   * 历史版本首帧加载。
+   *
+   * 原先 `/snapshots` 是挂在 `refresh()` 里的（每次刷新都打一个额外请求，而
+   * `refresh` 有 29 个调用点）。现改为：首帧拉一次 + 快照增删处各自调
+   * `refreshSnapshots()` 兜底。切书时也重拉，否则「历史版本 · N」计数会串书。
+   */
+  useEffect(() => {
+    let cancelled = false
+    api.snapshots().then(r => {
+      if (!cancelled) setSnapshots(r.snapshots)
+    }).catch(() => { /* 快照是附加能力，失败不影响主流程 */ })
+    return () => { cancelled = true }
+  }, [api, currentBook])
   /** 本书参数的十个键（保存/恢复用同一顺序）。 */
   const BOOK_CFG_KEYS = ['provider', 'model', 'reasoningEffort', 'analysisReasoning', 'chapterChars', 'maxTokens', 'reviewPassScore', 'autoReview', 'autoAuthorReview', 'autoReviewAfterRevise'] as const
   /** 保存本书参数（留空字段转 null = 清除覆盖、回退全局）。 */
@@ -1354,20 +1381,26 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         setCharCards(null)
       }
       setGeneratedFiles(status.generatedFiles)
-      try { setSnapshots((await api.snapshots()).snapshots) } catch { /* 快照是附加能力，失败不影响主流程 */ }
+      // 历史版本只在「版本回滚」抽屉与「历史版本 · N」计数里消费，而快照
+      // 增删都有独立的 refreshSnapshots() 兜底（见下方回滚/创建快照处）。
+      // 原先每次 refresh 都多打一个 /snapshots 请求——29 个调用点 × 每次刷新，
+      // 纯属浪费；这里改为仅在首帧拉一次（见 useEffect 初始加载）。
       const withDraft = status.project?.chapters.find(c => c.pendingDraft !== undefined && c.pendingDraft !== '')
       setDraftNo(withDraft?.no ?? null)
       const nextOutline = status.project?.outline
-      // forceOutline：切换书/开书后强制同步大纲（refresh 闭包里的
-      // outlineText 可能是旧值，导致 `=== ''` 条件失效、大纲不同步、
-      // 「生成章节计划」按钮被禁用）。
-      if (forceOutline || (nextOutline !== undefined && outlineText === '')) {
-        setOutlineText(nextOutline ?? '')
+      // 用 ref 读最新的大纲文本，而不是把 outlineText 放进依赖：
+      // 依赖它会让每敲一个字都重建 refresh 引用，连带重建所有依赖 refresh 的
+      // handler（下拉、大纲导入…），等于整棵子树跟着输入框重渲染。
+      // forceOutline：切换书/开书后强制同步大纲（否则 ref 里的旧值会让
+      // `=== ''` 条件失效、大纲不同步、「生成章节计划」按钮被禁用）。
+      if (forceOutline || (nextOutline !== undefined && outlineTextRef.current === '')) {
+        outlineTextRef.current = nextOutline ?? ''
+        setOutlineText(outlineTextRef.current)
       }
     } catch (err) {
       if (showError) setError((err as Error).message)
     }
-  }, [api, outlineText])
+  }, [api])
 
   /** 激活一本书（书架入口共用）：重置本地编辑状态 → 拉取目标书 → 进入工作台或阅读页。 */
   const activateBook = useCallback(async (id: string, mode: 'workspace' | 'reader') => {
@@ -2869,8 +2902,33 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       setBusyLabel('')
     }
   }
-  const doneCount = chapters.filter(c => c.status === 'approved' || c.status === 'written' || c.status === 'rejected').length
-  const pendingCount = chapters.filter(c => c.status === 'pending' || c.status === 'error').length
+  /**
+   * 章节状态统计：**一次遍历**得出全部计数。
+   *
+   * 原先是 4 次 `chapters.filter(...)` + 1 次 `reduce`，每帧对全书（可达数百章）
+   * 走 5 遍。改法要点不只是省循环，还要 `useMemo`——`chapters` 来自
+   * `project?.chapters ?? []`，每次 project 变化都是新数组，不 memo 等于白算。
+   */
+  const chapterStats = useMemo(() => {
+    let done = 0
+    let pending = 0
+    let approved = 0
+    let reviewPending = 0
+    let totalChars = 0
+    let writingNow: ChapterPlan | undefined
+    for (const c of chapters) {
+      const s = c.status
+      if (s === 'approved' || s === 'written' || s === 'rejected') done++
+      if (s === 'pending' || s === 'error') pending++
+      if (s === 'approved') approved++
+      if (s === 'rejected' || s === 'written') reviewPending++
+      if (s === 'generating' || s === 'reviewing') writingNow = c
+      totalChars += c.chars ?? 0
+    }
+    return { done, pending, approved, reviewPending, totalChars, writingNow }
+  }, [chapters])
+  const doneCount = chapterStats.done
+  const pendingCount = chapterStats.pending
   const bible: StoryBible | undefined = project?.bible
   const volumes: Volume[] | undefined = project?.volumes
   const foreshadows: Foreshadow[] = project?.foreshadows ?? []
@@ -2925,10 +2983,12 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   }, [chapters, volumes])
 
   // --------------------------------------------------- dashboard (workflow)
-  const approvedCount = chapters.filter(c => c.status === 'approved').length
-  const reviewPendingCount = chapters.filter(c => c.status === 'written' || c.status === 'rejected').length
-  const writingNow = chapters.find(c => c.status === 'generating' || c.status === 'reviewing')
-  const totalChars = chapters.reduce((sum, c) => sum + (c.chars ?? 0), 0)
+  // 其余计数并入 chapterStats（见上方一次遍历的 useMemo），避免每帧多次全表扫描。
+  const approvedCount = chapterStats.approved
+  const reviewPendingCount = chapterStats.reviewPending
+  const writingNow = chapterStats.writingNow
+  const totalChars = chapterStats.totalChars
+
 
   /** 创作旅程 6 阶段（完成/当前/未到）。 */
   const journeyStages: Array<{ id: string; label: string; done: boolean }> = [
