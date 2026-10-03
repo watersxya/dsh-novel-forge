@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import type { ProjectState, ChapterPlan } from '../../protocol.ts'
 import css from './panel.module.css'
+import { statusBadgeClass } from './status-badge.ts'
 
 const FONT_SIZES = [
   { id: 'sm', px: 15, label: 'A-' },
@@ -36,13 +37,12 @@ function writePref(key: string, value: unknown): void {
 }
 
 /** 章节状态小标（阅读视角）。 */
+/**
+ * 阅读器只靠颜色表达状态（不显示文案），但色调**必须与工作台一致**。
+ * 之前这里是独立实现，`rejected` 显示灰色——作者看着像"还没写"。
+ */
 function statusBadge(ch: ChapterPlan): { label: string; cls: string } {
-  switch (ch.status) {
-    case 'approved': return { label: '', cls: css.badgeDone }
-    case 'written': return { label: '', cls: css.badgeWritten }
-    case 'rejected': return { label: '', cls: css.badgePending }
-    default: return { label: '', cls: css.badgePending }
-  }
+  return { label: '', cls: statusBadgeClass(ch.status) }
 }
 
 /** 目录分组：按卷区间过滤可读章节；卷外章节归入「未分卷」。 */

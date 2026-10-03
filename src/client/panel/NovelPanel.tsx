@@ -9,8 +9,12 @@ import type { KeyboardEvent as ReactKeyboardEvent, ReactElement, ReactNode } fro
 import type { NovelApi } from '../api.ts'
 import { setCurrentBook } from '../api.ts'
 import { parseMarkdown, stripInline, type InlineSpan, type MdBlock, type MdListItem } from './outline-markdown.ts'
+import { statusBadgeClass } from './status-badge.ts'
+import { parseEnum, parseIntInRange, parseNumberRecord } from './storage-parse.ts'
+import { usePersistentState } from './usePersistentState.ts'
 import type { PanelController } from './controller.ts'
 import { tt } from './helpers.ts'
+import type { NovelKey } from '../locales.ts'
 import { ReasoningSection } from './ReasoningSection.tsx'
 import LiveFeedLog from './LiveFeedLog.tsx'
 import { CmdPalette } from './CmdPalette.tsx'
@@ -44,6 +48,7 @@ import type {
   JobFrame,
   NovelConfig,
   Plotline,
+  ChapterStatus,
   PlotlineHealthReport,
   PlotlinePlan,
   ProjectState,
@@ -172,17 +177,31 @@ function anyGenerating(chapters: ChapterPlan[] | undefined): boolean {
   return (chapters ?? []).some(c => c.status === 'generating' || c.status === 'reviewing')
 }
 
-/** Status badge class + label. */
+/** Status badge class + label. 映射与阅读器共用 status-badge.ts，避免两处漂移。 */
+/** 文案按**具体状态**取（generating 与 reviewing 同色但文案不同）。
+ *  用Record<ChapterStatus, …> 而非 Record<string, …>：漏登记某个状态会编译报错，
+ *  而 Record<string> 会静默退化成 undefined，文案直接消失。 */
+/** 悬浮窗位置/尺寸的键名与默认值。放模块作用域：hook 的 fallback 每次渲染
+ * 若是新对象，虽不影响正确性（只在挂载时读一次），但会让调试时的引用比较失效。 */
+const POS_KEYS = ['x', 'y'] as const
+const SIZE_KEYS = ['w', 'h'] as const
+const PROGRESS_POS_DEFAULT = { x: 60, y: 120 }
+const PROGRESS_SIZE_DEFAULT = { w: 460, h: 420 }
+const ASSISTANT_POS_DEFAULT = { x: 260, y: 60 }
+const ASSISTANT_SIZE_DEFAULT = { w: 420, h: 460 }
+const STATUS_LABEL_KEY: Record<ChapterStatus, NovelKey> = {
+  pending: 'plan.pending',
+  generating: 'plan.generating',
+  reviewing: 'plan.reviewing',
+  written: 'plan.written',
+  approved: 'plan.approved',
+  rejected: 'plan.rejected',
+  error: 'plan.error',
+}
 function statusBadge(chapter: ChapterPlan): { cls: string; label: string } {
-  switch (chapter.status) {
-    case 'pending': return { cls: css.badgePending, label: tt('plan.pending') }
-    case 'generating': return { cls: css.badgeGenerating, label: tt('plan.generating') }
-    case 'written': return { cls: css.badgeWritten, label: tt('plan.written') }
-    case 'reviewing': return { cls: css.badgeGenerating, label: tt('plan.reviewing') }
-    case 'approved': return { cls: css.badgeDone, label: tt('plan.approved') }
-    case 'rejected': return { cls: css.badgeRejected, label: tt('plan.rejected') }
-    case 'error': return { cls: css.badgeError, label: tt('plan.error') }
-    default: return { cls: css.badgeError, label: tt('plan.error') }
+  return {
+    cls: statusBadgeClass(chapter.status),
+    label: tt(STATUS_LABEL_KEY[chapter.status] ?? STATUS_LABEL_KEY.error),
   }
 }
 
@@ -855,39 +874,39 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   /** 工作区「一键修订结果」模式：顶部显示「 修订完成」横幅，不展示旧意见选择。 */
   const [wsResultMode, setWsResultMode] = useState(false)
   /** 编辑页字号（localStorage 记忆，仅影响显示）。 */
-  const [editorFontSize, setEditorFontSize] = useState<number>(() => {
-    try {
-      const v = Number(window.localStorage.getItem('dsh-novel-forge.editor.fontSize'))
-      return v >= 12 && v <= 24 ? v : 14
-    } catch { return 14 }
+  const [editorFontSizeRaw, setEditorFontSizeRaw] = usePersistentState<number>({
+    key: 'dsh-novel-forge.editor.fontSize',
+    parse: r => parseIntInRange(r, 12, 24),
+    serialize: String,
+    fallback: 14,
   })
-  const changeEditorFontSize = (next: number): void => {
-    const v = Math.min(24, Math.max(12, next))
-    setEditorFontSize(v)
-    try { window.localStorage.setItem('dsh-novel-forge.editor.fontSize', String(v)) } catch { /* ignore */ }
-  }
+  const changeEditorFontSize = useCallback((next: number): void => {
+    setEditorFontSizeRaw(Math.min(24, Math.max(12, next)))
+  }, [setEditorFontSizeRaw])
   /** 显示模式（跟随系统 / 强制浅色 / 强制深色），localStorage 记忆，只作用于小说工坊面板。 */
-  const [themeMode, setThemeMode] = useState<'system' | 'light' | 'dark'>(() => {
-    try {
-      const v = window.localStorage.getItem('dsh-novel-forge.theme.mode')
-      return v === 'light' || v === 'dark' ? v : 'system'
-    } catch { return 'system' }
+  const [themeMode, setThemeMode] = usePersistentState<'system' | 'light' | 'dark'>({
+    key: 'dsh-novel-forge.theme.mode',
+    parse: r => parseEnum(r, ['light', 'dark', 'system'] as const),
+    serialize: v => v,
+    fallback: 'system',
   })
-  const changeThemeMode = (next: 'system' | 'light' | 'dark'): void => {
-    setThemeMode(next)
-    try { window.localStorage.setItem('dsh-novel-forge.theme.mode', next) } catch { /* ignore */ }
-  }
   /** 界面密度（舒适 / 紧凑 / 宽松），localStorage 记忆。 */
-  const [themeDensity, setThemeDensity] = useState<'comfort' | 'compact' | 'spacious'>(() => {
-    try {
-      const v = window.localStorage.getItem('dsh-novel-forge.theme.density')
-      return v === 'compact' || v === 'spacious' ? v : 'comfort'
-    } catch { return 'comfort' }
+  const [themeDensity, setThemeDensity] = usePersistentState<'comfort' | 'compact' | 'spacious'>({
+    key: 'dsh-novel-forge.theme.density',
+    parse: r => parseEnum(r, ['comfort', 'compact', 'spacious'] as const),
+    serialize: v => v,
+    fallback: 'comfort',
   })
-  const changeThemeDensity = (next: 'comfort' | 'compact' | 'spacious'): void => {
+  // 这两个包装会作为 prop 传给子组件，必须引用稳定，否则每次渲染都是新函数，
+  // 记忆化的子组件会全部失效重渲。
+  const changeThemeMode = useCallback((next: 'system' | 'light' | 'dark'): void => {
+    setThemeMode(next)
+  }, [setThemeMode])
+  const changeThemeDensity = useCallback((next: 'comfort' | 'compact' | 'spacious'): void => {
     setThemeDensity(next)
-    try { window.localStorage.setItem('dsh-novel-forge.theme.density', next) } catch { /* ignore */ }
-  }
+  }, [setThemeDensity])
+  const editorFontSize = editorFontSizeRaw
+  const setEditorFontSize = setEditorFontSizeRaw
   /** 本书参数（novel-project.json.bookSettings；未设字段 = 回退全局默认）。 */
   const [bookCfg, setBookCfg] = useState<BookSettings | null>(null)
   const [bookCfgLoaded, setBookCfgLoaded] = useState(false)
@@ -939,62 +958,49 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     status: Plotline['status']
   } | null>(null)
   /** 长线管理页：子页签（剧情线 / 伏笔），localStorage 记忆。 */
-  const [longlineTab, setLonglineTab] = useState<'plotlines' | 'foreshadow'>(() => {
-    try {
-      const v = window.localStorage.getItem('dsh-novel-forge.longline.tab')
-      return v === 'foreshadow' ? 'foreshadow' : 'plotlines'
-    } catch { return 'plotlines' }
+  const [longlineTab, setLonglineTab] = usePersistentState<'plotlines' | 'foreshadow'>({
+    key: 'dsh-novel-forge.longline.tab',
+    parse: r => parseEnum(r, ['plotlines', 'foreshadow'] as const),
+    serialize: v => v,
+    fallback: 'plotlines',
   })
-  const changeLonglineTab = (next: 'plotlines' | 'foreshadow'): void => {
+  const changeLonglineTab = useCallback((next: 'plotlines' | 'foreshadow'): void => {
     setLonglineTab(next)
-    try { window.localStorage.setItem('dsh-novel-forge.longline.tab', next) } catch { /* ignore */ }
-  }
+  }, [setLonglineTab])
   /** 编年 / 复盘页：子页签（编年录 / 复盘记录），localStorage 记忆。 */
-  const [archiveTab, setArchiveTab] = useState<'facts' | 'reviews'>(() => {
-    try {
-      const v = window.localStorage.getItem('dsh-novel-forge.archive.tab')
-      return v === 'reviews' ? 'reviews' : 'facts'
-    } catch { return 'facts' }
+  const [archiveTab, setArchiveTab] = usePersistentState<'facts' | 'reviews'>({
+    key: 'dsh-novel-forge.archive.tab',
+    parse: r => parseEnum(r, ['facts', 'reviews'] as const),
+    serialize: v => v,
+    fallback: 'facts',
   })
-  const changeArchiveTab = (next: 'facts' | 'reviews'): void => {
+  const changeArchiveTab = useCallback((next: 'facts' | 'reviews'): void => {
     setArchiveTab(next)
-    try { window.localStorage.setItem('dsh-novel-forge.archive.tab', next) } catch { /* ignore */ }
-  }
+  }, [setArchiveTab])
   /** 本书设定页：子页签（设定库 / 大世界 / 角色库 / 编年·复盘），localStorage 记忆。 */
-  const [bookTab, setBookTab] = useState<'bible' | 'world' | 'roles' | 'facts'>(() => {
-    try {
-      const v = window.localStorage.getItem('dsh-novel-forge.book.tab')
-      return v === 'world' || v === 'roles' || v === 'facts' ? v : 'bible'
-    } catch { return 'bible' }
+  const [bookTab, setBookTab] = usePersistentState<'bible' | 'world' | 'roles' | 'facts'>({
+    key: 'dsh-novel-forge.book.tab',
+    parse: r => parseEnum(r, ['bible', 'world', 'roles', 'facts'] as const),
+    serialize: v => v,
+    fallback: 'bible',
   })
-  const changeBookTab = (next: 'bible' | 'world' | 'roles' | 'facts'): void => {
+  const changeBookTab = useCallback((next: 'bible' | 'world' | 'roles' | 'facts'): void => {
     setBookTab(next)
-    try { window.localStorage.setItem('dsh-novel-forge.book.tab', next) } catch { /* ignore */ }
-  }
+  }, [setBookTab])
   /** 角色知情度编辑草稿（角色名 → 文本，每行一条）。 */
   /** 角色库：提炼候选（null = 未运行；localStorage 持久化，刷新不丢）。 */
-  const [roleCandidates, setRoleCandidates] = useState<RoleRecord[] | null>(() => {
-    try {
-      const raw = window.localStorage.getItem('dsh-novel-forge.role.candidates')
-      if (raw !== null) {
-        const parsed = JSON.parse(raw) as RoleRecord[]
-        return Array.isArray(parsed) && parsed.length > 0 ? parsed : null
-      }
-    } catch { /* ignore */ }
-    return null
+  const [roleCandidates, setRoleCandidates] = usePersistentState<RoleRecord[] | null>({
+    key: 'dsh-novel-forge.role.candidates',
+    parse: r => {
+      const parsed = JSON.parse(r) as RoleRecord[]
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : null
+    },
+    serialize: v => JSON.stringify(v ?? []),
+    fallback: null,
   })
   /** 角色库：编辑草稿（null = 不在编辑）。 */
   const [roleDraft, setRoleDraft] = useState<RoleRecord | null>(null)
-  /** 角色库候选持久化：提炼/采纳后写回 localStorage。 */
-  useEffect(() => {
-    try {
-      if (roleCandidates !== null && roleCandidates.length > 0) {
-        window.localStorage.setItem('dsh-novel-forge.role.candidates', JSON.stringify(roleCandidates))
-      } else {
-        window.localStorage.removeItem('dsh-novel-forge.role.candidates')
-      }
-    } catch { /* ignore */ }
-  }, [roleCandidates])
+  /** 角色库候选已由 usePersistentState 同步落盘（原为独立 useEffect 写回）。 */
   /** 全书敏感词检查结果（null = 未运行）。 */
   const [sensHits, setSensHits] = useState<SensitiveHit[] | null>(null)
   const [sensScanned, setSensScanned] = useState(0)
@@ -1171,62 +1177,35 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     window.addEventListener('keydown', onKey)
     return () => { window.removeEventListener('keydown', onKey) }
   }, [])
-  /** AI进度悬浮窗位置（localStorage 记忆）。 */
-  const [progressPos, setProgressPos] = useState(() => {
-    try {
-      const raw = window.localStorage.getItem('dsh-novel-forge.progress.float')
-      if (raw !== null) {
-        const parsed = JSON.parse(raw) as { x?: unknown; y?: unknown }
-        return { x: typeof parsed.x === 'number' ? parsed.x : 60, y: typeof parsed.y === 'number' ? parsed.y : 120 }
-      }
-    } catch { /* ignore */ }
-    return { x: 60, y: 120 }
+  /* 悬浮窗位置/尺寸：JSON 对象 + 逐字段校验，由 usePersistentState 同步落盘。
+     原先是一个独立 useEffect 统一写 4 个键——拖拽时每帧触发，等于每帧
+     4 次 JSON.stringify + setItem。现在写盘跟着各自的 setter 走，更省。 */
+  const [progressPos, setProgressPos] = usePersistentState({
+    key: 'dsh-novel-forge.progress.float',
+    parse: r => parseNumberRecord(r, POS_KEYS, PROGRESS_POS_DEFAULT),
+    serialize: v => JSON.stringify(v),
+    fallback: PROGRESS_POS_DEFAULT,
   })
-  /** AI进度悬浮窗尺寸（localStorage 记忆）。 */
-  const [progressSize, setProgressSize] = useState(() => {
-    try {
-      const raw = window.localStorage.getItem('dsh-novel-forge.progress.size')
-      if (raw !== null) {
-        const parsed = JSON.parse(raw) as { w?: unknown; h?: unknown }
-        return { w: typeof parsed.w === 'number' ? parsed.w : 460, h: typeof parsed.h === 'number' ? parsed.h : 420 }
-      }
-    } catch { /* ignore */ }
-    return { w: 460, h: 420 }
+  const [progressSize, setProgressSize] = usePersistentState({
+    key: 'dsh-novel-forge.progress.size',
+    parse: r => parseNumberRecord(r, SIZE_KEYS, PROGRESS_SIZE_DEFAULT),
+    serialize: v => JSON.stringify(v),
+    fallback: PROGRESS_SIZE_DEFAULT,
   })
-  /** 悬浮窗位置（相对面板，localStorage 记忆）。 */
-  const [assistantPos, setAssistantPos] = useState(() => {
-    try {
-      const raw = window.localStorage.getItem('dsh-novel-forge.assistant.float')
-      if (raw !== null) {
-        const parsed = JSON.parse(raw) as { x?: unknown; y?: unknown }
-        return { x: typeof parsed.x === 'number' ? parsed.x : 260, y: typeof parsed.y === 'number' ? parsed.y : 60 }
-      }
-    } catch { /* ignore */ }
-    return { x: 260, y: 60 }
+  const [assistantPos, setAssistantPos] = usePersistentState({
+    key: 'dsh-novel-forge.assistant.float',
+    parse: r => parseNumberRecord(r, POS_KEYS, ASSISTANT_POS_DEFAULT),
+    serialize: v => JSON.stringify(v),
+    fallback: ASSISTANT_POS_DEFAULT,
   })
-  /** 悬浮窗尺寸（localStorage 记忆）。 */
-  const [assistantSize, setAssistantSize] = useState(() => {
-    try {
-      const raw = window.localStorage.getItem('dsh-novel-forge.assistant.size')
-      if (raw !== null) {
-        const parsed = JSON.parse(raw) as { w?: unknown; h?: unknown }
-        return { w: typeof parsed.w === 'number' ? parsed.w : 420, h: typeof parsed.h === 'number' ? parsed.h : 460 }
-      }
-    } catch { /* ignore */ }
-    return { w: 420, h: 460 }
+  const [assistantSize, setAssistantSize] = usePersistentState({
+    key: 'dsh-novel-forge.assistant.size',
+    parse: r => parseNumberRecord(r, SIZE_KEYS, ASSISTANT_SIZE_DEFAULT),
+    serialize: v => JSON.stringify(v),
+    fallback: ASSISTANT_SIZE_DEFAULT,
   })
   /** 拖拽/缩放状态（target 区分 AI 助手 / AI进度两个悬浮窗）。 */
   const dragState = useRef<{ type: 'move' | 'resize'; target: 'assistant' | 'progress'; startX: number; startY: number; origX: number; origY: number; origW: number; origH: number } | null>(null)
-
-  /** 悬浮窗位置/尺寸持久化。 */
-  useEffect(() => {
-    try {
-      window.localStorage.setItem('dsh-novel-forge.assistant.float', JSON.stringify(assistantPos))
-      window.localStorage.setItem('dsh-novel-forge.assistant.size', JSON.stringify(assistantSize))
-      window.localStorage.setItem('dsh-novel-forge.progress.float', JSON.stringify(progressPos))
-      window.localStorage.setItem('dsh-novel-forge.progress.size', JSON.stringify(progressSize))
-    } catch { /* ignore */ }
-  }, [assistantPos, assistantSize, progressPos, progressSize])
 
   /** 全局拖拽/缩放监听（挂一次，靠 dragState 判断）。
    *  边界随面板实测尺寸走（P2 之前是写死的 -340~3000 魔法数）：
