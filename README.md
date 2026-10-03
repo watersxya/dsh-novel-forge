@@ -263,7 +263,7 @@ node scripts/check-third-party.mjs     # 来源卫生：不得出现外部项目
 - **发布前置条件**（脚本不检查，缺了会在最后一步才炸）：
   1. **已登录 npm**。`npm whoami` 要能输出用户名。网页登录 npmjs.com **不算**——那只给你看网页的权限，命令行认的是 `~/.npmrc`。用 token 登录：`npm config set //registry.npmjs.org/:_authToken npm_xxx`（token 在 <https://www.npmjs.com/settings/your-profile> → Access Tokens 生成，勾 `Publish`）。npm 早已禁用密码登录。
   2. **CHANGELOG.md 顶部要有目标版本条目**，格式 `## [x.y.z] - YYYY-MM-DD`。脚本只认顶部第一条——忘了加会重复发布当前版本，而 npm 版本号不可复用。
-  3. **GitHub 也要能认证**：最后创建 Release 走 `git credential fill` 取token，没有会中止。
+  3. **GitHub 也要能认证**：最后创建 Release 需要 token。优先读环境变量 `GH_TOKEN`（或 `GITHUB_TOKEN`）；没有则回退 `git credential fill`（需本机装了凭据管理器）。CI 与容器里通常要用前者。
 - **注意 `--access public` 不是可选项**：本包是 scoped 包（`@waterwx/…`），npm 规定 scoped 包默认私有，不带该参数会被拒（`402 Payment Required`）。
 - **规则工程约束**：阶段契约、失败分级、截断显式化、修订仲裁等规则由宿主统一实现，面板与助手共用同一结论，不各写一套。
 

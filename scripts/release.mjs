@@ -175,13 +175,23 @@ if (!DRY_RUN) {
 
 // ---- 7) GitHub release ---------------------------------------------------
 console.log(NL + '▶ GitHub Release')
-const cred = spawnSync('git', ['credential', 'fill'], {
-  input: ['protocol=https', 'host=github.com', '', ''].join(NL),
-  encoding: 'utf8',
-})
-const TOKEN = (cred.stdout || '').split(NL).find(l => l.startsWith('password='))?.slice(9)
+// GitHub token 取值顺序：
+//   1) GH_TOKEN / GITHUB_TOKEN 环境变量（CI 与沙箱等无凭据代理的环境走这条）
+//   2) `git credential fill`（本机装了凭据管理器时的常规路径）
+// 环境变量优先：凭据管理器在部分环境（容器、CI、无头 shell）里取不到，
+// 那时报的错是"未登录"，很容易被误判成"没做 GitHub 认证"而走错排查方向。
+let TOKEN = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN
 if (!TOKEN) {
-  console.error('✗ 未取得 GitHub token（git credential fill 未返回 password）。请先在本机完成 GitHub 登录。')
+  const cred = spawnSync('git', ['credential', 'fill'], {
+    input: ['protocol=https', 'host=github.com', '', ''].join(NL),
+    encoding: 'utf8',
+  })
+  TOKEN = (cred.stdout || '').split(NL).find(l => l.startsWith('password='))?.slice(9)
+}
+if (!TOKEN) {
+  console.error('✗ 未取得 GitHub token。两种方式任选其一：')
+  console.error('  1) 设置环境变量：GH_TOKEN=<你的 GitHub token>')
+  console.error('  2) 本机完成 GitHub 登录（安装凭据管理器），使 `git credential fill` 能返回密码')
   process.exit(1)
 }
 if (DRY_RUN) {
