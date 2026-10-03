@@ -31,10 +31,13 @@ export function RunPanel({ api, totalChapters }: { api: NovelApi; totalChapters:
     } catch { /* 静默 */ }
   }, [api])
 
-  // 运行期间每 5 秒轮询一次状态。
+  // 运行期间每 5 秒轮询一次状态；页面隐藏时暂停（切走标签页没必要继续拉）。
   useEffect(() => {
     void poll()
-    const timer = window.setInterval(() => { void poll() }, 5000)
+    const timer = window.setInterval(() => {
+      if (document.hidden) return
+      void poll()
+    }, 5000)
     return () => window.clearInterval(timer)
   }, [poll])
 

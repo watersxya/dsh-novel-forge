@@ -152,7 +152,11 @@ export default function LiveFeedLog(): JSX.Element {
   }, [])
   useEffect(() => {
     void loadUsage()
-    const timer = window.setInterval(() => { void loadUsage() }, 15_000)
+    // 页面隐藏时暂停轮询：用量面板没人看时不值得每 15s 打一次接口。
+    const timer = window.setInterval(() => {
+      if (document.hidden) return
+      void loadUsage()
+    }, 15_000)
     return () => { window.clearInterval(timer) }
   }, [loadUsage])
 

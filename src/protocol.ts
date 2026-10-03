@@ -1360,6 +1360,16 @@ export interface NovelConfig {
    * 留空表示不切换。批量连写时能显著减少"整批中断"。
    */
   fallbackModel?: string
+  /**
+   * 备用模型的输出 token 上限（仅在设了 `fallbackModel` 时有意义）。
+   *
+   * 为什么需要它：模型能力表（model-capability.ts）不含上下文窗口数据，
+   * 所以「换模型后自动下调 maxTokens」没有可靠依据，此处不猜。改为让作者按
+   * 备用模型的**实际**输出上限填写——长文路径（正文/改写/润色）换到备用模型时
+   * 会改用该值，避免沿用主模型的 20000 而必然撞 max-tokens 截断。
+   * 留空 = 沿用主模型预算（行为与旧版一致）。
+   */
+  fallbackMaxTokens?: number
   /** 是否在出章后自动抽取故事时间线（失败不阻断出章）。默认开。 */
   autoTimeline?: boolean
   /** LLM reasoning effort: off = no thinking; low/high/max = thinking intensity. */

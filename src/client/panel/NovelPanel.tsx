@@ -1057,7 +1057,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       if (!cancelled) setSnapshots(r.snapshots)
     }).catch(() => { /* 快照是附加能力，失败不影响主流程 */ })
     return () => { cancelled = true }
-  }, [api, currentBook])
+  }, [api, shelf?.activeBookId])
   /** 本书参数的十个键（保存/恢复用同一顺序）。 */
   const BOOK_CFG_KEYS = ['provider', 'model', 'reasoningEffort', 'analysisReasoning', 'chapterChars', 'maxTokens', 'reviewPassScore', 'autoReview', 'autoAuthorReview', 'autoReviewAfterRevise'] as const
   /** 保存本书参数（留空字段转 null = 清除覆盖、回退全局）。 */
@@ -1402,12 +1402,22 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     }
   }, [api])
 
-  /** 激活一本书（书架入口共用）：重置本地编辑状态 → 拉取目标书 → 进入工作台或阅读页。 */
+  /**
+   * 激活一本书（书架入口共用）：重置本地编辑状态 → 拉取目标书 → 进入工作台或阅读页。
+   *
+   * 带序号防竞态：用户在书架上快速连点两本书时，两条 activateBook 链会交错，
+   * 先发后到的响应会用**旧书的数据**覆盖新书界面。api 层的 `currentBookId`
+   * 是模块级状态，更容易被后一条链改写。这里用序号保证只有最后一次点击生效。
+   */
+  const activateSeq = useRef(0)
   const activateBook = useCallback(async (id: string, mode: 'workspace' | 'reader') => {
+    const seq = ++activateSeq.current
     setBusy(true)
     setError('')
     try {
       await api.bookActivate(id)
+      // 期间用户已点了另一本书：本次结果作废，别覆盖新书界面。
+      if (seq !== activateSeq.current) return
       // 显式切书：重绑当前书（之后所有书级请求明确带 bookId，不再被全局 active 串书）。
       setCurrentBook(id)
       // 换 key 重建助手面板：清掉上一本的对话，并按新书重新拉取历史。
@@ -1422,12 +1432,15 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       setAuditIssues(null)
       setCharCards(null)
       await refresh(false, true)
+      if (seq !== activateSeq.current) return
       await refreshShelf()
+      if (seq !== activateSeq.current) return
       setViewMode(mode)
     } catch (err) {
+      if (seq !== activateSeq.current) return
       setError((err as Error).message)
     } finally {
-      setBusy(false)
+      if (seq === activateSeq.current) setBusy(false)
     }
   }, [api, refresh, refreshShelf])
 
@@ -1548,10 +1561,16 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     setError('')
     setAuditStatus({ status: 'running', totalBatches: 0, completedBatches: 0 })
     let stopped = false
+    // 轮询两处加固：
+    // 1. 页面隐藏（切到别的标签页）时停轮询——没人看进度，别白拉。
+    // 2. 回调内 await 之后再次检查 stopped：clearInterval 只能阻止「下一次」触发，
+    //    已在飞行中的那次仍会回来写入（原代码会漏掉这次过期写入）。
     const poll = window.setInterval(async () => {
       if (stopped) return
+      if (document.hidden) return
       try {
         const s = await api.status()
+        if (stopped) return
         if (s.audit !== undefined) setAuditStatus(s.audit)
       } catch { /* 轮询失败忽略，主请求仍会给出最终结果 */ }
     }, 1000)
@@ -2677,13 +2696,24 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   }
 
   /** Toggle chapter preview. */
-  /** 加载章节正文到详情面板（v4 B3：主从布局共用）。 */
+  /**
+   * 加载章节正文到详情面板（v4 B3：主从布局共用）。
+   *
+   * 带请求序号防竞态：用户在长章节间快速连点时，先发的请求可能后到，
+   * 无条件 `setChapterText` 会让**旧请求的响应覆盖新章节**（正文错位）。
+   * 只有序号等于当前最新请求的那次才允许写入。
+   */
+  const chapterReqSeq = useRef(0)
   const loadChapterText = async (no: number): Promise<void> => {
+    const seq = ++chapterReqSeq.current
     setChapterText('')
     try {
       const result = await api.chapter(no)
+      // 期间用户已切到别的章：丢弃本次响应，不要覆盖。
+      if (seq !== chapterReqSeq.current) return
       setChapterText(result.markdown)
     } catch (err) {
+      if (seq !== chapterReqSeq.current) return
       setChapterText(`（${(err as Error).message}）`)
     }
   }

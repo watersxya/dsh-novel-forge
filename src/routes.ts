@@ -207,7 +207,7 @@ import {
   checkSensitiveText,
   suggestForeshadows,
   suggestPlotlines,
-  summarizeAndExtractFacts,
+  summarizeFactsAndTimeline,
   extractTimelineForChapter,
   reviewTimeline,
   summarizeChapter,
@@ -667,20 +667,16 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           }
         }
         emitLive({ type: 'session_completed', sessionId: liveSession, totalChars: genChars, preview: '', at: new Date().toISOString(), phase: 'completed' })
-        // Auto pipeline: summary + facts（一次调用）-> timeline -> review（unless skipped）。
+        // Auto pipeline: 摘要 + 事实 + 时间线 = 一次调用（输入同为整章正文，合并省约 44.7% token）。
+        // 三项都是 best-effort：失败不阻断出章，作者可在对应页面手工补。
         try {
-          await summarizeAndExtractFacts(ctx, config, project, config.outputDir, no)
+          const wantTimeline = config.autoTimeline ?? true
+          await summarizeFactsAndTimeline(ctx, config, project, config.outputDir, no, {
+            timeline: wantTimeline,
+            ...(wantTimeline ? { model: config.auditModel || config.model } : {}),
+          })
         } catch (error) {
-          console.warn('[dsh-novel-forge] summary/facts failed:', (error as Error).message)
-        }
-        // 故事时间线：抽取本章事件（失败不阻断出章，作者可在时间线页手工补）。
-        if (config.autoTimeline ?? true) {
-          try {
-            await extractTimelineForChapter(ctx, config, project, config.outputDir, no)
-            saveProject(config.outputDir, project)
-          } catch (error) {
-            console.warn('[dsh-novel-forge] timeline extract failed:', (error as Error).message)
-          }
+          console.warn('[dsh-novel-forge] summary/facts/timeline failed:', (error as Error).message)
         }
         // 伏笔落地标记：正文中命中 planned 伏笔关键词 → 自动标为 planted（暗线管理页与正文同步）。
         try {

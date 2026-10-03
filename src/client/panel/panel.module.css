@@ -3759,7 +3759,7 @@ body[data-ds-dark-theme] {
 
 .runChip {
   position: fixed;
-  top: 10px;
+  top: calc(max(var(--dsh-frame-top-clearance, 0px), var(--dsh-windows-titlebar-height, 0px)) + 12px);
   right: 14px;
   z-index: var(--nf-z-chip, 2147483000);
   display: none;

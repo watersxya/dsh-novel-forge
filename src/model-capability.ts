@@ -213,3 +213,36 @@ export function convergeRequestParams(
     ...(capability === undefined ? {} : { rule: capability.rule, source: capability.source }),
   }
 }
+
+/**
+ * 全文输出（正文/改写/润色）的 token 预算。
+ *
+ * ## 为什么放在这里
+ *
+ * 它是「按模型身份决定参数」这件事的最后一环，与 {@link convergeRequestParams}
+ * 同源；而本模块**零运行时依赖**，可以脱离宿主包离线单测。反过来若留在
+ * engine.ts，就只能靠类型检查"证明"它对——而它恰恰是这次修复的核心行为。
+ *
+ * ## 行为
+ *
+ * - 用户配的 `maxTokens` 始终是**上限**：`Math.max` 保证不会因为用户调小而
+ *   让长章写不完（3500 字中文约需 5~6k token，20000 是留足余量的地板）。
+ * - 换到备用模型时，若作者通过 `config.fallbackMaxTokens` 显式给了预算就改用它。
+ *   能力表没有上下文窗口数据，此时不猜、不硬编码任何 clamp 数值——那只会造出
+ *   一个假的正确。**没填就返回 undefined**（沿用请求原值），把决定权留给作者。
+ *
+ * @param config - 当前配置。
+ * @param model - 本次实际要用的模型。
+ * @param primaryModel - 主模型 id（与 `model` 相同即主路径）。
+ * @returns 该模型应使用的 maxTokens；undefined 表示沿用调用方原值。
+ */
+export function fullTextBudget(
+  config: { maxTokens: number; fallbackMaxTokens?: number },
+  model: string,
+  primaryModel: string,
+): number | undefined {
+  const floor = Math.max(config.maxTokens, 20000)
+  if (model === primaryModel) return floor
+  const fallback = typeof config.fallbackMaxTokens === 'number' ? config.fallbackMaxTokens : undefined
+  return fallback !== undefined && fallback > 0 ? Math.min(fallback, floor) : undefined
+}

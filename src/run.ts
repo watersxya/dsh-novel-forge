@@ -14,8 +14,7 @@ import {
   mergeVolatileFromDisk,
   planChapters,
   generateChapterStream,
-  summarizeAndExtractFacts,
-  extractTimelineForChapter,
+  summarizeFactsAndTimeline,
   markForeshadowPlanted,
   reviewChapter,
   reviewChapterText,
@@ -324,10 +323,15 @@ export class ProductionRunner {
     this.log(`${wasError ? '重新生成' : '生成'} 第${no}章《${chapter.title}》…（模型 ${config.generateModel || config.model}）`)
     try {
       for await (const _step of generateChapterStream(ctx, config, project, outputDir, no)) { /* drain */ }
-      try { await summarizeAndExtractFacts(ctx, config, project, outputDir, no) } catch (e) { console.warn('[dsh-novel-forge] run summary/facts:', (e as Error).message) }
-      if (config.autoTimeline ?? true) {
-        try { await extractTimelineForChapter(ctx, config, project, outputDir, no) } catch (e) { console.warn('[dsh-novel-forge] run timeline:', (e as Error).message) }
-      }
+      // 摘要 + 事实 + 时间线：三者输入同为整章正文，合并为一次调用（实测省 44.7% 输入 token）。
+      // 时间线沿用 auditModel，与原先单独抽取时一致。
+      const wantTimeline = config.autoTimeline ?? true
+      try {
+        await summarizeFactsAndTimeline(ctx, config, project, outputDir, no, {
+          timeline: wantTimeline,
+          ...(wantTimeline ? { model: config.auditModel || config.model } : {}),
+        })
+      } catch (e) { console.warn('[dsh-novel-forge] run summary/facts/timeline:', (e as Error).message) }
       try { markForeshadowPlanted(project, outputDir, no) } catch (e) { console.warn('[dsh-novel-forge] run foreshadow:', (e as Error).message) }
       if (config.autoReview ?? true) {
         const report = await reviewChapter(ctx, config, project, outputDir, no)
