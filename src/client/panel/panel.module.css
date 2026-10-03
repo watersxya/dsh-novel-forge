@@ -793,6 +793,14 @@ html[data-dsh-novelforge-active]:not([data-dsh-taskboard-active]):not([data-dsh-
   z-index: 1;
 }
 
+/* 滚动容器里的页面根**不允许被 flex 压扁**。
+ * 页面根多带 overflow: hidden（圆角裁切），而 flex 项一旦 overflow 非 visible，
+ * 其自动最小尺寸就归零 —— 页面被压到容器高度后，多出的内容被自身裁掉；
+ * 父容器又因为「子项没溢出」而永远不出现滚动条。表现就是「页面看不全 + 没有滚动条」。 */
+.panelContent > * {
+  flex-shrink: 0;
+}
+
 
 /* ------------------------------------------------------------ page header（墨案统一页头） */
 /* 统一页头：对齐 demo-subpages.html 的 .subpage-head

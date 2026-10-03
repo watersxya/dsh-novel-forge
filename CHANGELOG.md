@@ -2,27 +2,28 @@
 
 ## [2.1.1] - 2026-10-04
 
-工作台仪表盘改为按**容器宽度**自适应：面板停靠在宿主的会话列里，宽度由列决定而非浏览器视口，而面板内部的断点此前全部写成 `@media (max-width: …)`（视口断点）。
+工作台仪表盘的两个**互相独立**的布局缺陷：断点测错了参照物（窄容器不收栏），以及页面被 flex 压扁且无法滚动（看不全 + 没有滚动条）。
 
-### 症状
+### 缺陷一：断点测的是视口，不是容器
 
-- 容器变窄时仪表盘不收栏。实测窗口 1386px、容器 760px：`.wfBody` 仍是 `219px 380px` **两栏**——右侧固定 380px 不让步，左栏被压到 219px，「规划全书卷结构」的说明**一个字一行**竖着排，工序轨道挤成「卷…／章…」。
+- **症状**：容器变窄时仪表盘不收栏。实测窗口 1386px、容器 760px：`.wfBody` 仍是 `219px 380px` **两栏**——右侧固定 380px 不让步，左栏被压到 219px，「规划全书卷结构」的说明**一个字一行**竖着排，工序轨道挤成「卷…／章…」。
+- **根因**：面板停靠在宿主的会话列里，宽度由列决定而非浏览器视口；而 `.wfBody` 的断点 `@media (max-width: 1080px)` 测的是**视口**（1386px，没变），所以永远命中不了窄档。不是 2.1.0 / 2.0.0 引入的，是这套断点从一开始参照物就错了。
+- **修法**：给面板根 `.view` 声明 `container-type: inline-size; container-name: nfpanel`，把面板内部 **12 处**宽度断点由 `@media` 改为 `@container nfpanel`：仪表盘 8 处（`.wfBody` / `.wfColB` / `.wfMetrics` / `.wfRail` / `.wfCard2` / `.wfDrawerList` / `.wfBook` / 顶栏窄档）+ 书架指标 / 章节计划 / 张力 / 章节工作台 4 处。面板现在按**自身宽度**分档，与窗口大小解耦。
 
-### 根因
+### 缺陷二：页面被 flex 压扁，多出的内容被自身裁掉且无法滚动
 
-- `.wfBody` 的断点 `@media (max-width: 1080px)` 测的是**视口**（1386px，没变），所以永远命中不了窄档。不是 2.1.0 / 2.0.0 引入的，是这套断点从一开始参照物就错了。
+- **症状**：进入工作台后仪表盘下面一截看不到，**且没有任何滚动条**。
+- **实测**：窗口 1386×810 时 `.panelContent` 可视高 659px，而 `.wfStage` 只有 **619px** 高、内容却有 **1014px** —— 396px 被静默裁掉；`panelContent.scrollHeight === clientHeight`，所以永远不出现滚动条。
+- **根因**：`.panelContent` 是 `display: flex; flex-direction: column` 的滚动容器，`.wfStage` 用默认 `flex-shrink: 1` 被压到容器高度；而 `.wfStage` 为圆角裁切带 `overflow: hidden` —— flex 项一旦 `overflow` 非 `visible`，其**自动最小尺寸归零**，于是它既不撑高自身、也不向父容器产生溢出。两条独立路径同样能修（`panelContent` 改 `display:block`、或 `.wfStage` 改 `overflow:visible`），互相印证了机制。
+- **修法**：`.panelContent > * { flex-shrink: 0 }` —— 滚动容器里的页面根按内容取高，滚动交还给 `.panelContent`。
+- **复验**：`.wfStage` 619 → **1015px**；`.panelContent` 变为可滚（`maxScroll 396`，实测滚到 397，**能到底**）；右侧滚动条出现；原先被裁的「本书资料侧柜」「当前环节坐标」可见。
 
-### 修法
+### 复验（真实渲染 · 无头 Chromium + CDP，逐档改容器宽）
 
-- 给面板根 `.view` 声明 `container-type: inline-size; container-name: nfpanel`，把面板内部 **12 处**宽度断点由 `@media` 改为 `@container nfpanel`：仪表盘 8 处（`.wfBody` / `.wfColB` / `.wfMetrics` / `.wfRail` / `.wfCard2` / `.wfDrawerList` / `.wfBook` / 顶栏窄档）+ 书架指标 / 章节计划 / 张力 / 章节工作台 4 处。面板现在按**自身宽度**分档，与窗口大小解耦。
-
-### 复验（真实渲染，逐档改容器宽）
-
-- 1106px → 两栏（桌面档保留，**零视觉回归**）
-- 970 / 944 / 870 / 844 / 800 / 764px → 单栏
-- ≤760px → 指标行 2 列 + 工序轨道 3 格
-- 全程无横向滚动（`scrollWidth === clientWidth`）
+- 断点：1106px → 两栏（桌面档保留，**零视觉回归**）；970 / 944 / 870 / 844 / 800 / 764px → 单栏；≤760px → 指标行 2 列 + 工序轨道 3 格；全程无横向滚动（`scrollWidth === clientWidth`）
 - 门禁：typecheck / 主题尺寸 / 来源卫生 / 对比度 / 构建 / 测试（30 文件 377 用例）全绿
+- 顺带确认：`container-type` 的 containment **未**改变两个全屏遮罩（导入 / 设置）的包含块——实测 `position:fixed` 遮罩仍是 1386×773（视口），而 `.view` 只有 1106 宽，弹窗行为不变。
+- 工具侧：本机 `dsh-builtin-browser` 的 Electron 二进制从未安装成功（`electron@44.5.1` 有包无 `dist/`/`path.txt`），已用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` 补装，`browser_*` 工具恢复可用（直连 GitHub 下载会卡死：Node 不走本机代理）。
 
 ## [2.1.0] - 2026-10-03
 
