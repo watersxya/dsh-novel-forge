@@ -51,3 +51,7 @@ docs/
 /stage_c_ref.md
 /validate-lib.mjs
 /focus-ch1.txt
+
+# 写作产物：不属于插件，禁止入库（agent 会话的工作文件）
+/修复.md
+/番茄红线体检报告*.md
