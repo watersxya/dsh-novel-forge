@@ -35,6 +35,7 @@ import { createUserMessage, BlockAssembler, ReasoningEffortId, type GenerateOpti
 import type { Context } from '@deepseek-ai/cordis'
 import { BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, effectiveAntiAiRules, emptyProjectAssets, recommendStylePreset, renderAllAssets, styleEngineSystemPrompt, styleFormulaSystemPrompt } from './assets.ts'
 import { scanAiFlavor } from './ai-scan.ts'
+import { compareStyleFingerprint, extractStyleFingerprint, renderFingerprintComparison } from './style-fingerprint.ts'
 import { beginLiveCall, endLiveCall, markFirstToken } from './llm-live.ts'
 import { withModelFallback } from './llm-retry.ts'
 import { streamWithFallback } from './stream-fallback.ts'
@@ -1145,6 +1146,7 @@ function reviewSystemPrompt(project: ProjectState): string {
     '{"score": 0-100的整数, "riskScore": 0-100的整数(越高越需人工处理,可结合本地AI味指数), "tension": 0-100的整数(本章张力强度:对抗/揭示/抉择/代价;铺垫与日常章应明显偏低), "verdict": "一句话总评", "issues": [{"severity": "high|medium|low", "dimension": "character|setting|redline|writing|pacing|logic|anti-ai|presentation|compliance", "item": "问题描述", "suggestion": "修改建议", "ruleName": "命中的反AI规则名(见反AI规则清单)", "ruleType": "forbidden|risk|encourage", "category": "套话|句式|段落|心理|设定|节奏|对话|其他", "excerpt": "命中的原文摘录(不超过50字)", "reason": "判定理由", "canAutoRewrite": true|false}]}',
     'tension 是本章张力强度评分（不是质量分）：对决/揭秘/生死抉择偏高，铺垫章、日常章、过渡章偏低；同一本书内保持同一尺度。',
     '反 AI 类 issue 尽量给出 ruleName/ruleType/category/excerpt/reason/canAutoRewrite，便于统计与自动改写。',
+    '风格符合度：若下方给出「风格指纹比对」，以它为准判断本章是否偏离绑定写法——偏差显著时按 writing 维度、category 用「风格」上报；比对里说没有显著偏差时，不要报风格问题。',
     'AI 套话高频模板词示例（集中出现必须整体降密度）：仿佛、似乎、极其、完美、深不见底、形成了、莫名、无法形容、难以言喻、精心雕琢、肤光胜雪、眉目如画、歌舞升平、觥筹交错、妙语连珠、不可名状、另一层真相、命运、真相。',
     '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
     '重要：直接输出 JSON 结果本身，不要把思考过程写在输出里。',
@@ -1171,6 +1173,27 @@ function reviewSystemPrompt(project: ProjectState): string {
   return sections.join('\n')
 }
 
+/**
+ * 风格符合度事实块：拿本章指标与**绑定写法样本**的指标对照。
+ *
+ * 取第一个带 sourceText 的写法资产做参照（提取时 routes.ts 会存下样本前 3000 字）。
+ * 样本过短（指标无统计意义）时返回空串——宁可不给，也不给噪声。
+ * @param project - 当前书项目状态。
+ * @param bodyText - 本章正文（已剥标题）。
+ * @returns 可注入审稿 prompt 的文本；没有可用参照时为空串。
+ */
+function styleFidelityBlock(project: ProjectState, bodyText: string): string {
+  for (const style of project.assets?.styleAssets ?? []) {
+    const sample = style.sourceText
+    if (sample === undefined || sample === '') continue
+    const reference = extractStyleFingerprint(sample)
+    if (reference.sentences === 0) continue
+    const actual = extractStyleFingerprint(bodyText)
+    return renderFingerprintComparison(reference, actual, compareStyleFingerprint(reference, actual))
+  }
+  return ''
+}
+
 /** Run the AI review on one chapter. */
 export async function reviewChapter(
   ctx: Context,
@@ -1188,6 +1211,8 @@ export async function reviewChapter(
   // 传入作者**生效**的反 AI 规则：扫描器据此给出确定性的规则命中，
   // 审稿时直接引用事实，不必让模型逐条复核规则清单。
   const aiScan = scanAiFlavor(bodyText, effectiveAntiAiRules(project.assets))
+  // 风格符合度：本章指标 vs 绑定写法样本的指标（确定性事实）
+  const styleBlock = styleFidelityBlock(project, bodyText)
   // 跨章上下文：上一章结尾 + 最近/相关事实 + 活跃剧情线/伏笔（审稿不再只看本章内部）
   const chapterCtx = buildChapterContext(project, chapter, outputDir, { stage: 'review' })
   const blocks = renderContextBlocks(chapterCtx)
@@ -1196,6 +1221,7 @@ export async function reviewChapter(
     `本章标题：《${chapter.title}》`,
     `本章剧情要点：${chapter.beats}`,
     `==================== 本地 AI 味扫描（事实锚点，你只需复核判断，不必再逐字统计） ====================\n${aiScan.summary}`,
+    styleBlock,
     crossChapter,
     '==================== 章节正文 ====================',
     bodyText,
@@ -1266,6 +1292,8 @@ export async function reviewChapterText(
   // 传入作者**生效**的反 AI 规则：扫描器据此给出确定性的规则命中，
   // 审稿时直接引用事实，不必让模型逐条复核规则清单。
   const aiScan = scanAiFlavor(bodyText, effectiveAntiAiRules(project.assets))
+  // 风格符合度：本章指标 vs 绑定写法样本的指标（确定性事实）
+  const styleBlock = styleFidelityBlock(project, bodyText)
   const user = [
     `书名：《${project.bookName}》`,
     previousReport !== undefined
@@ -1276,6 +1304,7 @@ export async function reviewChapterText(
       ? '==================== 修订稿（上一轮审稿后按意见修订的正文） ===================='
       : '==================== 待审查正文 ====================',
     `==================== 本地 AI 味扫描（事实锚点，你只需复核判断，不必再逐字统计） ====================\n${aiScan.summary}`,
+    styleBlock,
     bodyText,
   ].join('\n')
   // 验证模式：携带上一轮报告时，逐条核对原意见是否解决 + 只挑新增 high，不再全新找茬。

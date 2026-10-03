@@ -10,6 +10,7 @@
  */
 
 import type { AntiAiRule, GenreNode, PlotBeatTemplate, ProgressionMode, ProjectAssets, StarterStyleProfile, StyleAsset, StyleTemplate } from './protocol.ts'
+import { extractStyleFingerprint, renderFingerprintTargets } from './style-fingerprint.ts'
 
 // ------------------------------------------------------ built-in style templates
 
@@ -1692,6 +1693,12 @@ export function renderStyleAssets(assets: ProjectAssets | undefined): string {
     if (style.dialogueRules.length > 0) sections.push('台词风格：\n' + unique(style.dialogueRules).map(r => `- ${r}`).join('\n'))
     if (style.descriptionRules.length > 0) sections.push('描写与情绪：\n' + unique(style.descriptionRules).map(r => `- ${r}`).join('\n'))
     if (style.boundaries.length > 0) sections.push('表达边界：\n' + unique(style.boundaries).map(r => `- ${r}`).join('\n'))
+    // 风格指纹目标：文字规则是定性的，模型每次理解都可能不同；
+    // 从**同一份样本**算出的指标是确定的，可以直接当数字区间用。
+    if (style.sourceText !== undefined && style.sourceText !== '') {
+      const targets = renderFingerprintTargets(extractStyleFingerprint(style.sourceText))
+      if (targets !== '') sections.push(targets)
+    }
   }
   return sections.join('\n')
 }

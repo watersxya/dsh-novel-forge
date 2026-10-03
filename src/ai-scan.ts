@@ -137,6 +137,17 @@ function patternWeight(coverage: number): number {
  */
 const DIALOGUE_PATTERN = /(?:"[^"]*"|\u201C[^\u201D]*\u201D|\u2018[^\u2019]*\u2019|\u300C[^\u300D]*\u300D|\u300E[^\u300F]*\u300F)/g
 
+/**
+ * 对话字符数（含引号本身）。
+ *
+ * 导出供写法指纹复用：两处必须同一口径，否则「对话占比」在两个模块里会给出不同的数。
+ * @param text - 任意正文。
+ * @returns 对话部分的总字符数。
+ */
+export function dialogueCharsOf(text: string): number {
+  return (text.match(DIALOGUE_PATTERN) ?? []).join('').length
+}
+
 /** 解释性叙事开头模式 */
 const EXPOSITORY_STARTS = [
   '原来', '因为', '由于', '所以', '因此', '于是',
@@ -180,7 +191,7 @@ const SCORE_SPEC = {
  * @param text - 章节正文（可含标题行）。
  * @returns 自然段数组（已 trim、去空）。
  */
-function paragraphsOf(text: string): string[] {
+export function paragraphsOf(text: string): string[] {
   return text
     .split(/\n+/)
     .map(p => p.trim())
@@ -274,7 +285,7 @@ export function scanAiFlavor(text: string, rules?: readonly AiScanRuleInput[]): 
   const shortParagraphCount = paraLengths.filter(l => l < 20).length
 
   // 6. 对话占比
-  const dialogueChars = (text.match(DIALOGUE_PATTERN) ?? []).join('').length
+  const dialogueChars = dialogueCharsOf(text)
   const dialogueRatio = totalChars > 0 ? dialogueChars / totalChars : 0
 
   // 7. 综合评分（各分项按语料分位点标定，见 SCORE_SPEC）
