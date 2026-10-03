@@ -20,9 +20,10 @@
 
 你的专属 AI 小说写作插件：把一份大纲"编译"成一本完整的小说。
 
-**版本：`1.3.0-alpha`** · 定位：**纯文本小说创作**。所有环节（开书、设定、规划、写作、审校、质检、导出）都在侧边栏「小说工坊」面板内完成；不涉及图片 / 视频 / 分镜生成。
+**版本：`2.1.0`** · 定位：**纯文本小说创作**。所有环节（开书、设定、规划、写作、审校、质检、导出）都在侧边栏「小说工坊」面板内完成；不涉及图片 / 视频 / 分镜生成。
 
-> 整条线目前都是 `-alpha` 预发布：安装请显式带 `@alpha` 标签。
+> **安装标签**：2.0.0 起本项目已转正式版，`latest` 是默认标签，`npm i @waterwx/dsh-novel-forge` 即可。
+> 只有在测试预发布版本时才需要显式带 `@alpha`。
 >
 > **界面语言**：面板为**简体中文单语**（无语言切换）。本文档的中英对照是文档翻译，不代表界面提供英文。
 
@@ -203,17 +204,16 @@ dsh plugin --profile web add link:"<此目录绝对路径>"
 ### 从 npm 安装（推荐）
 
 ```sh
-dsh plugin --profile web add @waterwx/dsh-novel-forge@alpha
+dsh plugin --profile web add @waterwx/dsh-novel-forge
 ```
 
-> 版本标签：本项目整条线都是 `-alpha` 预发布，请显式指定 `@alpha` 以拿到最新版。
-> `latest` 与 `alpha` 在发版时同步指向同一版本（见 `scripts/release.mjs`），
-> 但显式带标签可以避免 registry 缓存或旧标签带来的意外降级。
+> 版本标签：`latest` 是默认标签（2.0.0 起本项目为正式版），`npm i @waterwx/dsh-novel-forge` 即可拿到最新版。
+> 预发布版本走 `@alpha`（见 `scripts/release.mjs` 发版时的 dist-tag 同步）。
 
 npm 分发的是预构建产物，无需任何构建授权。
 从 GitHub 安装需为 git 依赖的 `prepare` 构建授权（`pnpm-workspace.yaml` 的 `allowBuilds`）。
 
-**环境要求**：Node `^22.19.0 || >=24.0.0`；DSH peer 依赖 `0.1.2-alpha.3`。
+**环境要求**：Node `^22.19.0 || >=24.0.0`；DSH peer 依赖 `^0.2.0-rc.2`。
 
 ---
 
@@ -259,7 +259,12 @@ node scripts/check-third-party.mjs     # 来源卫生：不得出现外部项目
 
 - **CI**（`.github/workflows/ci.yml`，Node 24 + pnpm 9）：install → typecheck → build → 三条检查脚本 → `pnpm test`。
 - **测试构成**：阶段契约、失败分级、模型回退、修订仲裁（合并 / 优先级 / 截断 / 多源基准）、路由级 `/status` 与 `/revision/plan`、时间线规则、张力规则、快照（真实文件系统）、提示词槽位、客户端书范围绑定、内置资产完整性。
-- **发布纪律**（`pnpm release`，`--dry-run` 可预览）：typecheck → 样式门禁 → 备用档门禁 → 来源卫生门禁 → build → `pnpm test` → commit + tag + push → `npm publish --tag alpha` → 同步 `latest` → 创建 GitHub Release（版本号含 `-` 时标为 prerelease）。**带着失败用例不允许发布**（npm 版本号不可复用）。
+- **发布纪律**（`pnpm release`，`--dry-run` 可预览）：typecheck → 样式门禁 → 备用档门禁 → 来源卫生门禁 → 对比度门禁 → build → `pnpm test` → commit + tag + push → `npm publish --access public --tag<tag>` → 同步 `latest` → 创建 GitHub Release（版本号含 `-` 时标为 prerelease）。**带着失败用例不允许发布**（npm 版本号不可复用）。
+- **发布前置条件**（脚本不检查，缺了会在最后一步才炸）：
+  1. **已登录 npm**。`npm whoami` 要能输出用户名。网页登录 npmjs.com **不算**——那只给你看网页的权限，命令行认的是 `~/.npmrc`。用 token 登录：`npm config set //registry.npmjs.org/:_authToken npm_xxx`（token 在 <https://www.npmjs.com/settings/your-profile> → Access Tokens 生成，勾 `Publish`）。npm 早已禁用密码登录。
+  2. **CHANGELOG.md 顶部要有目标版本条目**，格式 `## [x.y.z] - YYYY-MM-DD`。脚本只认顶部第一条——忘了加会重复发布当前版本，而 npm 版本号不可复用。
+  3. **GitHub 也要能认证**：最后创建 Release 走 `git credential fill` 取token，没有会中止。
+- **注意 `--access public` 不是可选项**：本包是 scoped 包（`@waterwx/…`），npm 规定 scoped 包默认私有，不带该参数会被拒（`402 Payment Required`）。
 - **规则工程约束**：阶段契约、失败分级、截断显式化、修订仲裁等规则由宿主统一实现，面板与助手共用同一结论，不各写一套。
 
 ---
@@ -301,7 +306,7 @@ vitest.config.ts      测试范围（tests/**/*.test.ts）
 
 An AI novel-writing plugin for DeepSeek Harness (DSH). Feed it an outline (docx / pasted text / a full txt split into chapters) and it compiles it into a complete novel: open a book → build the setting → plan chapters → compile chapter by chapter → revise → audit & finalize → export.
 
-**Version `1.3.0-alpha` · Scope: pure-text novel writing.** Everything happens inside the "Novel Forge" sidebar panel; no comic / storyboard / image / video generation.
+**Version `2.1.0` · Scope: pure-text novel writing.** Everything happens inside the "Novel Forge" sidebar panel; no comic / storyboard / image / video generation.
 
 **UI language: Simplified Chinese only.** The panel ships a single Chinese UI (no language switch); the English section below is documentation for this repository, not an in-app language option.
 
@@ -336,13 +341,13 @@ An AI novel-writing plugin for DeepSeek Harness (DSH). Feed it an outline (docx 
 ### Install
 
 ```sh
-dsh plugin --profile web add @waterwx/dsh-novel-forge@alpha
+dsh plugin --profile web add @waterwx/dsh-novel-forge
 ```
-The `@alpha` tag is required on purpose: every release on the current line is a
-prerelease, so pin the tag instead of relying on the `latest` dist-tag.
+`latest` is the default tag (2.0.0 turned this line into stable releases), so the bare
+package name gets you the newest version. Pin `@alpha` only when you deliberately want a prerelease.
 Or link a local checkout and restart dsh web; the "Novel Forge" entry appears in the sidebar.
 
-Requirements: Node `^22.19.0 || >=24.0.0`; DSH peer `0.1.2-alpha.3`.
+Requirements: Node `^22.19.0 || >=24.0.0`; DSH peer `^0.2.0-rc.2`.
 
 ### Data
 
@@ -353,7 +358,7 @@ Requirements: Node `^22.19.0 || >=24.0.0`; DSH peer `0.1.2-alpha.3`.
 
 ### Engineering & gates
 
-`pnpm typecheck`, `pnpm test` (14 files / 152 cases), `pnpm build`, plus `scripts/check-theme-sizes.mjs`, `check-fallback-tiers.mjs` and `check-third-party.mjs`; CI runs the same chain on Node 24 + pnpm 9. `pnpm release` runs it again before publishing (a failing suite blocks the release).
+`pnpm typecheck`, `pnpm test` (30 files / 309 tests; 23 files pass, 7 fail to collect because the local profile lacks the host package `@deepseek-ai/dsh-llm` — an environment gap, not a code defect), `pnpm build`, plus `scripts/check-theme-sizes.mjs`, `check-fallback-tiers.mjs`, `check-third-party.mjs` and `audit-contrast.mjs`; CI runs the same chain on Node 24 + pnpm 9. `pnpm release` runs it again before publishing (a failing suite blocks the release).
 
 ### Limitations
 

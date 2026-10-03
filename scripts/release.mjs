@@ -141,12 +141,15 @@ console.log('  · push 完成')
 
 // ---- 6) npm publish ------------------------------------------------------
 console.log(NL + '▶ npm publish')
-if (DRY_RUN) {
-  console.log('  [dry] npm publish --tag ' + npmTag)
-} else {
-  try {
-    shLive('npm publish --tag ' + npmTag)
-  } catch (e) {
+  if (DRY_RUN) {
+    console.log('  [dry] npm publish --access public --tag ' + npmTag)
+  } else {
+    try {
+      // `--access public` 不是可选项：本包是 scoped 包（@waterwx/…），
+      // npm 规定 scoped 包**默认私有**，不带该参数直接发会被拒
+      // （402Payment Required）。首版脚本漏了它，直到真要发布才暴露。
+      shLive('npm publish --access public --tag ' + npmTag)
+    } catch (e) {
     const err = String(e)
     if (/already published|You cannot publish over the previously published version/.test(err)) {
       console.log('  · 该版本已在 npm 上，跳过')
