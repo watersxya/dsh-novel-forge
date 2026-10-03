@@ -195,6 +195,12 @@ body[data-ds-dark-theme] .entry {
   inset: 0;
   overflow: auto;
   color-scheme: light;
+  /* 面板停靠在宿主的会话列里，**宽度由列决定，与浏览器视口无关**。
+   * 因此面板内部的断点必须按「容器宽度」判断（@container nfpanel），
+   * 用视口断点会在窄列里永远命中不了桌面档：右栏固定 380px 不收，左栏被挤成一条。
+   * absolute + inset:0 已给出确定的 inline size，container-type 不会改变其宽度。 */
+  container-type: inline-size;
+  container-name: nfpanel;
   /* 统一 iOS 字体栈：SF Pro + 苹方/冬青黑体中文回退，Windows 回落微软雅黑（令牌见 :global(:root)） */
   font-family: var(--nf-font);
   /* 墨纸（原 liquid 值，localStorage 兼容保留 'liquid'）：暖编辑风浅色板。
@@ -2330,7 +2336,7 @@ select.input {
   background: color-mix(in srgb, var(--nf-ai) 12%, transparent);
 }
 
-@media (max-width: 760px) {
+@container nfpanel (max-width: 760px) {
   .shelfStatGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }}
 
 
@@ -4361,7 +4367,7 @@ body[data-ds-dark-theme] {
   padding-top: var(--nf-space-10, 10px);
 }
 
-@media (max-width: 900px) {
+@container nfpanel (max-width: 900px) {
   .planMaster {
     grid-template-columns: 1fr;
     height: auto;
@@ -4453,7 +4459,7 @@ body[data-ds-dark-theme] {
   min-width: 0;
 }
 
-@media (max-width: 900px) {
+@container nfpanel (max-width: 900px) {
   .t2Master {
     grid-template-columns: 1fr;
   }
@@ -4874,7 +4880,7 @@ body[data-ds-dark-theme] {
 
 .wfMetric small { font-size: var(--nf-fs-caption, 11px); color: var(--nf-text-3); display: block; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-@media (max-width: 760px) { .wfMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+@container nfpanel (max-width: 760px) { .wfMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }}
 
 
 /* 主体两栏 ---------------------------------------------------------------- */
@@ -4883,7 +4889,7 @@ body[data-ds-dark-theme] {
   grid-template-columns: minmax(0, 1fr) 380px;
 }
 
-@media (max-width: 1080px) {
+@container nfpanel (max-width: 1080px) {
   .wfBody { grid-template-columns: minmax(0, 1fr); }}
 
 .wfColA {
@@ -4903,7 +4909,7 @@ body[data-ds-dark-theme] {
   min-width: 0;
 }
 
-@media (max-width: 1080px) {
+@container nfpanel (max-width: 1080px) {
   .wfColB { border-left: none; }}
 
 
@@ -4984,7 +4990,7 @@ body[data-ds-dark-theme] {
   background: rgba(217, 138, 43, 0.12);
 }
 
-@media (max-width: 760px) {
+@container nfpanel (max-width: 760px) {
   .wfRail { grid-template-columns: repeat(3, 1fr); }}
 
 
@@ -5152,7 +5158,7 @@ body[data-ds-dark-theme] {
   gap: 14px;
 }
 
-@media (max-width: 1080px) {
+@container nfpanel (max-width: 1080px) {
   .wfCard2 { grid-template-columns: minmax(0, 1fr); }}
 
 .wfBox {
@@ -5341,7 +5347,7 @@ body[data-ds-dark-theme] {
   gap: 6px;
 }
 
-@media (max-width: 560px) {
+@container nfpanel (max-width: 560px) {
   .wfDrawerList { grid-template-columns: 1fr; }}
 
 .wfDl {
@@ -5593,10 +5599,10 @@ body[data-ds-dark-theme] {
 
 
 /* 窄宿主压缩 -------------------------------------------------------------- */
-@media (max-width: 1080px) {
-  .wfBook { max-width: 70vw; }}
+@container nfpanel (max-width: 1080px) {
+  .wfBook { max-width: 70%; }}
 
-@media (max-width: 760px) {
+@container nfpanel (max-width: 760px) {
   .wfRsName { font-size: 12px; }
   .wfProg { display: none; }
   .wfTopRight { margin-left: 0; }
@@ -5811,7 +5817,7 @@ body[data-ds-dark-theme] {
 }
 
 
-@media (max-width: 1180px) {
+@container nfpanel (max-width: 1180px) {
   .chWorkGrid { grid-template-columns: 220px minmax(0, 1fr); }
   .chWorkSide {
     grid-column: 1 / -1;
@@ -5819,7 +5825,7 @@ body[data-ds-dark-theme] {
     border-top: 1px solid var(--nf-border);
   }}
 
-@media (max-width: 820px) {
+@container nfpanel (max-width: 820px) {
   .chWorkGrid { grid-template-columns: minmax(0, 1fr); }
   .chWorkAside {
     border-right: none;
