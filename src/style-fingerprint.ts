@@ -197,6 +197,10 @@ export function extractStyleFingerprint(text: string): StyleFingerprint {
  */
 export function compareStyleFingerprint(reference: StyleFingerprint, actual: StyleFingerprint): StyleDeviation[] {
   if (reference.chars < MIN_CHARS) return []
+  // 本章文本过短时指纹被整体归零（见 extractStyleFingerprint 的 MIN_CHARS 分支），
+  // 此时比对没有意义 —— 硬比会得到「句均长 -100%、段落均长 -100%」一整片假偏离。
+  // 实测就是这么被抓出来的：验证书里三章不足 200 字，全被报成极端偏离。
+  if (actual.sentences === 0) return []
   const out: StyleDeviation[] = []
   for (const metric of Object.keys(TOLERANCE) as StyleMetricKey[]) {
     const ref = reference[metric]
@@ -233,20 +237,33 @@ function formatMetric(metric: StyleMetricKey, value: number): string {
  */
 export function renderFingerprintTargets(reference: StyleFingerprint): string {
   if (reference.chars < MIN_CHARS) return ''
-  const range = (metric: StyleMetricKey): string => {
+  const items: string[] = []
+  const add = (metric: StyleMetricKey, suffix: string): void => {
     const value = reference[metric]
     const tolerance = TOLERANCE[metric]
-    return formatMetric(metric, value * (1 - tolerance)) + '–' + formatMetric(metric, value * (1 + tolerance))
+    if (ABSOLUTE_ONLY.has(metric)) {
+      // 绝对阈值型：参照为 0 时给不出有意义的带宽，直接不出这一行。
+      if (value <= 0) return
+      items.push('- ' + LABEL[metric] + '：0–' + formatMetric(metric, value + tolerance) + suffix)
+      return
+    }
+    // 下限夹到 0：参照值小的时候 value * (1 - tolerance) 会算出负数，
+    // 而「对话占比 -3.3%–29.5%」这种目标写进提示词是荒谬的。
+    const lo = Math.max(0, value * (1 - tolerance))
+    const hi = value * (1 + tolerance)
+    items.push('- ' + LABEL[metric] + '：' + formatMetric(metric, lo) + '–' + formatMetric(metric, hi) + suffix)
   }
+  add('avgSentenceLength', ' 字')
+  add('sentenceLengthCv', '（越大越参差）')
+  add('shortSentenceRatio', '（<=' + SHORT_SENTENCE_CHARS + ' 字）')
+  add('dialogueRatio', '')
+  add('avgParagraphLength', ' 字')
+  add('imageryPer1000', ' 次/千字')
+  if (items.length === 0) return ''
   return [
     '==================== 风格目标（确定性指标，取自绑定的写法样本） ====================',
     '本章正文应落在这几个区间内。不是硬性红线，但明显越界会被审稿判为偏离绑定写法：',
-    '- 句均长：' + range('avgSentenceLength') + ' 字',
-    '- 句长起伏（CV）：' + range('sentenceLengthCv') + '（越大越参差）',
-    '- 短句占比（<=' + SHORT_SENTENCE_CHARS + ' 字）：' + range('shortSentenceRatio'),
-    '- 对话占比：' + range('dialogueRatio'),
-    '- 段落均长：' + range('avgParagraphLength') + ' 字',
-    '- 意象密度：' + range('imageryPer1000') + ' 次/千字',
+    ...items,
   ].join('\n')
 }
 
@@ -265,7 +282,7 @@ export function renderFingerprintComparison(
   actual: StyleFingerprint,
   deviations: StyleDeviation[],
 ): string {
-  if (reference.chars < MIN_CHARS) return ''
+  if (reference.chars < MIN_CHARS || actual.sentences === 0) return ''
   const lines = [
     '==================== 风格指纹比对（确定性事实） ====================',
     '参照物：绑定写法资产的样本文本（' + reference.chars + ' 字）；本章正文 ' + actual.chars + ' 字。',

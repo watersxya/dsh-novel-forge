@@ -149,3 +149,26 @@ describe('渲染：给生成端的目标与给审稿端的事实', () => {
     expect(renderFingerprintComparison(extractStyleFingerprint('短。'), actual, [])).toBe('')
   })
 })
+
+describe('过短文本：宁可不说，也不要给假偏离', () => {
+  const ref = extractStyleFingerprint(makeText(30, 20))
+
+  it('本章过短时不做比对（验证书里三章不足 200 字，曾被整片判成 -100% 极端偏离）', () => {
+    const tooShort = extractStyleFingerprint('太短了。')
+    expect(tooShort.sentences).toBe(0)
+    expect(compareStyleFingerprint(ref, tooShort)).toEqual([])
+    expect(renderFingerprintComparison(ref, tooShort, [])).toBe('')
+  })
+})
+
+describe('目标区间：不能写出荒谬的边界', () => {
+  it('比率型下限不会为负（参照 0.9% 时下限是 0.0%，不是 -3.3%）', () => {
+    const ref = extractStyleFingerprint(makeText(30, 20) + '\u201C你来了。\u201D')
+    const line = renderFingerprintTargets(ref).split('\n').find(l => l.includes('对话占比'))
+    expect(line).toContain('0.0%–')
+  })
+
+  it('绝对阈值型指标参照为 0 时不出这一行（否则会得到「0.00–0.00」）', () => {
+    expect(renderFingerprintTargets(extractStyleFingerprint(makeText(30, 20)))).not.toContain('意象密度')
+  })
+})
