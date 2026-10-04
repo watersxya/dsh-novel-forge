@@ -99,30 +99,26 @@ function contrast(a, b) {
 }
 
 /* ---------- 上下文定义 ---------- */
-/** endfield accent 走 --edge-accent 引用链，按档位解析成实际值（valley 默认 / wuling 武陵青） */
-const ALIAS = {
-  'var(--edge-accent)': '#fff500',
-  'var(--edge-accent-onpaper)': '#d9c700',
-  'var(--edge-accent-deep)': '#e8e000',
-}
-const WULING = {
-  'var(--edge-accent)': '#14d0d0',
-  'var(--edge-accent-onpaper)': '#14d0d0',
-  'var(--edge-accent-deep)': '#10b8b8',
-}
-
+/**
+ * 真实存在的上下文只有 2 套：1 套色板（墨案 / 墨纸）× 2 明暗。
+ *
+ * 历史遗留（已修）：本表曾列出 11 套（liquid / neumorph / macos / clay / endfield
+ * × 各档），但 panel.module.css 里 `data-nf-theme` 作为选择器出现 0 次 ——
+ * 那 9 套主题的令牌覆盖块从未存在（连空注释桩都已删除）。脚本找不到对应块时
+ * 会「继承种子值」，于是同一套色板被重复审计 6 遍，输出 66 项全 PASS 的假绿灯
+ * （6 套浅色主题的 text/bg 全是 14.28:1，正是同一色板的指纹）。
+ *
+ * 增删主题时必须同步本表与 CSS 的 data-nf-theme 块，否则审计范围与真实交付脱节。
+ */
+// 四个上下文 = 四套**实际会生效**的色板：
+//   .view 浅 / .view 深（跟随系统时的基准）
+//   .panel[data-nf-mode=light] / [data-nf-mode=dark]（用户强制时的覆盖板）
+// 后两套与前两套并非复刻（值不同），必须分开验，否则审计量到的不是界面真实色值。
 const contexts = [
-  { id: 'liquid·浅（默认）', canvas: { r: 255, g: 255, b: 255 }, theme: null, dark: false },
-  { id: 'liquid·深（默认）', canvas: { r: 10, g: 11, b: 13 }, theme: 'mode-dark', dark: true },
-  { id: 'neumorph·浅', canvas: { r: 240, g: 240, b: 245 }, theme: 'neumorph', dark: false },
-  { id: 'macos·浅', canvas: { r: 245, g: 246, b: 248 }, theme: 'macos', dark: false },
-  { id: 'macos·深', canvas: { r: 18, g: 18, b: 20 }, theme: 'macos', dark: true },
-  { id: 'clay·浅', canvas: { r: 244, g: 233, b: 220 }, theme: 'clay', dark: false },
-  { id: 'clay·深', canvas: { r: 43, g: 38, b: 34 }, theme: 'clay', dark: true },
-  { id: 'endfield·浅·valley', canvas: { r: 245, g: 240, b: 230 }, theme: 'endfield', dark: false },
-  { id: 'endfield·浅·wuling', canvas: { r: 245, g: 240, b: 230 }, theme: 'endfield', dark: false, alias: WULING },
-  { id: 'endfield·深·valley', canvas: { r: 22, g: 24, b: 26 }, theme: 'endfield', dark: true },
-  { id: 'endfield·深·wuling', canvas: { r: 22, g: 24, b: 26 }, theme: 'endfield', dark: true, alias: WULING },
+  { id: '墨纸·浅（跟随系统 · .view 基准）', canvas: { r: 255, g: 255, b: 255 }, theme: null, dark: false },
+  { id: '墨纸·深（跟随系统 · .view 基准）', canvas: { r: 10, g: 11, b: 13 }, theme: 'mode-dark', dark: true },
+  { id: '墨纸·浅（强制浅色 · 覆盖板）', canvas: { r: 255, g: 255, b: 255 }, theme: 'force-light', dark: false },
+  { id: '墨纸·深（强制深色 · 覆盖板）', canvas: { r: 10, g: 11, b: 13 }, theme: 'force-dark', dark: true },
 ]
 
 /** 判断一个规则块属于哪个 (theme, dark) 的「根」令牌块；不属于返回 null。
@@ -133,10 +129,17 @@ const contexts = [
  *  这样审计量到的就是界面实际使用的值 —— 否则会出现「审计通过、界面仍不达标」。 */
 function blockContext(selector) {
   if (selector === '.view') return { theme: null, dark: false }
-  if (/endfield-accent/.test(selector)) return null // wuling 变体单独体系，本审计按默认 valley 档
+  if (/endfield-accent/.test(selector)) return null // 历史主题残留选择器，本审计无对应色板
   // 显式模式覆盖块：只在整块就是该选择器时认（带子选择器的排除）。
-  if (/^\.panel\[data-nf-mode='light'\]$/.test(selector.trim())) return { theme: null, dark: false }
-  if (/^\.panel\[data-nf-mode='dark'\]$/.test(selector.trim())) return { theme: null, dark: true }
+  //
+  // 关键：这两个块**不是 .view 基准的复刻**，而是各自独立的色板
+  // （例：.view 深色 text-3 = #9d927b，而强制深色 = #9a917e → 调至 #a89d86；
+  //   强制深色 accent = #a63e2a，.view 深色 = #c0492d）。
+  // 所以它们必须各自成一个审计上下文，单独验算 —— 若与基准合并，
+  // 后写入的值会覆盖前者，审计量到的就不是界面真实使用的值，
+  // 就会出现「审计全 PASS、界面仍不达标」。theme 字段用 'force-*' 区分。
+  if (/^\.panel\[data-nf-mode='light'\]$/.test(selector.trim())) return { theme: 'force-light', dark: false }
+  if (/^\.panel\[data-nf-mode='dark'\]$/.test(selector.trim())) return { theme: 'force-dark', dark: true }
   for (const compound of selector.split(',')) {
     const last = compound.trim().split(' ').pop() ?? ''
     if (!last.startsWith('.panel') && !last.startsWith('.view')) return null
@@ -155,34 +158,49 @@ function blockContext(selector) {
 }
 
 const blocks = parseBlocks(css)
-const TOKEN_RE = /--nf-(?:text|text-2|text-3|bg|bg-raise|accent|accent-fg)\s*:/
+/* 审计覆盖的颜色令牌：基础 7 项 + bg-inset（抽屉/凹陷区实际底色）
+ * + 文字版语义色 4 项（图形版当文字色在浅色下不可读，见 -ink 注释）。 */
+const TOKEN_KEYS = '--nf-text|--nf-text-2|--nf-text-3|--nf-bg|--nf-bg-raise|--nf-bg-inset|--nf-accent|--nf-accent-fg|--nf-success-ink|--nf-error-ink|--nf-warn-ink|--nf-info-ink'
+const TOKEN_RE = new RegExp('(?:' + TOKEN_KEYS + ')\\s*:')
+const TOKEN_CAP = new RegExp('(' + TOKEN_KEYS + ')\\s*:\\s*([^;]+)')
 
-// 基准种子：浅色继承 .view 基准，深色继承 mode-dark 基准（主题块只写差异部分）
-const seeds = { false: {}, true: {} }
-for (const b of blocks) {
-  const c = blockContext(b.selector)
-  if (!c || c.theme !== null) continue
-  const key = String(c.dark)
-  for (const line of b.body.split(';')) {
-    if (!TOKEN_RE.test(line)) continue
-    const m = line.match(/(--nf-(?:text|text-2|text-3|bg|bg-raise|accent|accent-fg))\s*:\s*([^;]+)/)
-    if (m) seeds[key][m[1]] = m[2].trim()
+/** 收集某 (theme, dark) 的完整令牌表：先取 .view 基准（同 dark），再叠加该 theme 的覆盖块。
+ *  theme=null 的上下文本身就是基准，无需叠加；其余按 specificity 由后写入者覆盖。 */
+function tokensFor(ctx) {
+  const out = {}
+  // 1) 同明暗的 .view 基准
+  if (ctx.theme === null) {
+    for (const b of blocks) {
+      const c = blockContext(b.selector)
+      if (!c || c.theme !== null) continue
+      if (String(c.dark) !== String(ctx.dark)) continue
+      for (const line of b.body.split(';')) {
+        if (!TOKEN_RE.test(line)) continue
+        const m = line.match(TOKEN_CAP)
+        if (m) out[m[1]] = m[2].trim()
+      }
+    }
+    return out
   }
-}
-
-const results = []
-for (const ctx of contexts) {
-  const tokens = { ...seeds[String(ctx.dark)] }
+  // 2) 覆盖板是完整独立色板，不继承基准（实测值不同，继承会产生误导）
   for (const b of blocks) {
     const c = blockContext(b.selector)
     if (!c || c.theme !== ctx.theme || c.dark !== ctx.dark) continue
     for (const line of b.body.split(';')) {
       if (!TOKEN_RE.test(line)) continue
-      const m = line.match(/(--nf-(?:text|text-2|text-3|bg|bg-raise|accent|accent-fg))\s*:\s*([^;]+)/)
-      if (m) tokens[m[1]] = ((ctx.alias ?? ALIAS)[m[2].trim()] ?? m[2].trim())
+      const m = line.match(TOKEN_CAP)
+      if (m) out[m[1]] = m[2].trim()
     }
   }
-  const need = ['--nf-text', '--nf-text-2', '--nf-text-3', '--nf-bg', '--nf-bg-raise', '--nf-accent', '--nf-accent-fg']
+  return out
+}
+
+const results = []
+for (const ctx of contexts) {
+  const tokens = tokensFor(ctx)
+  const need = ['--nf-text', '--nf-text-2', '--nf-text-3', '--nf-bg', '--nf-bg-raise', '--nf-bg-inset',
+    '--nf-accent', '--nf-accent-fg',
+    '--nf-success-ink', '--nf-error-ink', '--nf-warn-ink', '--nf-info-ink']
   const missing = need.filter(k => tokens[k] === undefined)
   if (missing.length > 0) {
     results.push({ id: ctx.id + '（令牌不全，跳过: ' + missing.join(',') + '）', rows: [] })
@@ -199,13 +217,26 @@ for (const ctx of contexts) {
   const BGraise = over(bgRaise, canvas)
   const resolve = (name) => over(parseColor(tokens[name]), BG)
   const accentSolid = over(parseColor(tokens['--nf-accent']), BG)
+  // bg-inset 也要审：它是抽屉 / 凹陷区的实际底色，浅色下比 bg 更暗一档。
+  const bgInset = over(parseColor(tokens['--nf-bg-inset'] ?? tokens['--nf-bg']), canvas)
   const rows = [
     ['text / bg', contrast(resolve('--nf-text'), BG), 4.5],
     ['text-2 / bg', contrast(resolve('--nf-text-2'), BG), 4.5],
-    ['text-3 / bg', contrast(resolve('--nf-text-3'), BG), 3.0],
+    // 目标由 3.0 提到 4.5：--nf-text-3 用于 meta / 时间戳 / 次要说明（全文件 28 处），
+    // 是长时段使用中最先疲劳的一层，按 WCAG AA 正文级要求，不再放行大字专用阈值。
+    ['text-3 / bg', contrast(resolve('--nf-text-3'), BG), 4.5],
     ['text / bg-raise', contrast(resolve('--nf-text'), BGraise), 4.5],
     ['text-2 / bg-raise', contrast(resolve('--nf-text-2'), BGraise), 4.5],
+    ['text-3 / bg-raise', contrast(resolve('--nf-text-3'), BGraise), 4.5],
+    ['text-3 / bg-inset', contrast(over(parseColor(tokens['--nf-text-3']), bgInset), bgInset), 4.5],
     ['accent-fg / accent', contrast(over(parseColor(tokens['--nf-accent-fg']), BG), accentSolid), 4.5],
+    // 文字版语义色：图形版（--nf-success #34c759 等）在浅色下仅 2.00:1，
+    // 当文字色用完全不可读，因此另立 -ink 一层，这几项是它的验收门。
+    ['success-ink / bg', contrast(resolve('--nf-success-ink'), BG), 4.5],
+    ['error-ink / bg', contrast(resolve('--nf-error-ink'), BG), 4.5],
+    ['warn-ink / bg', contrast(resolve('--nf-warn-ink'), BG), 4.5],
+    ['info-ink / bg', contrast(resolve('--nf-info-ink'), BG), 4.5],
+    ['error-ink / bg-inset', contrast(over(parseColor(tokens['--nf-error-ink']), bgInset), bgInset), 4.5],
   ]
   results.push({ id: ctx.id, rows })
 }

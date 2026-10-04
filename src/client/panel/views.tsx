@@ -73,7 +73,7 @@ export function PlotlineCard(props: {
   const { line } = props
   return (
     <div key={line.id} style={{ border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-10)', padding: 'var(--nf-space-8) var(--nf-space-12)', fontSize: 'var(--nf-fs-12)', display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-4)' }}>
-      <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+      <div className={`css.rowBetween css.rowBetweenWrap`}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--nf-space-6)', flexWrap: 'wrap' }}>
           <b>{line.name}</b>
           <span className={css.badge} style={{ borderColor: 'var(--nf-accent)', color: 'var(--nf-accent)' }}>{kindLabel(line.kind)}</span>
@@ -118,7 +118,7 @@ export function RoleCandidateRow(props: {
   const color = roleColor(r.roleLabel)
   return (
     <div key={r.name} style={{ border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-8)', padding: 'var(--nf-space-6) var(--nf-space-10)', fontSize: 'var(--nf-fs-12)' }}>
-      <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+      <div className={`css.rowBetween css.rowBetweenWrap`}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--nf-space-6)', flexWrap: 'wrap' }}>
           <b>{r.name}</b>
           <span className={css.badge} style={{ borderColor: color, color }}>{label}</span>
@@ -152,7 +152,7 @@ export function RoleCard(props: {
   const color = roleColor(r.roleLabel)
   return (
     <div key={r.name} style={{ border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-8)', padding: 'var(--nf-space-6) var(--nf-space-10)', fontSize: 'var(--nf-fs-12)' }}>
-      <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+      <div className={`css.rowBetween css.rowBetweenWrap`}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--nf-space-6)', flexWrap: 'wrap' }}>
           <b>{r.name}</b>
           <span className={css.badge} style={{ borderColor: color, color }}>{label}</span>
@@ -187,7 +187,7 @@ export function PlotlineHealthPanel(props: {
   const { report } = props
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', border: '1px solid var(--nf-info)', borderRadius: 'var(--nf-radius-12)', padding: 'var(--nf-space-10)' }}>
-      <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+      <div className={`css.rowBetween css.rowBetweenWrap`}>
         <b> 剧情健康检查</b>
         <span style={{ display: 'flex', gap: 'var(--nf-space-8)' }}>
           <button
@@ -237,7 +237,7 @@ export function PlotlinePlanPanel(props: {
   const { plan } = props
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', border: '1px solid var(--nf-accent)', borderRadius: 'var(--nf-radius-12)', padding: 'var(--nf-space-10)' }}>
-      <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+      <div className={`css.rowBetween css.rowBetweenWrap`}>
         <b> 剧情方案</b>
         <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={props.onClose}>收起</button>
       </div>
@@ -248,7 +248,7 @@ export function PlotlinePlanPanel(props: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-4)', fontSize: 'var(--nf-fs-12)' }}>
           {plan.suggestions.map((s, i) => (
             <div key={i} style={{ border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-8)', padding: 'var(--nf-space-6) var(--nf-space-10)' }}>
-              <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <div className={`css.rowBetween css.rowBetweenWrap`}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--nf-space-6)', flexWrap: 'wrap' }}>
                   <b>{s.name}</b>
                   <span className={css.badge} style={{ borderColor: 'var(--nf-accent)', color: 'var(--nf-accent)' }}>{kindLabel(s.kind)}</span>
@@ -276,14 +276,14 @@ export function PlotlineSuggestionPanel(props: {
 }): ReactElement {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', border: '1px solid var(--nf-info)', borderRadius: 'var(--nf-radius-12)', padding: 'var(--nf-space-10)' }}>
-      <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+      <div className={`css.rowBetween css.rowBetweenWrap`}>
         <b> 建议（{props.suggestions.length} 条）</b>
         <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={props.onClose}>收起</button>
       </div>
       {props.suggestions.length === 0 && <span className={css.meta}>没有候选线。</span>}
       {props.suggestions.map((s, i) => (
         <div key={i} style={{ border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-8)', padding: 'var(--nf-space-6) var(--nf-space-10)', fontSize: 'var(--nf-fs-12)' }}>
-          <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <div className={`css.rowBetween css.rowBetweenWrap`}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--nf-space-6)', flexWrap: 'wrap' }}>
               <b>{s.name}</b>
               <span className={css.badge} style={{ borderColor: 'var(--nf-accent)', color: 'var(--nf-accent)' }}>{kindLabel(s.kind)}</span>

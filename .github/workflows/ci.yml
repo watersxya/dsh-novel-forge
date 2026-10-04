@@ -33,6 +33,15 @@ jobs:
       - name: Check theme sizes
         run: node scripts/check-theme-sizes.mjs
 
+      # 未定义的 CSS 令牌会让 var() 静默回落到 fallback 或继承值 ——
+      # 编译通过、运行时无提示、视觉悄悄跑偏，只能靠静态扫描拦住。
+      - name: Check CSS variable closure
+        run: node scripts/check-css-vars.mjs
+
+      # 死类名只报告不删（可能是 data-* 驱动或组合基类），永远 exit 0，故可安全设为门禁。
+      - name: Check dead CSS classes
+        run: node scripts/check-dead-classes.mjs
+
       - name: Check fallback tiers
         run: node scripts/check-fallback-tiers.mjs
 

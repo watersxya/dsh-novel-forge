@@ -204,7 +204,7 @@ export function AssetsTab({ api, initialTab = 'genre' }: AssetsTabProps) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-12)', flex: 1, minHeight: 0 }}>
-      <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+      <div className={`css.rowBetween css.rowBetweenWrap`}>
         <div className={css.titleBlock}>
           <span className={css.eyebrow}>Writing Assets</span>
           <span className={css.cardTitleLg}> 创作资产</span>

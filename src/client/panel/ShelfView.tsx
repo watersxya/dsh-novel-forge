@@ -82,7 +82,7 @@ function BookCard({
           {book.blurb !== undefined && book.blurb !== '' ? book.blurb : '暂无简介'}
         </span>
         <div className={css.bookCardProgressBar}>
-          <div className={css.bookCardProgressFill} style={{ width: `${Math.round(ratio * 100)}%` }} />
+          <div className={css.bookCardProgressFill} style={{ transform: `scaleX(${ratio})` }} />
         </div>
         <div className={css.bookCardMetaRow}>
           <span className={css.meta}>{book.total > 0 ? `已完成 ${book.done} / ${book.total} 章` : '尚未规划章节'}</span>

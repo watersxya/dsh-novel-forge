@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import type { StyleHistoryPoint, StyleHistoryResponse } from '../../protocol.ts'
+import { NoticeBar } from './NoticeBar.tsx'
 import css from './panel.module.css'
 
 /** 可画的四项指标。 */
@@ -112,7 +113,7 @@ export default function StyleView({ api }: StyleViewProps): JSX.Element {
 
   return (
     <div className={css.card} style={{ gap: 'var(--nf-space-12)' }}>
-      <div className={css.row} style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--nf-space-8)' }}>
+      <div className={`css.rowBetween css.rowBetweenWrap`} style={{ gap: 'var(--nf-space-8)' }}>
         <span className={css.cardTitle}>风格漂移曲线</span>
         <span className={css.meta}>
           {points.length} 章 · 可测 {measured.length} 章 · 偏离 {offChapters.length} 章
@@ -120,7 +121,7 @@ export default function StyleView({ api }: StyleViewProps): JSX.Element {
         </span>
       </div>
 
-      <div className={css.row} style={{ gap: 'var(--nf-space-8)', alignItems: 'center', flexWrap: 'wrap' }}>
+      <div className={css.row}>
         <select className={css.input} value={metric} onChange={e => setMetric(e.target.value as MetricKey)}>
           {METRICS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
         </select>
@@ -128,7 +129,15 @@ export default function StyleView({ api }: StyleViewProps): JSX.Element {
         <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { void refresh() }}>刷新</button>
       </div>
 
-      {error !== '' && <span style={{ color: 'var(--nf-error)', fontSize: 'var(--nf-text-12)' }}>{error}</span>}
+      {error !== '' && (
+        <NoticeBar
+          kind="error"
+          detail="风格漂移需要已有章节正文（每章 200 字以上）。若刚写完新章，重试通常就能算出指标。"
+          onRetry={() => { void refresh() }}
+        >
+          {error}
+        </NoticeBar>
+      )}
 
       {measured.length === 0
         ? <span className={css.meta}>还没有可测的章节正文（每章需 200 字以上才能算指标）。先在「总编台 → 生产单」写几章。</span>

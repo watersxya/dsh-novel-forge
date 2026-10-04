@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import { tt } from './helpers.ts'
+import { useConfirm } from './ConfirmDialog.tsx'
 import type { AssistantFrame, StageInfo } from '../../protocol.ts'
 import css from './panel.module.css'
 
@@ -73,6 +74,8 @@ export function AssistantTab({ api, stage }: AssistantTabProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  /** 破坏性操作确认弹窗（取代 window.confirm）。 */
+  const confirmUi = useConfirm()
   /** 思考耗时（秒，busy 时每秒刷新）。 */
   const [thinkSeconds, setThinkSeconds] = useState(0)
   const idRef = useRef(0)
@@ -199,19 +202,28 @@ export function AssistantTab({ api, stage }: AssistantTabProps) {
   }, [lines])
 
   /** 清空对话记录（服务端删除历史 + 本地清空）。 */
-  const handleClear = async (): Promise<void> => {
-    if (!window.confirm('清空全部聊天记录？此操作不可恢复（不影响大纲/设定/章节）。')) return
-    setBusy(true)
-    setError('')
-    try {
-      await api.assistantClear()
-      setLines([])
-      setNotice('对话已清空，编辑老师会重新了解项目')
-    } catch (err) {
-      setError((err as Error).message)
-    } finally {
-      setBusy(false)
-    }
+  const handleClear = (): void => {
+    confirmUi.confirm({
+      title: '清空全部聊天记录',
+      body: '与编辑老师的全部对话历史会被删除，此操作不可恢复。',
+      effects: ['大纲 / 设定 / 章节正文不受影响', '编辑老师会重新从零了解项目'],
+      tone: 'danger',
+      requirePhrase: '清空',
+      confirmLabel: '确认清空',
+      onConfirm: async () => {
+        setBusy(true)
+        setError('')
+        try {
+          await api.assistantClear()
+          setLines([])
+          setNotice('对话已清空，编辑老师会重新了解项目')
+        } catch (err) {
+          setError((err as Error).message)
+        } finally {
+          setBusy(false)
+        }
+      },
+    })
   }
 
   /** Send one message. */
@@ -252,7 +264,7 @@ export function AssistantTab({ api, stage }: AssistantTabProps) {
 
   return (
     <div className={css.card} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <div className={css.row} style={{ justifyContent: 'space-between', alignItems: 'center', gap: 'var(--nf-space-8)' }}>
+      <div className={`css.rowBetween`} style={{ gap: 'var(--nf-space-8)' }}>
         <span className={css.meta}>{tt('assistant.hint')}</span>
         <button type="button" className={css.iconButton} title="清空聊天记录" aria-label="清空聊天记录" onClick={() => { void handleClear() }}>
           
@@ -350,6 +362,7 @@ export function AssistantTab({ api, stage }: AssistantTabProps) {
           {tt('assistant.send')}
         </button>
       </div>
+      {confirmUi.dialog}
     </div>
   )
 }

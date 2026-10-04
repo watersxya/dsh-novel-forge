@@ -294,7 +294,7 @@ export function AdaptModeView({ api, onOpenBook }: { api: NovelApi; onOpenBook?:
               </div>
             ))}
           </div>
-          <div className={css.rowEnd} style={{ justifyContent: 'flex-end' }}>
+          <div className={`${css.row} ${css.rowEnd}`}>
             <button type="button" className={css.button + ' ' + css.buttonPrimary} onClick={() => setStep(3)}><ArrowRight size={14} style={{ verticalAlign: -2 }} /> 下一步：③ 确认改编维度</button>
           </div>
         </div>

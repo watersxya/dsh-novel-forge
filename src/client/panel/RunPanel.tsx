@@ -119,7 +119,7 @@ export function RunPanel({ api, totalChapters }: { api: NovelApi; totalChapters:
 
       {/* v4 B4 控制台折叠：生产中下单区收起为一行状态摘要，进度与日志成为主体。 */}
       {run !== null && run.status === 'running' ? (
-        <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--nf-space-8)' }}>
+        <div className={`css.rowBetween css.rowBetweenWrap`} style={{ gap: 'var(--nf-space-8)' }}>
           <span className={css.meta}> 生产中 · 第 {run.startNo}-{run.endNo} 章 · 当前第 {run.currentNo} 章 · {Math.round(ratio * 100)}%</span>
           <div className={css.row} style={{ gap: 'var(--nf-space-6)' }}>
             <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={busy} onClick={() => { void handleControl('pause') }}>
@@ -202,12 +202,12 @@ export function RunPanel({ api, totalChapters }: { api: NovelApi; totalChapters:
       {/* 进度区 */}
       {run !== null && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)' }}>
-          <div className={css.row} style={{ flexWrap: 'wrap', gap: 'var(--nf-space-8)' }}>
+          <div className={css.row}>
             <span className={css.meta}>{run.bookName !== undefined && run.bookName !== '' ? `本书：《${run.bookName}》 · ` : ''}范围：第 {run.startNo} - {run.endNo} 章 · 当前：第 {run.currentNo} 章</span>
             <span className={css.meta}>新生成 {run.stats?.generated ?? 0} · 修订通过 {run.stats?.revised ?? 0} · 豁免 {run.stats?.exempted ?? 0} · 重生成 {run.stats?.regenerated ?? 0} · 失败 {run.stats?.error ?? 0}</span>
           </div>
           <div className={css.bigProgressBar}>
-            <div className={css.bigProgressBarFill} style={{ width: `${Math.round(ratio * 100)}%` }} />
+            <div className={css.bigProgressBarFill} style={{ transform: `scaleX(${ratio})` }} />
           </div>
           {run.pendingManual.length > 0 && (
             <div className={css.meta} style={{ color: 'var(--nf-warn)' }}>

@@ -240,7 +240,7 @@ export function CreateBookView({
         </div>
 
         {(outlineText.trim().length > 0 || effectiveName !== '') && (
-          <div className={css.row} style={{ flexWrap: 'wrap' }}>
+          <div className={css.row}>
             {outlineText.trim().length > 0 && <span className={css.meta}>大纲 {outlineText.length} 字</span>}
             {effectiveName !== '' && <span className={css.meta}>书名：{effectiveName}</span>}
             {genre !== null && <span className={css.meta}>题材：{genre}</span>}
@@ -267,7 +267,7 @@ export function CreateBookView({
                 onChange={e => { setIdea(e.target.value) }}
                 spellCheck={false}
               />
-              <div className={css.row} style={{ flexWrap: 'wrap' }}>
+              <div className={css.row}>
                 <button
                   type="button"
                   className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`}
@@ -295,7 +295,7 @@ export function CreateBookView({
                         className={css.ideaCandidate}
                         style={isPinned ? { borderColor: 'var(--nf-accent)', boxShadow: '0 0 0 2px var(--nf-accent-soft)' } : undefined}
                       >
-                        <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--nf-space-6)' }}>
+                        <div className={`css.rowBetween css.rowBetweenWrap`} style={{ gap: 'var(--nf-space-6)' }}>
                           <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--nf-space-8)', flexWrap: 'wrap' }}>
                             <b>《{candidate.bookName}》</b>
                             {candidate.genre !== '' && <span className={css.badge} style={{ borderColor: 'var(--nf-accent)', color: 'var(--nf-accent)' }}>{candidate.genre}</span>}

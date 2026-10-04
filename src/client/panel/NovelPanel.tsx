@@ -19,14 +19,16 @@ import type { NovelKey } from '../locales.ts'
 import { ReasoningSection } from './ReasoningSection.tsx'
 import LiveFeedLog from './LiveFeedLog.tsx'
 import { CmdPalette } from './CmdPalette.tsx'
+import { useConfirm } from './ConfirmDialog.tsx'
 import type { CmdAction } from './CmdPalette.tsx'
 import { showToast } from './toast.ts'
-import { BarChart3, Book, BookMarked, BookOpen, Brain, Factory, FileText, Folder, GitBranch, Library, MessageSquare, ScrollText, Search, Settings } from 'lucide-react'
+import { BarChart3, Book, BookMarked, BookOpen, Brain, Factory, FileText, Folder, GitBranch, Library, ListTree, MessageSquare, ScrollText, Search, Settings, Sparkles } from 'lucide-react'
 import { AssistantTab } from './AssistantTab.tsx'
 import { AssetsTab } from './AssetsTab.tsx'
 import { AuthorHome } from './AuthorHome.tsx'
 import { AiTag } from './AiTag.tsx'
 import { PageHeader } from './PageHeader.tsx'
+import { Sparkline, describeShape } from './Sparkline.tsx'
 import { ReaderView } from './ReaderView.tsx'
 import { RunPanel } from './RunPanel.tsx'
 import { CreateBookView } from './CreateBookView.tsx'
@@ -166,6 +168,52 @@ const NAV_GROUPS: ReadonlyArray<{ id: string; label: string; collapsible?: boole
 
 /** Settings tab — pinned to the bottom of the nav rail. */
 const SETTINGS_TAB: { id: NovelTab; label: string; icon: ReactElement } = { id: 'settings', label: tt('tab.settings'), icon: <Settings size={18} /> }
+
+/**
+ * 工作台顶栏导航项（组件内构造，因为 go / badge 依赖当前状态）。
+ *
+ * 修订（设计专属性）：此前顶栏用 5 个 Unicode 字形（▣ ✎ ❖ ▦ ⚙），
+ * 而 NAV_GROUPS 里已经躺着 13 个 lucide 图标 + 6 个「按创作阶段归类」的分组 ——
+ * 一套被设计好、写过、注释里解释清楚的东西从未被渲染，被临时字形替掉了。
+ * 现在统一到 lucide 图标语汇，并按 NAV_GROUPS 的阶段语义重排：
+ *
+ *   构思 → 总纲 → 设定 → 写作 → 分析
+ *
+ * 顺序不再按「功能」（写作/设定/资产），而是按作者真实的推进顺序；
+ * `title` 说明每个入口到底做什么（原来只有 3 个字，看不出边界）。
+ */
+/** 抽屉标题元数据：图标 + 文案。原先用 Unicode 字形（✎❖▦⚙⌘⚲…），
+ *  在无 ligature 的字体里退化成豆腐块，且与顶栏已改用的 lucide 不是一套语言。 */
+const DRAWER_META: Record<string, { icon: ReactNode; label: string }> = {
+  write: { icon: <BookMarked size={14} />, label: '写作 · 章节索引' },
+  setup: { icon: <BookOpen size={14} />, label: '设定 · 道藏' },
+  assets: { icon: <Folder size={14} />, label: '资产 · 创作素材库' },
+  params: { icon: <Settings size={14} />, label: '写作参数 · 设置' },
+  overview: { icon: <FileText size={14} />, label: '总纲 / 大纲' },
+  blurb: { icon: <Book size={14} />, label: '简介 / 封面' },
+  plotlines: { icon: <GitBranch size={14} />, label: '剧情线 · 伏笔' },
+  director: { icon: <Brain size={14} />, label: '自动编辑' },
+  knowledge: { icon: <Library size={14} />, label: '知识库' },
+  run: { icon: <Factory size={14} />, label: '生产单' },
+  breakdown: { icon: <Search size={14} />, label: '拆书分析' },
+  timeline: { icon: <ScrollText size={14} />, label: '故事时间线' },
+  tension: { icon: <BarChart3 size={14} />, label: '张力曲线' },
+  style: { icon: <Sparkles size={14} />, label: '风格漂移' },
+  promptSlots: { icon: <ListTree size={14} />, label: '提示词槽位' },
+  fallback: { icon: <FileText size={14} />, label: '详情' },
+}
+
+interface WorkbenchNavItem {
+  id: string
+  label: string
+  icon: ReactElement
+  /** 高亮判定用的抽屉 id；'workflow' 表示底座（无抽屉）。 */
+  on: 'workflow' | 'write' | 'setup' | 'assets' | 'plotlines' | 'knowledge' | 'run' | 'director' | 'breakdown' | 'overview'
+  title: string
+  badge?: string
+  go: () => void
+}
+
 
 /** 审稿维度中文名（审稿问题按维度标注展示）。 */
 const REVIEW_DIM_ZH: Record<string, string> = {
@@ -614,7 +662,7 @@ function ChapterWorkbench({
           <div className={css.chWorkSideBody}>
             {tab === 'versions' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-8)' }}>
-                <div className={css.row} style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className={`css.rowBetween`}>
                   <span className={css.meta}>覆盖写入前会自动留存；回滚也可再撤销。</span>
                   <button type="button" className={css.button} onClick={onCreateSnapshot}>存档当前正文</button>
                 </div>
@@ -641,7 +689,7 @@ function ChapterWorkbench({
             {tab === 'diff' && (hasDraft ? (
               <>
                 <div className={css.chWorkDraftBar}>
-                  <div className={css.row} style={{ justifyContent: 'space-between' }}>
+                  <div className={`css.rowBetween`}>
                     <b>草稿待处置</b>
                     <span className={css.meta}>
                       字数 {text.length} → {draft?.length ?? 0}
@@ -671,7 +719,7 @@ function ChapterWorkbench({
 
             {tab === 'review' && (review !== undefined ? (
               <div className={css.reviewBox}>
-                <div className={css.row} style={{ justifyContent: 'space-between' }}>
+                <div className={`css.rowBetween`}>
                   <b>审稿报告</b>
                   <span style={{ color: review.passed ? 'var(--nf-success)' : 'var(--nf-error)' }}>
                     评分 {review.score} — {review.passed ? '通过' : '未通过'}
@@ -733,7 +781,7 @@ function ChapterWorkbench({
 
             {tab === 'author' && (author !== undefined ? (
               <div className={css.reviewBox} style={{ borderColor: 'color-mix(in srgb, var(--nf-info) 45%, transparent)' }}>
-                <div className={css.row} style={{ justifyContent: 'space-between' }}>
+                <div className={`css.rowBetween`}>
                   <b>作者复盘</b>
                   <span style={{ color: author.hookHonored ? 'var(--nf-success)' : 'var(--nf-warn)' }}>
                     钩子{author.hookHonored ? '已兑现 ✓' : '未兑现 ✗'} · 结尾钩子 {author.endingHook}/10
@@ -821,6 +869,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const [busyLabel, setBusyLabel] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  /** 破坏性操作确认弹窗（取代 9 处 window.confirm）。渲染点在本组件 return 的根部。 */
+  const confirmUi = useConfirm()
   const [progress, setProgress] = useState<ProgressLine[]>([])
   const [configDraft, setConfigDraft] = useState<NovelConfig | null>(null)
   const [expandedChapter, setExpandedChapter] = useState<number | null>(null)
@@ -1135,6 +1185,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     setRightDrawer(which)
     setDrawerMax(false)
   }
+
+
   /** 关闭抽屉：回落总编台。 */
   const closeDrawer = (): void => {
     setRightDrawer(null)
@@ -1486,27 +1538,39 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   }
 
   /** 反推大纲：从已写章节正文反向生成全书总纲（流式进度）。 */
-  const handleReverseOutline = async (): Promise<void> => {
+  const handleReverseOutline = (): void => {
     if (project === null) return
-    if (!window.confirm('将从已写章节正文反推出全书总纲（覆盖当前大纲文本，不影响章节/设定/进度）。确定继续？')) return
-    setBusy(true)
-    setError('')
-    try {
-      await api.outlineReverse(frame => {
-        if (frame.type === 'outline-progress') {
-          pushProgress(`反推大纲：${frame.phase}（${frame.done}/${frame.total}）`, 'info')
-        } else if (frame.type === 'outline-done') {
-          setOutlineText(frame.outline)
-          pushProgress(`反推大纲完成（${frame.chars} 字），已保存为当前总纲`, 'done')
+    confirmUi.confirm({
+      title: '从已写章节反推全书总纲',
+      body: '将读取已写章节正文，反推出全书总纲并覆盖当前大纲文本。',
+      effects: [
+        '当前「总纲 / 大纲」文本会被覆盖',
+        '已写章节、设定、进度不受影响',
+      ],
+      assurance: '覆盖前会先留存当前大纲，可在历史版本里换回来。',
+      tone: 'warn',
+      confirmLabel: '反推并覆盖',
+      onConfirm: async () => {
+        setBusy(true)
+        setError('')
+        try {
+          await api.outlineReverse(frame => {
+            if (frame.type === 'outline-progress') {
+              pushProgress(`反推大纲：${frame.phase}（${frame.done}/${frame.total}）`, 'info')
+            } else if (frame.type === 'outline-done') {
+              setOutlineText(frame.outline)
+              pushProgress(`反推大纲完成（${frame.chars} 字），已保存为当前总纲`, 'done')
+            }
+          })
+          await refresh(false)
+        } catch (err) {
+          setError((err as Error).message)
+          pushProgress(`反推大纲失败：${(err as Error).message}`, 'error')
+        } finally {
+          setBusy(false)
         }
-      })
-      await refresh(false)
-    } catch (err) {
-      setError((err as Error).message)
-      pushProgress(`反推大纲失败：${(err as Error).message}`, 'error')
-    } finally {
-      setBusy(false)
-    }
+      },
+    })
   }
 
   /** 大纲页「更新大纲」展开/收起（展开时预填当前大纲文本）。 */
@@ -1515,24 +1579,38 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     setUpdatingOutline(v => !v)
   }
 
-  /** 重置项目：清空全部进度，从新大纲重新开始（二次确认）。 */
-  const handleResetProject = async (): Promise<void> => {
+  /** 重置项目：清空全部进度，从新大纲重新开始（危险档：需逐字输入「重置」）。 */
+  const handleResetProject = (): void => {
     if (project === null) return
-    if (!window.confirm('将清空本书全部进度（道藏/卷计划/章节计划/已生成章节/暗线/写作资产/编年录），且不可恢复。确定用新总纲重置？')) return
-    setBusy(true)
-    setError('')
-    try {
-      const result = await api.reset(outlineText)
-      setUpdatingOutline(false)
-      pushProgress(`已重置项目：${result.bookName}（从新大纲重新开始）`, 'done')
-    } catch (err) {
-      setError((err as Error).message)
-      pushProgress(`重置失败：${(err as Error).message}`, 'error')
-    } finally {
-      setBusy(false)
-      setBusyLabel('')
-      await refresh(false)
-    }
+    confirmUi.confirm({
+      title: '用新总纲重置本书',
+      body: '本书的全部进度会被清空，从新总纲重新开始。这一步不可恢复。',
+      effects: [
+        '道藏 / 卷计划 / 章节计划',
+        '已生成章节正文',
+        '暗线 / 写作资产 / 编年录',
+      ],
+      assurance: '大纲文本本身保留；已写章节建议先在书架里备份一份再重置。',
+      tone: 'danger',
+      requirePhrase: '重置',
+      confirmLabel: '确认重置',
+      onConfirm: async () => {
+        setBusy(true)
+        setError('')
+        try {
+          const result = await api.reset(outlineText)
+          setUpdatingOutline(false)
+          pushProgress(`已重置项目：${result.bookName}（从新大纲重新开始）`, 'done')
+        } catch (err) {
+          setError((err as Error).message)
+          pushProgress(`重置失败：${(err as Error).message}`, 'error')
+        } finally {
+          setBusy(false)
+          setBusyLabel('')
+          await refresh(false)
+        }
+      },
+    })
   }
 
   /** 全书一致性质检（LLM 扫描已生成章节）。 */
@@ -1635,23 +1713,32 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   }
 
   /** 章节直接通过（作者行使最终决定权）。 */
-  const handleChapterApprove = async (no: number): Promise<void> => {
-    if (!window.confirm(`确定直接通过第 ${no} 章？（跳过审稿判定，保留审稿记录）`)) return
-    setBusy(true)
-    setError('')
-    try {
-      await api.chapterApprove(no)
-      setProject(prev => prev === null ? prev : {
-        ...prev,
-        chapters: prev.chapters.map(c => c.no === no ? { ...c, status: 'approved' } : c),
-      })
-      pushProgress(`第 ${no} 章已直接通过`, 'done')
-    } catch (err) {
-      setError((err as Error).message)
-      pushProgress(`操作失败：${(err as Error).message}`, 'error')
-    } finally {
-      setBusy(false)
-    }
+  const handleChapterApprove = (no: number): void => {
+    confirmUi.confirm({
+      title: `直接通过第 ${no} 章`,
+      body: '跳过审稿判定，直接把本章标记为通过。',
+      effects: ['审稿记录会保留，但判定结论不再阻止本章定稿'],
+      assurance: '事后仍可对该章重新审稿。',
+      tone: 'info',
+      confirmLabel: '直接通过',
+      onConfirm: async () => {
+        setBusy(true)
+        setError('')
+        try {
+          await api.chapterApprove(no)
+          setProject(prev => prev === null ? prev : {
+            ...prev,
+            chapters: prev.chapters.map(c => c.no === no ? { ...c, status: 'approved' } : c),
+          })
+          pushProgress(`第 ${no} 章已直接通过`, 'done')
+        } catch (err) {
+          setError((err as Error).message)
+          pushProgress(`操作失败：${(err as Error).message}`, 'error')
+        } finally {
+          setBusy(false)
+        }
+      },
+    })
   }
 
   /** 剧情线：保存草稿（新增或更新）。 */
@@ -1691,19 +1778,27 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   }
 
   /** 剧情线：删除。 */
-  const handlePlotlineRemove = async (id: string): Promise<void> => {
-    if (!window.confirm('确定删除这条剧情线？关联章节记录会一并移除。')) return
-    setBusy(true)
-    setError('')
-    try {
-      const result = await api.plotlines({ op: 'remove', id })
-      setProject(prev => prev === null ? prev : { ...prev, plotlines: result.plotlines, updatedAt: new Date().toISOString() })
-      pushProgress('剧情线已删除', 'done')
-    } catch (err) {
-      setError((err as Error).message)
-    } finally {
-      setBusy(false)
-    }
+  const handlePlotlineRemove = (id: string): void => {
+    const line = project?.plotlines?.find(p => p.id === id)
+    confirmUi.confirm({
+      title: '删除这条剧情线',
+      body: line === undefined ? '剧情线与其关联的章节记录会一并移除。' : `剧情线「${line.name}」与其关联的章节记录会一并移除。`,
+      effects: ['章节正文里的剧情线标记会消失', '该线下的伏笔账目不再计入统计'],
+      tone: 'danger',
+      onConfirm: async () => {
+        setBusy(true)
+        setError('')
+        try {
+          const result = await api.plotlines({ op: 'remove', id })
+          setProject(prev => prev === null ? prev : { ...prev, plotlines: result.plotlines, updatedAt: new Date().toISOString() })
+          pushProgress('剧情线已删除', 'done')
+        } catch (err) {
+          setError((err as Error).message)
+        } finally {
+          setBusy(false)
+        }
+      },
+    })
   }
 
   /** 剧情线：建议候选线。 */
@@ -1982,19 +2077,26 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   }
 
   /** 角色库：删除角色。 */
-  const handleRoleRemove = async (name: string): Promise<void> => {
-    if (!window.confirm(`确定从角色库删除「${name}」？`)) return
-    setBusy(true)
-    setError('')
-    try {
-      const result = await api.roles({ op: 'remove', name })
-      setProject(prev => prev === null ? prev : { ...prev, roles: result.roles, updatedAt: new Date().toISOString() })
-      pushProgress(`已从角色库删除：${name}`, 'info')
-    } catch (err) {
-      setError((err as Error).message)
-    } finally {
-      setBusy(false)
-    }
+  const handleRoleRemove = (name: string): void => {
+    confirmUi.confirm({
+      title: `从角色库删除「${name}」`,
+      body: '该角色会从角色库移除。',
+      effects: ['章节正文里对它的引用不受影响', '设定集中与它绑定的角色关系会一并移除'],
+      tone: 'danger',
+      onConfirm: async () => {
+        setBusy(true)
+        setError('')
+        try {
+          const result = await api.roles({ op: 'remove', name })
+          setProject(prev => prev === null ? prev : { ...prev, roles: result.roles, updatedAt: new Date().toISOString() })
+          pushProgress(`已从角色库删除：${name}`, 'info')
+        } catch (err) {
+          setError((err as Error).message)
+        } finally {
+          setBusy(false)
+        }
+      },
+    })
   }
 
   /** 保存世界观规则编辑（bible tab，每行一条）。 */
@@ -2780,19 +2882,27 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   }
 
   /** 回滚到某个历史版本（回滚前宿主会先留存当前正文，所以可撤销）。 */
-  const handleRestoreSnapshot = async (id: string): Promise<void> => {
-    if (!window.confirm('用这一版覆盖当前正文？回滚前会自动留存当前正文，可以再换回来。')) return
-    setBusy(true); setError('')
-    try {
-      await api.snapshotRestore(id)
-      await refresh(false, true)
-      await refreshSnapshots()
-      setNotice('已回滚到所选版本')
-    } catch (err) {
-      setError((err as Error).message)
-    } finally {
-      setBusy(false)
-    }
+  const handleRestoreSnapshot = (id: string): void => {
+    confirmUi.confirm({
+      title: '回滚正文到所选版本',
+      body: '当前正文会被这一版覆盖。',
+      assurance: '回滚前会自动留存当前正文，可以再换回来。',
+      tone: 'info',
+      confirmLabel: '回滚',
+      onConfirm: async () => {
+        setBusy(true); setError('')
+        try {
+          await api.snapshotRestore(id)
+          await refresh(false, true)
+          await refreshSnapshots()
+          setNotice('已回滚到所选版本')
+        } catch (err) {
+          setError((err as Error).message)
+        } finally {
+          setBusy(false)
+        }
+      },
+    })
   }
 
   /** 手工给当前章节存档一个历史版本。 */
@@ -2950,6 +3060,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     let reviewPending = 0
     let totalChars = 0
     let writingNow: ChapterPlan | undefined
+    const charSeries: Array<{ no: number; chars: number; approved: boolean }> = []
     for (const c of chapters) {
       const s = c.status
       if (s === 'approved' || s === 'written' || s === 'rejected') done++
@@ -2957,9 +3068,11 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       if (s === 'approved') approved++
       if (s === 'rejected' || s === 'written') reviewPending++
       if (s === 'generating' || s === 'reviewing') writingNow = c
-      totalChars += c.chars ?? 0
+      const ch = c.chars ?? 0
+      totalChars += ch
+      charSeries.push({ no: c.no, chars: ch, approved: s === 'approved' })
     }
-    return { done, pending, approved, reviewPending, totalChars, writingNow }
+    return { done, pending, approved, reviewPending, totalChars, writingNow, charSeries }
   }, [chapters])
   const doneCount = chapterStats.done
   const pendingCount = chapterStats.pending
@@ -3022,6 +3135,74 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const reviewPendingCount = chapterStats.reviewPending
   const writingNow = chapterStats.writingNow
   const totalChars = chapterStats.totalChars
+
+  /**
+   * 工作台顶栏导航项 —— 按作者真实的创作推进顺序排列，而非按功能分区。
+   * 顺序依据 NAV_GROUPS 注释里写的「按创作阶段归类」：先看全局（总纲），
+   * 再立设定，然后写，最后回头分析长线与拆书。原来的「写作/设定/资产」是
+   * 文件夹式的功能序，作者点「写作」时还不知道该先做什么。
+   */
+  const WORKBENCH_NAV: WorkbenchNavItem[] = [
+    {
+      id: 'workflow',
+      label: '总编台',
+      icon: <Library size={14} />,
+      on: 'workflow',
+      title: '总编台：全书进度、推荐下一步、四项常驻指标',
+      go: () => { setRightDrawer(null); setDrawerMax(false); setActiveTab('workflow') },
+    },
+    {
+      id: 'overview',
+      label: '总纲',
+      icon: <FileText size={14} />,
+      on: 'overview',
+      title: '总纲 / 大纲：全书结构、卷与章节计划',
+      go: () => { openDrawer('overview') },
+    },
+    {
+      id: 'setup',
+      label: '设定',
+      icon: <BookOpen size={14} />,
+      on: 'setup',
+      title: '道藏：角色、世界规则、事实与红线',
+      badge: bible === undefined ? '' : '道藏',
+      go: () => { openDrawer('setup') },
+    },
+    {
+      id: 'write',
+      label: '写作',
+      icon: <BookMarked size={14} />,
+      on: 'write',
+      title: '写作：章节索引、生成与审稿',
+      badge: pendingCount + reviewPendingCount > 0 ? String(pendingCount + reviewPendingCount) : '',
+      go: () => { openDrawer('write') },
+    },
+    {
+      id: 'assets',
+      label: '资产',
+      icon: <Folder size={14} />,
+      on: 'assets',
+      title: '创作素材库：题材、设定模板、世界规则',
+      go: () => { openDrawer('assets') },
+    },
+    {
+      id: 'run',
+      label: '生产单',
+      icon: <Factory size={14} />,
+      on: 'run',
+      title: '生产单：批次生产与流水线',
+      go: () => { openDrawer('run') },
+    },
+    {
+      id: 'plotlines',
+      label: '长线',
+      icon: <ScrollText size={14} />,
+      on: 'plotlines',
+      title: '剧情线 · 伏笔：长线推进与伏笔账目',
+      badge: (() => { const p = foreshadows.filter(f => f.status === 'planned').length; return p > 0 ? String(p) : '' })(),
+      go: () => { openDrawer('plotlines') },
+    },
+  ]
 
 
   /** 创作旅程 6 阶段（完成/当前/未到）。 */
@@ -3296,27 +3477,16 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
               <span className={css.topNavLabel}>工作台</span>
               {/* 右对齐：标签靠左，按钮组整体推到容器右端 */}
               <span className={css.topNavSpacer} />
-              <button
-                type="button"
-                className={`${css.topNavBtn} ${activeTab === 'workflow' && rightDrawer === null ? css.topNavActive : ''}`}
-                aria-current={activeTab === 'workflow' && rightDrawer === null ? 'page' : undefined}
-                onClick={() => { setRightDrawer(null); setDrawerMax(false); setActiveTab('workflow') }}
-              >
-                <span className={css.topNavNi}>▣</span>总编台
-              </button>
-              {([
-                { drawer: 'write', label: '写作', ni: '✎', badge: pendingCount + reviewPendingCount > 0 ? String(pendingCount + reviewPendingCount) : '' },
-                { drawer: 'setup', label: '设定', ni: '❖', badge: '道藏' },
-                { drawer: 'assets', label: '资产', ni: '▦', badge: '' },
-              ] as const).map(item => (
+              {WORKBENCH_NAV.map(item => (
                 <button
-                  key={item.drawer}
+                  key={item.id}
                   type="button"
-                  className={`${css.topNavBtn} ${rightDrawer === item.drawer ? css.topNavActive : ''}`}
-                  aria-current={rightDrawer === item.drawer ? 'page' : undefined}
-                  onClick={() => { openDrawer(item.drawer) }}
+                  className={`${css.topNavBtn} ${item.on === rightDrawer || (item.on === 'workflow' && rightDrawer === null) ? css.topNavActive : ''}`}
+                  aria-current={item.on === rightDrawer || (item.on === 'workflow' && rightDrawer === null) ? 'page' : undefined}
+                  onClick={item.go}
+                  title={item.title}
                 >
-                  <span className={css.topNavNi}>{item.ni}</span>{item.label}
+                  <span className={css.topNavNi}>{item.icon}</span>{item.label}
                   {item.badge !== '' && <span className={css.topNavBadge}>{item.badge}</span>}
                 </button>
               ))}
@@ -3328,9 +3498,10 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                 onClick={() => { openDrawer('params') }}
                 title="写作参数 / 设置"
               >
-                <span className={css.topNavNi}>⚙</span>写作参数
+                <span className={css.topNavNi}><Settings size={14} /></span>写作参数
               </button>
             </nav>
+
           </div>
         )}
       {workbench !== null && (
@@ -3370,19 +3541,10 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         <aside className={`${css.contentDrawer} ${drawerMax ? css.drawerMax : ''}`} role="dialog" aria-label="工作台抽屉">
           <div className={css.drawerHead}>
             <span className={css.drawerTitle}>
-              {({
-                write: '✎ 写作 · 章节索引',
-                setup: '❖ 设定 · 道藏',
-                assets: '▦ 资产 · 创作素材库',
-                params: '⚙ 写作参数 · 设置',
-                overview: '▤ 总纲 / 大纲',
-                blurb: '◈ 简介 / 封面',
-                plotlines: '⟟ 剧情线 · 伏笔',
-                director: '✿ 自动编辑',
-                knowledge: '⊞ 知识库',
-                run: '⌘ 生产单',
-                breakdown: '⚲ 拆书分析',
-              } as Record<string, string>)[rightDrawer]}
+              <span className={css.drawerTitleNi}>
+                {(DRAWER_META[rightDrawer] ?? DRAWER_META.fallback).icon}
+              </span>
+              {(DRAWER_META[rightDrawer] ?? DRAWER_META.fallback).label}
             </span>
             <span className={css.drawerSpacer} />
             <button type="button" className={css.drawerHeadBtn} title={drawerMax ? '还原宽度' : '展开全屏'} onClick={() => { setDrawerMax(v => !v) }}>{drawerMax ? '⤡' : '⤢'}</button>
@@ -3391,7 +3553,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           <div className={css.contentDrawerBody}>
           {rightDrawer === 'write' && (
           <div className={css.card}>
-            <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <div className={`css.rowBetween css.rowBetweenWrap`}>
               <span className={css.cardTitle}>章节索引（{chapters.length}）</span>
               <span className={css.meta}>点任一章 → 进入章节工作台（独立全页）</span>
             </div>
@@ -3454,7 +3616,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
             {bookTab === 'bible' && (
           <>
           <div className={css.card}>
-            <div className={css.row} style={{ justifyContent: 'space-between' }}>
+            <div className={`css.rowBetween`}>
               <span className={css.cardTitle}>{tt('bible.title')}</span>
               <button type="button" className={`${css.button} ${css.buttonPrimary}`} disabled={busy} onClick={() => { void handleBible() }}>
                 {tt('bible.gen')}
@@ -3470,7 +3632,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                 {/* 世界观规则独立卡片（可编辑，每行一条） */}
                 {bible.worldRules.length > 0 && (
                   <div style={{ border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-10)', padding: 'var(--nf-space-8) var(--nf-space-10)' }}>
-                    <div className={css.row} style={{ justifyContent: 'space-between' }}>
+                    <div className={`css.rowBetween`}>
                       <b>{tt('bible.worldRules')}（{bible.worldRules.length}）</b>
                       <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setWorldRulesDraft(bible.worldRules.join('\n')) }}>
                         编辑
@@ -3545,7 +3707,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         {/* 角色库：全书角色主表（独立导航页） */}
             {bookTab === 'roles' && (
           <div className={css.card}>
-            <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <div className={`css.rowBetween css.rowBetweenWrap`}>
               <span className={css.cardTitle}> 角色库（{(project?.roles ?? []).length} 个）</span>
               <div className={css.row}>
                 <button
@@ -3572,7 +3734,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
 
             {roleCandidates !== null && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', border: '1px solid var(--nf-info)', borderRadius: 'var(--nf-radius-12)', padding: 'var(--nf-space-10)' }}>
-                <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <div className={`css.rowBetween css.rowBetweenWrap`}>
                   <b> 提炼候选（{roleCandidates.length}）</b>
                   <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setRoleCandidates(null) }}>收起</button>
                 </div>
@@ -3591,7 +3753,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
 
             {roleDraft !== null && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-8)', border: '1px solid var(--nf-accent)', borderRadius: 'var(--nf-radius-12)', padding: 'var(--nf-space-10)' }}>
-                <div className={css.row} style={{ flexWrap: 'wrap' }}>
+                <div className={css.row}>
                   <div className={css.field} style={{ flex: 1, minWidth: 140 }}>
                     <label className={css.fieldLabel}>角色名</label>
                     <input className={css.input} value={roleDraft.name} onChange={e => { setRoleDraft({ ...roleDraft, name: e.target.value }) }} />
@@ -3658,7 +3820,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
 
             {bookTab === 'facts' && (
           <div className={css.card}>
-            <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <div className={`css.rowBetween css.rowBetweenWrap`}>
               <span className={`${css.cardTitle} ${css.cardTitleLg}`}> 编年 / 复盘</span>
             </div>
             <SlideNav
@@ -3673,7 +3835,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
 
             {archiveTab === 'reviews' ? (
               <>
-            <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <div className={`css.rowBetween css.rowBetweenWrap`}>
               <span className={css.cardTitle}> 复盘记录（{chapters.filter(c => c.authorReview !== undefined).length} 章已复盘）</span>
               <div className={css.row}>
                 {(() => {
@@ -3710,7 +3872,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                 const groupsWithReviews = chapterGroups.filter(group => group.chapters.some(c => c.authorReview !== undefined))
                 if (groupsWithReviews.length === 0) return null
                 return (
-                  <div className={css.row} style={{ justifyContent: 'flex-end', gap: 'var(--nf-space-6)' }}>
+                  <div className={`${css.row} ${css.rowEnd}`}>
                     <button
                       type="button"
                       className={`${css.button} ${css.buttonSmall}`}
@@ -3820,12 +3982,12 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           {rightDrawer === 'params' && (
           <>
             <div className={`${css.card} ${css.settingsCard}`} style={{ gap: 'var(--nf-space-12)' }}>
-              <div className={css.row} style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--nf-space-8)' }}>
+              <div className={`css.rowBetween css.rowBetweenWrap`} style={{ gap: 'var(--nf-space-8)' }}>
                 <div className={css.titleBlock}>
                   <span className={css.eyebrow}>Book Prefs</span>
                   <span className={`${css.cardTitle} ${css.cardTitleLg}`}> 本书参数</span>
                 </div>
-                <div className={css.row} style={{ gap: 'var(--nf-space-8)' }}>
+                <div className={css.row}>
                   <button type="button" className={css.button} disabled={bookCfgBusy || bookCfg === null} onClick={() => { void resetBookCfg() }} title="清空本书所有覆盖项，全部回退全局默认">恢复全局默认</button>
                   <button type="button" className={`${css.button} ${css.buttonPrimary}`} disabled={bookCfgBusy || bookCfg === null} onClick={() => { void saveBookCfg() }}>{bookCfgBusy ? '保存中…' : '保存本书参数'}</button>
                 </div>
@@ -3919,7 +4081,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                 {/* 导出（本书）：按范围导出——整本正文 / 设定 / 规划 / 角色 / 质检记录 / 项目备份 JSON */}
                 <div className={`${css.card} ${css.settingsCard}`} style={{ gap: 'var(--nf-space-12)' }}>
                   <span className={css.cardTitle}>导出（本书）</span>
-                  <div className={css.row} style={{ flexWrap: 'wrap', gap: 'var(--nf-space-8)' }}>
+                  <div className={css.row}>
                     <select
                       className={css.input}
                       value={exportScope}
@@ -4015,7 +4177,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                       }}
                     />
                   </div>
-                  <div className={css.row} style={{ justifyContent: 'space-between' }}>
+                  <div className={`css.rowBetween`}>
                     <span className={css.meta}>{tt('overview.outlineChars')}: {outlineText.length}</span>
                     <button type="button" className={css.button} disabled={busy || outlineText.length < 50} onClick={() => { void handleSaveOutline() }}>
                       {tt('overview.saveOutline')}
@@ -4074,7 +4236,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
               eyebrow="Blurb"
               title="简介 / 封面"
               actions={(
-                <div className={css.row} style={{ flexWrap: 'wrap' }}>
+                <div className={css.row}>
                   <button type="button" className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`} disabled={busy || project === null} onClick={() => { void handleBlurbGenerate() }}>
                    生成
                   </button>
@@ -4087,7 +4249,14 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                       className={`${css.button} ${css.buttonSmall}`}
                       disabled={busy || project === null}
                       onClick={() => {
-                        if (window.confirm('重新生成会覆盖当前简介（可先复制保存），确定？')) void handleBlurbGenerate()
+                        confirmUi.confirm({
+                          title: '重新生成简介',
+                          body: '当前简介会被新生成的文本覆盖。',
+                          assurance: '如需保留现版本，先复制保存再生成。',
+                          tone: 'warn',
+                          confirmLabel: '重新生成',
+                          onConfirm: async () => { await handleBlurbGenerate() },
+                        })
                       }}
                     >
                       重新生成
@@ -4190,7 +4359,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
 
             {longlineTab === 'foreshadow' ? (
               <>
-              <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <div className={`css.rowBetween css.rowBetweenWrap`}>
                 <span className={css.cardTitle}> {tt('foreshadow.title')}（{foreshadows.length}）</span>
                 <button type="button" className={`${css.button} ${css.buttonPrimary}`} disabled={busy} onClick={() => { void handleSuggestForeshadows() }}>
                   {tt('foreshadow.suggest')}
@@ -4240,9 +4409,9 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
               </>
             ) : (
               <>
-              <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <div className={`css.rowBetween css.rowBetweenWrap`}>
                 <span className={css.cardTitle}> {tt('tab.plotlines')}（{project?.plotlines?.length ?? 0}）</span>
-                <div className={css.row} style={{ flexWrap: 'wrap' }}>
+                <div className={css.row}>
                 <button
                   type="button"
                   className={`${css.button} ${css.buttonSmall}`}
@@ -4321,7 +4490,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
 
             {plotlineDraft !== null && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-8)', border: '1px solid var(--nf-accent)', borderRadius: 'var(--nf-radius-12)', padding: 'var(--nf-space-10)' }}>
-                <div className={css.row} style={{ flexWrap: 'wrap' }}>
+                <div className={css.row}>
                   <div className={css.field} style={{ flex: 2, minWidth: 160 }}>
                     <label className={css.fieldLabel}>{tt('plotlines.name')}</label>
                     <input className={css.input} value={plotlineDraft.name} onChange={e => { setPlotlineDraft({ ...plotlineDraft, name: e.target.value }) }} placeholder="如：集齐古玉残片" />
@@ -4403,7 +4572,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
               eyebrow="Breakdown"
               title="拆书分析"
               actions={(
-                <div className={css.row} style={{ flexWrap: 'wrap' }}>
+                <div className={css.row}>
                   <select
                     className={css.input}
                     style={{ width: 160 }}
@@ -4570,7 +4739,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                 ) : (
                   <div className={css.meta}>未选中内容时仅支持整章润色/修订。</div>
                 )}
-                <div className={css.row} style={{ flexWrap: 'wrap' }}>
+                <div className={css.row}>
                   {(wsCheckReport !== null && wsCheckReport.issues.length > 0) ? (
                     <button
                       type="button"
@@ -4719,7 +4888,16 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
               <div className={css.wfMetric}><span>已过审</span><b className={css.numSerif}>{approvedCount}</b><small>/ {chapters.length} 章</small></div>
               <div className={css.wfMetric}><span>待审 / 待修订</span><b className={css.numSerif}>{reviewPendingCount}</b><small>需人工裁决</small></div>
               <div className={css.wfMetric}><span>待生成</span><b className={css.numSerif}>{pendingCount}</b><small>第 {chapters.filter(c => c.status === 'pending').map(c => c.no).slice(0, 3).join('·')}…</small></div>
-              <div className={css.wfMetric}><span>全书字数</span><b className={`${css.numSerif} ${css.tabular}`}>{totalChars.toLocaleString()}</b><small>累计</small></div>
+              <div className={`${css.wfMetric} ${css.wfMetricWide}`}>
+                <span>全书字数</span>
+                <b className={`${css.numSerif} ${css.tabular}`}>{totalChars.toLocaleString()}</b>
+                <small>累计</small>
+                {/* 形态而非又一个数字：哪几章塌了、哪章爆过，一眼可见。 */}
+                <div className={css.wfMetricSpark} title={describeShape(chapterStats.charSeries)}>
+                  <Sparkline points={chapterStats.charSeries} />
+                  <span className={css.wfMetricSparkNote}>{describeShape(chapterStats.charSeries)}</span>
+                </div>
+              </div>
             </div>
 
             <div className={css.wfBody}>
@@ -5078,7 +5256,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
               eyebrow="Chapter Plan"
               title={tt('tab.plan')}
               actions={(
-                <div className={css.row} style={{ flexWrap: 'wrap' }}>
+                <div className={css.row}>
                   <span className={css.meta}>{tt('plan.generateHint')}</span>
                   <input
                     className={css.input}
@@ -5102,7 +5280,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
 
             {sensHits !== null && (
               <div className={css.card} style={{ borderColor: sensHits.length > 0 ? 'var(--nf-warn)' : 'var(--nf-success)' }}>
-                <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <div className={`css.rowBetween css.rowBetweenWrap`}>
                   <span className={css.cardTitle}>
                     {sensHits.length === 0
                       ? tt('sensitive.clean', { n: sensScanned })
@@ -5227,7 +5405,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                       const detailTab = chapterDetailTab
                       return (
                         <>
-                          <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                          <div className={`css.rowBetween css.rowBetweenWrap`}>
                             <span className={css.planDetailTitle}>第 {chapter.no} 章 · {chapter.title}</span>
                             <span className={`${css.badge} ${badge.cls}`}>{badge.label}</span>
                           </div>
@@ -5260,7 +5438,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                             )}
                             {detailTab === 'review' && (review !== undefined ? (
                               <div className={css.reviewBox}>
-                                <div className={css.row} style={{ justifyContent: 'space-between' }}>
+                                <div className={`css.rowBetween`}>
                                   <b>{tt('plan.reviewReport')}</b>
                                   <span style={{ color: review.passed ? 'var(--nf-success)' : 'var(--nf-error)' }}>
                                     {tt('plan.reviewScore')}: {review.score} — {review.passed ? tt('plan.reviewPass') : tt('plan.reviewFail')}
@@ -5292,7 +5470,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                             ))}
                             {detailTab === 'author' && (chapter.authorReview !== undefined ? (
                               <div className={css.reviewBox} style={{ borderColor: 'color-mix(in srgb, var(--nf-info) 45%, transparent)' }}>
-                                <div className={css.row} style={{ justifyContent: 'space-between' }}>
+                                <div className={`css.rowBetween`}>
                                   <b> 作者复盘</b>
                                   <span style={{ color: chapter.authorReview.hookHonored ? 'var(--nf-success)' : 'var(--nf-warn)' }}>
                                     钩子{chapter.authorReview.hookHonored ? '已兑现 ✓' : '未兑现 ✗'} · 结尾钩子 {chapter.authorReview.endingHook}/10
@@ -5493,7 +5671,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                 </span>
                 {liveBar?.ratio !== undefined && (
                   <div className={css.bigProgressBar}>
-                    <div className={css.bigProgressBarFill} style={{ width: `${Math.round(liveBar.ratio * 100)}%` }} />
+                    <div className={css.bigProgressBarFill} style={{ transform: `scaleX(${liveBar.ratio})` }} />
                   </div>
                 )}
                 {liveBar?.text !== undefined && <span className={css.liveText}>{liveBar.text}</span>}
@@ -5511,7 +5689,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                   <div key={line.id} className={line.kind === 'done' ? css.progressLineDone : line.kind === 'error' ? css.progressLineError : line.live === true ? css.progressLineLive : css.progressLine}>
                     {line.live === true && (
                       <span className={css.progressBar}>
-                        <span className={css.progressBarFill} style={{ width: `${Math.round((line.ratio ?? 0) * 100)}%` }} />
+                        <span className={css.progressBarFill} style={{ transform: `scaleX(${line.ratio ?? 0})` }} />
                       </span>
                     )}
                     {line.text}
@@ -5544,6 +5722,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           }}
         />
       )}
+      {/* 破坏性操作确认弹窗（替代 window.confirm）：fixed 定位，必须挂在面板根内。 */}
+      {confirmUi.dialog}
     </div>
   )
 }
@@ -5654,7 +5834,7 @@ function OutlineDocument({ text }: { text: string }): ReactElement {
 
   return (
     <div className={css.outlineDocWrap}>
-      <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--nf-space-8)' }}>
+      <div className={`css.rowBetween css.rowBetweenWrap`} style={{ gap: 'var(--nf-space-8)' }}>
         <span className={css.meta}>大纲是本书的「出生证明」；可点右上「反推大纲」从正文反推，或「更新大纲」手动修订。</span>
         <span className={css.meta}>{text.length} 字 · {volumeCount} 卷</span>
       </div>

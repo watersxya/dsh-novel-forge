@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import type { PromptSlotId, PromptSlotState } from '../../protocol.ts'
+import { NoticeBar } from './NoticeBar.tsx'
 import css from './panel.module.css'
 
 export interface PromptSlotsViewProps {
@@ -50,7 +51,7 @@ export default function PromptSlotsView({ api }: PromptSlotsViewProps): JSX.Elem
 
   return (
     <div className={css.card} style={{ gap: 'var(--nf-space-12)' }}>
-      <div className={css.row} style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--nf-space-8)' }}>
+      <div className={`css.rowBetween css.rowBetweenWrap`} style={{ gap: 'var(--nf-space-8)' }}>
         <span className={css.cardTitle}>提示词槽位（本书）</span>
         <span className={css.meta}>只追加偏好，不覆盖道藏 / 红线 / 合规</span>
       </div>
@@ -59,15 +60,23 @@ export default function PromptSlotsView({ api }: PromptSlotsViewProps): JSX.Elem
         道藏、写作红线、内容合规红线、反 AI 规则、阶段契约由宿主锁定，槽位碰不到。
       </span>
 
-      {notice !== '' && <span style={{ color: 'var(--nf-success)', fontSize: 'var(--nf-text-12)' }}>{notice}</span>}
-      {error !== '' && <span style={{ color: 'var(--nf-error)', fontSize: 'var(--nf-text-12)' }}>{error}</span>}
+      {notice !== '' && <NoticeBar kind="ok">{notice}</NoticeBar>}
+      {error !== '' && (
+        <NoticeBar
+          kind="error"
+          detail="槽位写入失败时本次修改未生效，规则类内容（道藏 / 红线 / 合规）不受影响。重试会重新提交当前草稿。"
+          onRetry={() => { void refresh() }}
+        >
+          {error}
+        </NoticeBar>
+      )}
 
       {slots.map(slot => {
         const value = drafts[slot.id] ?? ''
         const over = value.length > slot.maxChars
         return (
           <div key={slot.id} style={{ border: '1px solid var(--nf-border)', borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div className={css.row} style={{ justifyContent: 'space-between', alignItems: 'baseline', gap: 'var(--nf-space-8)' }}>
+            <div className={`css.rowBetween css.rowBetweenBaseline`} style={{ gap: 'var(--nf-space-8)' }}>
               <b style={{ fontSize: 'var(--nf-fs-12)' }}>{slot.label}</b>
               <span className={css.meta} style={{ color: over ? 'var(--nf-error)' : undefined }}>
                 {value.length} / {slot.maxChars}
@@ -81,7 +90,7 @@ export default function PromptSlotsView({ api }: PromptSlotsViewProps): JSX.Elem
               placeholder={slot.placeholder}
               onChange={e => setDrafts(prev => ({ ...prev, [slot.id]: e.target.value }))}
             />
-            <div className={css.row} style={{ justifyContent: 'flex-end', gap: 6 }}>
+            <div className={`${css.row} ${css.rowEnd}`}>
               <button type="button" className={css.button} disabled={busy || value === ''} onClick={() => { void save(slot.id) }}>
                 清空
               </button>

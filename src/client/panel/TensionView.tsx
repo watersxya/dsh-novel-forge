@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import type { TensionCurvePoint, TensionCurvePreset, TensionIssue, TensionResponse } from '../../protocol.ts'
 import { TENSION_PRESET_LABELS } from '../../tension.ts'
+import { NoticeBar } from './NoticeBar.tsx'
 import css from './panel.module.css'
 
 const PRESETS: TensionCurvePreset[] = ['escalation', 'suspense', 'wave', 'frontLoad', 'flat', 'custom']
@@ -140,20 +141,32 @@ export default function TensionView({ api, onRevise, busy: outerBusy }: TensionV
 
   return (
     <div className={css.card} style={{ gap: 'var(--nf-space-12)' }}>
-      <div className={css.row} style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--nf-space-8)' }}>
+      <div className={`css.rowBetween css.rowBetweenWrap`} style={{ gap: 'var(--nf-space-8)' }}>
         <span className={css.cardTitle}>张力曲线</span>
         <span className={css.meta}>{points.length} 章 · 已评 {stat.rated} 章 · 目标均 {stat.targetAvg} / 实际均 {stat.actualAvg}</span>
       </div>
 
-      <div className={css.row} style={{ gap: 'var(--nf-space-8)', alignItems: 'center', flexWrap: 'wrap' }}>
+      <div className={css.row}>
         <select className={css.input} value={data?.preset ?? 'escalation'} disabled={busy} onChange={e => changePreset(e.target.value as TensionCurvePreset)}>
           {PRESETS.map(p => <option key={p} value={p}>{TENSION_PRESET_LABELS[p]}</option>)}
         </select>
         <span className={css.meta}>虚线＝参考曲线形状；实线＝目标；绿点＝审稿实际。点图中任意一章可改目标张力。</span>
       </div>
 
-      {notice !== '' && <span style={{ color: 'var(--nf-success)', fontSize: 'var(--nf-text-12)' }}>{notice}</span>}
-      {error !== '' && <span style={{ color: 'var(--nf-error)', fontSize: 'var(--nf-text-12)' }}>{error}</span>}
+      {notice !== '' && (
+        <NoticeBar kind="ok" onRetry={() => { void refresh() }} retryLabel="重新读取">
+          {notice}
+        </NoticeBar>
+      )}
+      {error !== '' && (
+        <NoticeBar
+          kind="error"
+          detail="张力曲线依赖章节计划与审稿结果。若刚改过卷 / 章节计划，先重试刷新再核对。"
+          onRetry={() => { void refresh() }}
+        >
+          {error}
+        </NoticeBar>
+      )}
 
       {points.length === 0
         ? <span className={css.meta}>还没有章节计划。先在「总编台 → 卷/章节计划」排出章节，这里才有曲线可看。</span>
@@ -195,11 +208,11 @@ export default function TensionView({ api, onRevise, busy: outerBusy }: TensionV
           <div onClick={e => e.stopPropagation()} style={{ background: 'var(--nf-bg)', border: '1px solid var(--nf-border)', borderRadius: 10, width: 'min(420px, 92vw)', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <b style={{ fontSize: 'var(--nf-fs-13)' }}>第 {editing} 章 · 目标张力</b>
             <input type="range" min={0} max={100} value={draft} onChange={e => setDraft(Number(e.target.value))} />
-            <div className={css.row} style={{ justifyContent: 'space-between' }}>
+            <div className={`css.rowBetween`}>
               <span className={css.meta}>{draft} / 100（{draft < 40 ? '偏松：铺垫、日常、消化信息' : draft > 80 ? '偏紧：对抗、揭示、抉择、代价' : '中等：推进为主' }）</span>
               <input className={css.input} style={{ width: 72 }} type="number" min={0} max={100} value={draft} onChange={e => setDraft(Math.max(0, Math.min(100, Number(e.target.value))))} />
             </div>
-            <div className={css.row} style={{ justifyContent: 'flex-end', gap: 6 }}>
+            <div className={`${css.row} ${css.rowEnd}`}>
               <button type="button" className={css.button} onClick={clearEdit} disabled={busy}>清除</button>
               <button type="button" className={css.button} onClick={() => setEditing(null)}>取消</button>
               <button type="button" className={css.button + ' ' + css.buttonPrimary} onClick={saveEdit} disabled={busy}>保存</button>

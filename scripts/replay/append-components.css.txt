@@ -1,0 +1,355 @@
+# ---------------------------------------------------------------- 阶段 4：追加组件族
+# 这些是新组件（NoticeBar / ConfirmDialog / Sparkline / CardHead）专用的样式，
+# 集中追加在文件尾，便于成组审阅与成组删除。
+#
+# 关于 noticeBar / confirmAssurance **刻意不用 3px 左边条**：
+# 静态检测器把「单侧 3~4px 色条」判为 AI 生成界面的典型特征（.side-tab 规则），
+# 而真正的设计语言里，severity 应该由「底色 + 图标 + 文字色 + 描边色」四层共同表达。
+# 少一条色条不会损失信息密度，反而让四层信息各司其职。
+
+APPEND_MARKER = "/* ===== 3. 抽屉内区块 =="
+
+APPEND_PAYLOAD = r"""
+/* ==================================================================
+   新组件族（NoticeBar / ConfirmDialog / Sparkline / CardHead）
+   —— 集中追加，与既有块解耦，便于成组审阅。
+   ================================================================== */
+
+/* ---- 通知条：统一 notice / error 出口 -------------------------------
+ * 原先 TensionView / TimelineView / StyleView / PromptSlotsView 各写一套内联样式，
+ * 后果是「错误态」在四个视图里有四种长相：有的只有一句红字，有的红字加边框，
+ * 有的压根没样式。且全部缺失「发生了什么 + 怎么办」这两段作者真正需要的信息。
+ * 收敛到这一个组件后：
+ *   1. 四态（ok / info / warn / error）由 --nf-*-ink 文字色 + *-soft 底色承担；
+ *   2. error 走 role="alert" + aria-live="assertive"，读屏会立刻播报；
+ *   3. 支持 detail（原因说明）与 onRetry（原地重试），错误态从「死胡同」变「可恢复」。
+ */
+.noticeBar {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--nf-space-8, 8px);
+  padding: var(--nf-space-8, 8px) var(--nf-space-10, 10px);
+  border: 1px solid var(--nf-border);
+  border-radius: var(--nf-ctrl-radius, 8px);
+  font-size: var(--nf-fs-notice, 12px);
+  line-height: var(--nf-lh-body, 1.55);
+}
+
+.noticeIcon {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  font-size: var(--nf-fs-13, 13px);
+  font-weight: 700;
+  border-radius: 50%;
+}
+
+.noticeBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+
+.noticeText { font-weight: 600; }
+
+.noticeDetail {
+  font-weight: 400;
+  font-size: var(--nf-fs-13, 13px);
+  opacity: .9;
+}
+
+.noticeActions { display: flex; align-items: center; gap: var(--nf-space-6, 6px); flex: none; }
+
+.noticeBtn {
+  flex: none;
+  font-size: var(--nf-fs-13, 13px);
+  padding: 2px 9px;
+  border-radius: 6px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background var(--nf-dur-base, 0.12s) var(--nf-ease-out, ease);
+}
+.noticeBtn:hover { background: rgba(127, 127, 127, 0.14); }
+.noticeBtn:disabled { opacity: .55; cursor: default; }
+
+/* 四态：不靠色条，靠「图标底色 + 文字色 + 整体描边 + 面板底色」四层 */
+.notice-ok {
+  color: var(--nf-success-ink);
+  background: var(--nf-success-ink-soft);
+  border-color: color-mix(in srgb, var(--nf-success-ink) 34%, transparent);
+}
+.notice-info {
+  color: var(--nf-info-ink);
+  background: var(--nf-info-ink-soft);
+  border-color: color-mix(in srgb, var(--nf-info-ink) 34%, transparent);
+}
+.notice-warn {
+  color: var(--nf-warn-ink);
+  background: var(--nf-warn-ink-soft);
+  border-color: color-mix(in srgb, var(--nf-warn-ink) 34%, transparent);
+}
+.notice-error {
+  color: var(--nf-error-ink);
+  background: var(--nf-error-ink-soft);
+  border-color: color-mix(in srgb, var(--nf-error-ink) 40%, transparent);
+}
+
+.noticeIcon { color: inherit; }
+
+
+/* ---- 确认弹窗：取代 9 处 window.confirm ---------------------------
+ * window.confirm 的问题不在「丑」，在**它只给两个按钮和一句问话**：
+ * 「重置项目？」这种确认既没说会丢什么，也没说能不能撤销，作者只能盲点确定。
+ * 这一版把三件事显式化：
+ *   1. effects —— 具体后果清单（哪几章会消失、哪份快照会覆盖）；
+ *   2. assurance —— 可逆性说明（快照在 / 从哪找回来）；
+ *   3. requirePhrase —— 不可逆操作要求逐字输入确认词。
+ * 另外动作以 onConfirm 回调传入而非「先 resolve(true) 再自己跑」：
+ * 执行失败时弹窗留在原地显示错误 + 重试，而不是关掉弹窗只留一句红字。
+ */
+.confirmOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: color-mix(in srgb, var(--nf-bg-deep, #100e0a) 62%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.confirmCard {
+  width: min(460px, 94vw);
+  max-height: min(86vh, 720px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-10, 10px);
+  padding: var(--nf-space-16, 16px);
+  background: var(--nf-bg);
+  border: 1px solid var(--nf-border);
+  border-radius: var(--nf-card-radius, 12px);
+  box-shadow: var(--nf-shadow-lg, 0 20px 48px rgba(0, 0, 0, 0.28));
+  animation: nfConfirmIn var(--nf-dur-base, 0.14s) var(--nf-ease-out, ease) both;
+}
+
+/* 确认类交互刻意不给 overshoot 回弹 —— 那是 playful 反馈，
+   用在「你要丢掉十章稿子」这种时刻会显得轻佻。 */
+@keyframes nfConfirmIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.confirmHead { display: flex; align-items: flex-start; gap: var(--nf-space-10, 10px); }
+
+.confirmIcon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  font-size: var(--nf-fs-14, 14px);
+  font-weight: 700;
+}
+
+.confirmTitle {
+  font-family: var(--nf-font-display, Georgia, 'Songti SC', SimSun, serif);
+  font-size: var(--nf-fs-title, 16px);
+  font-weight: 700;
+  color: var(--nf-text);
+  line-height: 1.35;
+}
+
+.confirmBody { display: flex; flex-direction: column; gap: var(--nf-space-8, 8px); }
+.confirmText { font-size: var(--nf-fs-14, 14px); line-height: var(--nf-lh-body, 1.6); color: var(--nf-text-2); }
+
+.confirmList {
+  margin: 0;
+  padding: var(--nf-space-8, 8px) var(--nf-space-12, 12px);
+  list-style: disc;
+  font-size: var(--nf-fs-13, 13px);
+  line-height: 1.65;
+  color: var(--nf-text-2);
+  background: var(--nf-bg-inset);
+  border-radius: 8px;
+}
+.confirmList li + li { margin-top: 2px; }
+
+/* 可逆性说明：不用左边条（检测器判定的 AI 界面特征），改用整块 inset + 文字色。 */
+.confirmAssurance {
+  padding: var(--nf-space-8, 8px) var(--nf-space-10, 10px);
+  font-size: var(--nf-fs-13, 13px);
+  line-height: 1.55;
+  color: var(--nf-info-ink);
+  background: var(--nf-info-ink-soft);
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--nf-info-ink) 28%, transparent);
+}
+
+.confirmPhraseRow { display: flex; flex-direction: column; gap: 4px; }
+.confirmPhraseHint { font-size: var(--nf-fs-13, 13px); color: var(--nf-text-3); }
+.confirmPhraseInput {
+  font-family: var(--nf-mono, ui-monospace, monospace);
+  font-size: var(--nf-fs-14, 14px);
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--nf-border-strong);
+  background: var(--nf-bg-raise);
+  color: var(--nf-text);
+}
+
+.confirmAckRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--nf-space-8, 8px);
+  font-size: var(--nf-fs-13, 13px);
+  line-height: 1.5;
+  color: var(--nf-text-2);
+  cursor: pointer;
+}
+.confirmAckRow input { margin-top: 2px; flex: none; }
+
+.confirmActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--nf-space-8, 8px);
+  padding-top: var(--nf-space-4, 4px);
+}
+
+.confirmGo[data-tone='danger'] { border-color: var(--nf-error-ink); color: #fff; background: var(--nf-error-ink); }
+.confirmGo[data-tone='danger']:hover:not(:disabled) { filter: brightness(1.08); }
+.confirmGo[data-tone='warn'] { border-color: var(--nf-warn-ink); color: #fff; background: var(--nf-warn-ink); }
+.confirmGo[data-tone='warn']:hover:not(:disabled) { filter: brightness(1.08); }
+.confirmGo[data-tone='info'] { border-color: var(--nf-accent); color: var(--nf-accent-fg); background: var(--nf-accent); }
+.confirmGo[data-tone='info']:hover:not(:disabled) { filter: brightness(1.08); }
+.confirmGo:disabled { opacity: .5; cursor: default; }
+
+
+/* ---- Sparkline：让「全书字数」有形状 --------------------------------
+ * 挂在总编台指标卡里。作者看到「87,431 字」无法判断是均匀分布还是
+ * 前五章写了六成、中间塌了十章；132×26 的柱状走势让节奏一眼可见，
+ * 而不必点进任何视图。深色下靠 --nf-success / --nf-border-2 两个令牌，
+ * 不硬编码色值。
+ */
+.wfMetricWide { grid-column: span 1; }
+
+.wfMetricSpark {
+  display: flex;
+  align-items: center;
+  gap: var(--nf-space-8, 8px);
+  margin-top: 6px;
+  min-width: 0;
+}
+
+.wfMetricSpark svg { flex: none; width: 132px; height: 26px; overflow: visible; }
+
+.wfMetricSparkNote {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--nf-fs-notice, 12px);
+  color: var(--nf-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 窄容器下让 sparkline 给解读文字让位，避免 180px 宽的两栏里挤成一条缝。 */
+@container nfpanel (max-width: 560px) {
+  .wfMetricSpark svg { display: none; }
+}
+
+
+/* ---- CardHead：区块页头唯一实现 -------------------------------------
+ * 「标题 + 计数 + 说明 + 右侧动作」此前被手写 19 遍，内联样式出现 8 种变体
+ * （少 flexWrap / 少 alignItems / gap 有 6、8、无三档），导致同一层级的
+ * 区块标题在垂直节奏上肉眼可见地参差。收敛到组件 + 这三个类后，
+ * 标题层级、对齐、换行策略只剩一处定义。
+ */
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nf-space-8, 8px);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.cardHeadLeft {
+  display: flex;
+  align-items: baseline;
+  gap: var(--nf-space-8, 8px);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.cardHeadNote {
+  font-size: var(--nf-fs-13, 13px);
+  color: var(--nf-text-3);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cardHeadCount { color: var(--nf-text-3); font-weight: 500; }
+
+.cardHeadActions {
+  display: flex;
+  align-items: center;
+  gap: var(--nf-space-6, 6px);
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* 两端对齐行：收编原先手写的 8 种内联 justifyContent/alignItems/gap 变体。
+ * 刻意不覆盖 flex-wrap —— 原代码里「没写 flexWrap」的行靠 .row 的默认 wrap 工作，
+ * 若在这里改成 nowrap，窄容器下的动作按钮会被裁掉。 */
+.rowBetween { justify-content: space-between; }
+.rowBetweenWrap { flex-wrap: wrap; }
+.rowBetweenBaseline { align-items: baseline; }
+
+/* 动作区右对齐：对话框 / 弹层的底部按钮组。 */
+.rowEnd { justify-content: flex-end; }
+
+
+/* ---- 抽屉标题：给图标让位 -----------------------------------------
+ * 抽屉标题原先是 15 个 Unicode 字形（✎❖▦⚙⌘⚲⧗◠✻⌗…），在无 ligature 的
+ * 字体里退化成豆腐块，且与顶栏已改用的 lucide 不是一套视觉语言。
+ */
+.drawerTitle { display: flex; align-items: center; gap: 7px; min-width: 0; }
+
+.drawerTitleNi {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--nf-text-3);
+}
+
+/* 图标内嵌 svg：锁死尺寸，避免 lucide 的 24px 默认值撑高 28px 的导航按钮。 */
+.topNavNi { display: inline-flex; align-items: center; }
+.topNavNi > svg,
+.drawerTitleNi > svg {
+  width: 1em;
+  height: 1em;
+  stroke-width: 1.75;
+}
+
+
+/* ---- 工序轨道：修断链 -----------------------------------------------
+ * .wfRail 在 JSX 里被包在 .wfRailWrap 里，但 wrap 从未定义 → 该类被 CSS
+ * Modules 当作未使用类剔除，横向溢出与 overscroll 全部失效，窄列下工序轨道
+ * 会把左侧内容顶出可视区。
+ */
+.wfRailWrap {
+  margin: var(--nf-space-14, 14px) var(--nf-space-18, 18px) 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.wfRailWrap > .wfRail { min-width: 520px; margin: 0; }
+
+"""

@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import type { TimelineEvent, TimelineIssue } from '../../protocol.ts'
+import { NoticeBar } from './NoticeBar.tsx'
 import css from './panel.module.css'
 
 type Severity = TimelineIssue['severity']
@@ -101,12 +102,12 @@ export default function TimelineView({ api, chapters, onRevise, busy: outerBusy 
 
   return (
     <div className={css.card} style={{ gap: 'var(--nf-space-12)' }}>
-      <div className={css.row} style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--nf-space-8)' }}>
+      <div className={`css.rowBetween css.rowBetweenWrap`} style={{ gap: 'var(--nf-space-8)' }}>
         <span className={css.cardTitle}>故事时间线</span>
         <span className={css.meta}>{events.length} 条事件 · {grouped.length} 章</span>
       </div>
 
-      <div className={css.row} style={{ flexWrap: 'wrap', gap: 'var(--nf-space-8)', alignItems: 'center' }}>
+      <div className={css.row}>
         <select
           className={css.input}
           value={extractNo}
@@ -120,8 +121,20 @@ export default function TimelineView({ api, chapters, onRevise, busy: outerBusy 
         <button type="button" className={css.button} disabled={busy || events.length === 0} onClick={handleCheck}>检查时间线矛盾</button>
       </div>
 
-      {notice !== '' && <span style={{ color: 'var(--nf-success)', fontSize: 'var(--nf-text-12)' }}>{notice}</span>}
-      {error !== '' && <span style={{ color: 'var(--nf-error)', fontSize: 'var(--nf-text-12)' }}>{error}</span>}
+      {notice !== '' && (
+        <NoticeBar kind="ok" onRetry={() => { void refresh() }} retryLabel="重新读取">
+          {notice}
+        </NoticeBar>
+      )}
+      {error !== '' && (
+        <NoticeBar
+          kind="error"
+          detail="时间线依赖已抽取的章节事件。刚抽取完某章却报此错，通常是那章的抽取被中断了。"
+          onRetry={() => { void refresh() }}
+        >
+          {error}
+        </NoticeBar>
+      )}
 
       {issues.length > 0 && (
         <div style={{ border: '1px solid var(--nf-border)', borderRadius: 8, padding: 8, background: 'var(--nf-bg-inset)' }}>
@@ -196,7 +209,7 @@ export default function TimelineView({ api, chapters, onRevise, busy: outerBusy 
               <span className={css.fieldLabel}>事件</span>
               <textarea className={css.textarea} rows={3} value={editing.event} onChange={e => setEditing({ ...editing, event: e.target.value })} />
             </label>
-            <div className={css.row} style={{ justifyContent: 'flex-end', gap: 6 }}>
+            <div className={`${css.row} ${css.rowEnd}`}>
               <button type="button" className={css.button} onClick={() => setEditing(null)}>取消</button>
               <button type="button" className={css.button + ' ' + css.buttonPrimary} disabled={busy} onClick={handleSaveEdit}>保存</button>
             </div>

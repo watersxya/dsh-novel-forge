@@ -102,7 +102,7 @@ export default function KnowledgeBaseView({ api }: { api: NovelApi }): JSX.Eleme
               </>
             ) : selected !== undefined ? (
               <>
-                <div className={css.row} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <div className={`css.rowBetween css.rowBetweenWrap`}>
                   <span className={css.cardTitleLg}> {selected.title}</span>
                   <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={busy} onClick={() => { void remove(selected.id) }}>删除</button>
                 </div>

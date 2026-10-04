@@ -9,6 +9,7 @@ import type { NovelApi } from '../api.ts'
 import type { SavedModel, LlmModelOption, LlmVendorOption } from '../../protocol.ts'
 import { LLM_VENDORS } from '../../protocol.ts'
 import { tt } from './helpers.ts'
+import { useConfirm } from './ConfirmDialog.tsx'
 import css from './panel.module.css'
 
 /** 目录不可用时回退的内置预设（对齐当前模型目录）。 */
@@ -41,6 +42,8 @@ export function ModelManager({ api, provider, model, onProvider, onModel }: Mode
   const [providerCustom, setProviderCustom] = useState(false)
   const [modelCustom, setModelCustom] = useState(false)
   const [test, setTest] = useState<TestState>({ testing: false })
+  /** 破坏性操作确认弹窗（取代 window.confirm：删除提供方会连带移除 API 密钥）。 */
+  const confirmUi = useConfirm()
 
   // ---- 提供方管理
   const [vendors, setVendors] = useState<LlmVendorOption[]>(fallbackVendors())
@@ -116,10 +119,25 @@ export function ModelManager({ api, provider, model, onProvider, onModel }: Mode
     } catch (err) { setAddErr((err as Error).message) } finally { setSavingAdd(false) }
   }
 
-  const removeProvider = async (p: ProviderInfo): Promise<void> => {
-    if (!window.confirm('删除提供方「' + (p.name !== '' ? p.name : p.id) + '」？将移除 DSH 配置与 API 密钥。')) return
-    try { const vendor = vendors.find(v => v.id === p.id); await api.removeProvider({ provider: p.id, apiKeyEnv: vendor?.apiKeyEnv }); await loadProviders() }
-    catch (err) { setAddErr((err as Error).message) }
+  const removeProvider = (p: ProviderInfo): void => {
+    const label = p.name !== '' ? p.name : p.id
+    confirmUi.confirm({
+      title: `删除提供方「${label}」`,
+      body: '该提供方会从列表中移除，DSH 配置与 API 密钥一并清除。',
+      effects: ['用该提供方配置的模型会变成不可选', '需要时需重新填写 API 密钥'],
+      tone: 'danger',
+      requirePhrase: '删除',
+      confirmLabel: '删除提供方',
+      onConfirm: async () => {
+        try {
+          const vendor = vendors.find(v => v.id === p.id)
+          await api.removeProvider({ provider: p.id, apiKeyEnv: vendor?.apiKeyEnv })
+          await loadProviders()
+        } catch (err) {
+          setAddErr((err as Error).message)
+        }
+      },
+    })
   }
 
 
@@ -165,7 +183,7 @@ export function ModelManager({ api, provider, model, onProvider, onModel }: Mode
                 <div className={css.field}><label className={css.fieldLabel}>提供方</label><select className={css.input} value={vendorId} onChange={e => setVendorId(e.target.value)}>{vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}</select></div>
                 <div className={css.field}><label className={css.fieldLabel}>API 密钥</label><input className={css.input} type="password" value={addApiKey} onChange={e => setAddApiKey(e.target.value)} placeholder="输入 API 密钥，或留空使用环境认证" /></div>
                 <div className={css.field}><label className={css.fieldLabel}>模型 id（可选）</label><input className={css.input} value={addModel} onChange={e => setAddModel(e.target.value)} placeholder="例如 glm-5.3-flash" /></div>
-                <div className={css.row} style={{ justifyContent: 'flex-end', gap: 'var(--nf-space-8)' }}><button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => openPanel('none')}>取消</button><button type="button" className={css.button + ' ' + css.buttonSmall + ' ' + css.buttonPrimary} disabled={savingAdd} onClick={() => { void saveStandard() }}>{savingAdd ? '保存中…' : '保存'}</button></div>
+                <div className={`${css.row} ${css.rowEnd}`}><button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => openPanel('none')}>取消</button><button type="button" className={css.button + ' ' + css.buttonSmall + ' ' + css.buttonPrimary} disabled={savingAdd} onClick={() => { void saveStandard() }}>{savingAdd ? '保存中…' : '保存'}</button></div>
               </>
             ) : (
               <>
@@ -175,7 +193,7 @@ export function ModelManager({ api, provider, model, onProvider, onModel }: Mode
                 <div className={css.field}><label className={css.fieldLabel}>API 协议</label><select className={css.input} value={custProtocol} onChange={e => setCustProtocol(e.target.value)}><option value="openai-completions">openai-completions</option></select></div>
                 <div className={css.field}><label className={css.fieldLabel}>API 密钥</label><input className={css.input} type="password" value={custApiKey} onChange={e => setCustApiKey(e.target.value)} placeholder="输入 API 密钥" /></div>
                 <div className={css.field}><label className={css.fieldLabel}>模型目录 / 模型 id</label><input className={css.input} value={custModel} onChange={e => setCustModel(e.target.value)} placeholder="例如 glm-5.3-flash" /></div>
-                <div className={css.row} style={{ justifyContent: 'flex-end', gap: 'var(--nf-space-8)' }}><button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => openPanel('none')}>取消</button><button type="button" className={css.button + ' ' + css.buttonSmall + ' ' + css.buttonPrimary} disabled={savingAdd} onClick={() => { void saveCustom() }}>{savingAdd ? '创建中…' : '创建提供方'}</button></div>
+                <div className={`${css.row} ${css.rowEnd}`}><button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => openPanel('none')}>取消</button><button type="button" className={css.button + ' ' + css.buttonSmall + ' ' + css.buttonPrimary} disabled={savingAdd} onClick={() => { void saveCustom() }}>{savingAdd ? '创建中…' : '创建提供方'}</button></div>
               </>
             )}
           </div>
@@ -190,7 +208,7 @@ export function ModelManager({ api, provider, model, onProvider, onModel }: Mode
         <div className={css.field}><label className={css.fieldLabel}>{tt('settings.provider')}</label><select className={css.input} value={providerValue} onChange={e => { const v = e.target.value; if (v === CUSTOM) setProviderCustom(true); else { setProviderCustom(false); onProvider(v) } }}>{providerOptions.map(p => <option key={p.id} value={p.id}>{p.name !== '' && p.name !== p.id ? p.name + '（' + p.id + '）' : p.id}</option>)}<option value={CUSTOM}>{tt('settings.customProvider')}</option></select>{providerCustom && <input className={css.input} style={{ marginTop: 'var(--nf-space-6)' }} value={provider} placeholder="provider 路由 id" onChange={e => onProvider(e.target.value)} />}</div>
         <div className={css.field}>
           <label className={css.fieldLabel}>{tt('settings.model')}</label>
-          <div className={css.row} style={{ gap: 'var(--nf-space-8)', flexWrap: 'wrap' }}>
+          <div className={css.row}>
             <select className={css.input} style={{ flex: 1, minWidth: 200 }} value={modelValue} onChange={e => { const v = e.target.value; if (v === CUSTOM) setModelCustom(true); else { setModelCustom(false); onModel(v) } }}>{modelOptions.map(m => <option key={m.id} value={m.id}>{m.name !== '' && m.name !== m.id ? m.name + '（' + m.id + '）' : m.id}</option>)}<option value={CUSTOM}>{tt('settings.modelCustom')}</option></select>
             <button type="button" className={css.button + ' ' + css.buttonSmall} disabled={modelsLoading || provider === ''} title="刷新模型" onClick={() => { void loadProviderModels(provider) }}><RefreshCw size={13} style={{ verticalAlign: -2 }} /> {modelsLoading ? '…' : tt('settings.refreshModels')}</button>
             <button type="button" className={css.button + ' ' + css.buttonSmall} disabled={test.testing || provider.trim() === '' || model.trim() === ''} onClick={() => { void runTest() }} title={tt('settings.testHint')}><PlugZap size={13} style={{ verticalAlign: -2 }} /> {test.testing ? tt('settings.testRunning') : tt('settings.testConnection')}</button>
@@ -199,6 +217,7 @@ export function ModelManager({ api, provider, model, onProvider, onModel }: Mode
           <span className={css.meta} style={{ color: test.ok === true ? 'var(--nf-success)' : test.ok === false ? 'var(--nf-error)' : undefined }}>{test.testing ? tt('settings.testRunning') + '…' : test.ok === true ? '✓ ' + tt('settings.testOk') + ' · ' + (test.ms ?? '?') + 'ms' : test.ok === false ? '✗ ' + tt('settings.testFail') + (test.message !== undefined ? '：' + test.message : '') : tt('settings.testHint')}</span>
         </div>
       </div>
+      {confirmUi.dialog}
     </div>
   )
 }

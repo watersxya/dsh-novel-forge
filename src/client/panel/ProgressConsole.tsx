@@ -35,7 +35,7 @@ export function ProgressConsole({ progress, busy, busyLabel, liveBar, onClear }:
         <div style={{ border: '1px solid var(--nf-accent)', borderRadius: 'var(--nf-radius-10)', padding: 'var(--nf-space-8) var(--nf-space-12)', display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', background: 'color-mix(in srgb, var(--nf-accent) 6%, transparent)' }}>
           <span style={{ fontSize: 'var(--nf-fs-12)', fontWeight: 600, color: 'var(--nf-accent)' }}> {busyLabel !== '' ? busyLabel : (liveBar?.text ?? '任务进行中')}…</span>
           {liveBar?.ratio !== undefined && (
-            <div className={css.bigProgressBar}><div className={css.bigProgressBarFill} style={{ width: Math.round(liveBar.ratio * 100) + '%' }} /></div>
+            <div className={css.bigProgressBar}><div className={css.bigProgressBarFill} style={{ transform: `scaleX(${liveBar.ratio})` }} /></div>
           )}
           {liveBar?.text !== undefined && <span className={css.liveText}>{liveBar.text}</span>}
         </div>
@@ -50,7 +50,7 @@ export function ProgressConsole({ progress, busy, busyLabel, liveBar, onClear }:
           progress.map(line => (
             <div key={line.id} className={line.kind === 'done' ? css.progressLineDone : line.kind === 'error' ? css.progressLineError : line.live === true ? css.progressLineLive : css.progressLine}>
               {line.live === true && (
-                <span className={css.progressBar}><span className={css.progressBarFill} style={{ width: Math.round((line.ratio ?? 0) * 100) + '%' }} /></span>
+                <span className={css.progressBar}><span className={css.progressBarFill} style={{ transform: `scaleX(${line.ratio ?? 0})` }} /></span>
               )}
               {line.text}
             </div>

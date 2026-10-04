@@ -93,7 +93,7 @@ export function WorldTab({
       {error !== '' && <div className={css.card} style={{ borderColor: 'var(--nf-error)' }}><span style={{ color: 'var(--nf-error)' }}>{error}</span></div>}
 
       <div className={css.card}>
-        <div className={css.row} style={{ justifyContent: 'space-between' }}>
+        <div className={`css.rowBetween`}>
           <span className={css.cardTitle}>大世界</span>
           <div className={css.row}>
             <button type="button" className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`} disabled={busy} onClick={() => { void handleGenerate() }}>
@@ -111,7 +111,7 @@ export function WorldTab({
 
       {/* 境界体系 */}
       <div className={css.card}>
-        <div className={css.row} style={{ justifyContent: 'space-between' }}>
+        <div className={`css.rowBetween`}>
           <span className={css.cardTitle}>境界体系（{draft.realms.length}）</span>
           <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setRealms([...draft.realms, { name: '', description: '' }]) }}>
             ＋ 新增境界
@@ -139,7 +139,7 @@ export function WorldTab({
 
       {/* 地理区域 */}
       <div className={css.card}>
-        <div className={css.row} style={{ justifyContent: 'space-between' }}>
+        <div className={`css.rowBetween`}>
           <span className={css.cardTitle}>地理区域（{draft.regions.length}）</span>
           <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setRegions([...draft.regions, { name: '', description: '' }]) }}>
             ＋ 新增区域
@@ -167,7 +167,7 @@ export function WorldTab({
 
       {/* 势力分布 */}
       <div className={css.card}>
-        <div className={css.row} style={{ justifyContent: 'space-between' }}>
+        <div className={`css.rowBetween`}>
           <span className={css.cardTitle}>势力分布（{draft.factions.length}）</span>
           <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setFactions([...draft.factions, { name: '', kind: '宗门', description: '' }]) }}>
             ＋ 新增势力

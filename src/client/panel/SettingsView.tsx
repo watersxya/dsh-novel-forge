@@ -251,7 +251,7 @@ export function SettingsView({ api, variant = 'page', onSettingsTab, onEditorFon
           <span className={css.cardTitle}><Folder size={18} style={{ verticalAlign: -3 }} /> 路径与文件</span>
           <div className={css.field}>
             <label className={css.fieldLabel}>{tt('settings.outputDir')}</label>
-            <div className={css.row} style={{ gap: 'var(--nf-space-8)', flexWrap: 'wrap' }}>
+            <div className={css.row}>
               <input className={css.input} style={{ flex: 1, minWidth: 220 }} value={configDraft.outputDir} onChange={e => setConfigDraft({ ...configDraft, outputDir: e.target.value })} />
               <button type="button" className={css.button} onClick={() => { void openMoveDialog() }} title="把当前输出目录的全部文件搬到新位置，书架与配置自动联动">更改位置…</button>
             </div>
@@ -280,13 +280,13 @@ export function SettingsView({ api, variant = 'page', onSettingsTab, onEditorFon
               </select>
               <span className={css.meta}>固定在窗口右上角，显示生产单 生成中 / 已暂停 / 批完成 / 出错，点击可打开小说工坊。「关闭」时同时停掉状态轮询。存于浏览器本地，即时生效。</span>
             </div>
-            <div className={css.row} style={{ justifyContent: 'flex-end' }}><button type="button" className={css.button} onClick={resetTheme}><RotateCcw size={14} style={{ verticalAlign: -2 }} /> 恢复默认主题</button></div>
+            <div className={`${css.row} ${css.rowEnd}`}><button type="button" className={css.button} onClick={resetTheme}><RotateCcw size={14} style={{ verticalAlign: -2 }} /> 恢复默认主题</button></div>
           </div>
 
           <div className={css.card + ' ' + css.settingsCard} style={{ gap: 'var(--nf-space-12)' }}>
             <span className={css.cardTitle}><Image size={18} style={{ verticalAlign: -3 }} /> 自定义背景</span>
             <span className={css.meta}>填图片 URL 或上传图片作为小说工坊背景（首页 + 书内）。留空 = 使用主题默认背景。</span>
-            <div className={css.row} style={{ gap: 'var(--nf-space-8)', flexWrap: 'wrap' }}>
+            <div className={css.row}>
               <input className={css.input} style={{ flex: 1, minWidth: 220 }} placeholder="https://… 图片地址" value={(configDraft.themeBackground ?? '').startsWith('data:') ? '' : (configDraft.themeBackground ?? '')} onChange={e => applyBackground(e.target.value.trim() !== '' ? e.target.value.trim() : undefined)} />
               <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => bgFileRef.current?.click()}><Upload size={13} style={{ verticalAlign: -2 }} /> 上传图片</button>
               <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => applyBackground(undefined)}><X size={13} style={{ verticalAlign: -2 }} /> 清除</button>
