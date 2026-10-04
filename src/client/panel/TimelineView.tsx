@@ -192,7 +192,7 @@ export default function TimelineView({ api, chapters, onRevise, busy: outerBusy 
       {editing !== null && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={() => setEditing(null)}>
           <div onClick={ev => ev.stopPropagation()} style={{ background: 'var(--nf-bg)', border: '1px solid var(--nf-border)', borderRadius: 10, width: 'min(560px, 94vw)', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <b style={{ fontSize: 'var(--nf-fs-13)' }}>修正时间线事件 · 第 {editing.chapterNo} 章</b>
+            <b style={{ fontSize: 'var(--nf-fs-14)' }}>修正时间线事件 · 第 {editing.chapterNo} 章</b>
             <label className={css.field}>
               <span className={css.fieldLabel}>故事内时间</span>
               <input className={css.input} value={editing.time} onChange={e => setEditing({ ...editing, time: e.target.value })} placeholder="如：第三日黄昏 / 入宗三个月后" />

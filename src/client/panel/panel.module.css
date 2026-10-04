@@ -56,12 +56,16 @@
   --nf-fs-body: 13px;
   --nf-fs-meta: 12px;
   --nf-fs-caption: 11px;
-  /* 字号档补齐：此前 --nf-text-12 / --nf-fs-13 被多处内联引用却从未定义，
-   * var() 静默回落到继承值 → NoticeBar 的 success / error 共用同一字号，
-   * 视觉权重完全相同，「这是一条错误」这件事就丢了。 */
+  /* 字号档补齐：此前 --nf-text-12 被多处内联引用却从未定义，var() 静默回落到继承值
+   * → NoticeBar 的 success / error 共用同一字号，视觉权重完全相同，「这是一条错误」
+   * 这件事就丢了。
+   *
+   * 注意**不要发明 `--nf-fs-13` 这种非规范档位**：规范档位是 10/12/14/16…（数字即标准
+   * 档的 px）。非规范档位有两个后果：它不随密度档重映射（于是「紧凑模式」在它身上失效），
+   * 且 `check-fallback-tiers` 会判 fallback 不匹配。需要「小一号」时用 `--nf-fs-14` —— 
+   * 紧凑档下它本来就是 13px。 */
   --nf-fs-display: 24px;
   --nf-fs-title: 16px;
-  --nf-fs-13: 13px;
   --nf-fs-notice: 12px;
   --nf-fs-notice-strong: 13px;
   --nf-lh-body: 1.65;
@@ -5980,7 +5984,7 @@ body[data-ds-dark-theme] {
   width: 16px;
   height: 16px;
   margin-top: 1px;
-  font-size: var(--nf-fs-13, 13px);
+  font-size: var(--nf-fs-14, 14px);
   font-weight: 700;
   border-radius: 50%;
 }
@@ -5991,7 +5995,7 @@ body[data-ds-dark-theme] {
 
 .noticeDetail {
   font-weight: 400;
-  font-size: var(--nf-fs-13, 13px);
+  font-size: var(--nf-fs-14, 14px);
   opacity: .9;
 }
 
@@ -5999,7 +6003,7 @@ body[data-ds-dark-theme] {
 
 .noticeBtn {
   flex: none;
-  font-size: var(--nf-fs-13, 13px);
+  font-size: var(--nf-fs-14, 14px);
   padding: 2px 9px;
   border-radius: 6px;
   border: 1px solid currentColor;
@@ -6108,7 +6112,7 @@ body[data-ds-dark-theme] {
   margin: 0;
   padding: var(--nf-space-8, 8px) var(--nf-space-12, 12px);
   list-style: disc;
-  font-size: var(--nf-fs-13, 13px);
+  font-size: var(--nf-fs-14, 14px);
   line-height: 1.65;
   color: var(--nf-text-2);
   background: var(--nf-bg-inset);
@@ -6119,7 +6123,7 @@ body[data-ds-dark-theme] {
 /* 可逆性说明：不用左边条（检测器判定的 AI 界面特征），改用整块 inset + 文字色。 */
 .confirmAssurance {
   padding: var(--nf-space-8, 8px) var(--nf-space-10, 10px);
-  font-size: var(--nf-fs-13, 13px);
+  font-size: var(--nf-fs-14, 14px);
   line-height: 1.55;
   color: var(--nf-info-ink);
   background: var(--nf-info-ink-soft);
@@ -6128,7 +6132,7 @@ body[data-ds-dark-theme] {
 }
 
 .confirmPhraseRow { display: flex; flex-direction: column; gap: 4px; }
-.confirmPhraseHint { font-size: var(--nf-fs-13, 13px); color: var(--nf-text-3); }
+.confirmPhraseHint { font-size: var(--nf-fs-14, 14px); color: var(--nf-text-3); }
 .confirmPhraseInput {
   font-family: var(--nf-mono, ui-monospace, monospace);
   font-size: var(--nf-fs-14, 14px);
@@ -6143,7 +6147,7 @@ body[data-ds-dark-theme] {
   display: flex;
   align-items: flex-start;
   gap: var(--nf-space-8, 8px);
-  font-size: var(--nf-fs-13, 13px);
+  font-size: var(--nf-fs-14, 14px);
   line-height: 1.5;
   color: var(--nf-text-2);
   cursor: pointer;
@@ -6225,7 +6229,7 @@ body[data-ds-dark-theme] {
 }
 
 .cardHeadNote {
-  font-size: var(--nf-fs-13, 13px);
+  font-size: var(--nf-fs-14, 14px);
   color: var(--nf-text-3);
   min-width: 0;
   overflow: hidden;

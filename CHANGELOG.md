@@ -85,7 +85,9 @@
 - `check-css-vars` PASS；`check-theme-sizes` PASS；`audit-contrast` **52 项全 PASS，FAIL 0**。
 - `window.confirm` 真实调用 **0 处**（残留命中全是解释为何替换的注释）。
 - **`npm test` 本机已跑通**：33 文件 / **436 用例全绿**。（先前记录的 `esbuild: Cannot read file "package.json": winapi error #5` 是当时的子进程权限问题，已不复现；类型正确性另有 `tsc --noEmit`。）
+- 补修一处**密度档失效**：新增的 `--nf-fs-13: 13px` 是**非规范档位**（规范档位是 10/12/14/16…，数字即标准档 px）。它不随密度档重映射 —— 「紧凑模式」在它身上失效 —— 且让 `check-fallback-tiers` 以 **8 处 fallback 不匹配阻断发布**。已全部改用 `--nf-fs-14`（14px，紧凑档下本就是 13px），并同步两处 TSX 与 `scripts/replay/` 维护源（否则下次重放会把 bug 带回来）。同时补上 `check:fallback` npm 脚本。
 - 补修一处**构建阻断**：`Sparkline.tsx` 里未使用的局部变量 `peak` 在 `tsconfig.build.json`（`noUnusedLocals: true`）下报 TS6133，导致 `pnpm build` 失败（`tsc --noEmit` 用的是基础 tsconfig，所以此前没暴露）。已删除该死变量并同步注释 —— **发布前务必以 `pnpm build` 为准，不能只看 typecheck**。
+- 经验：发布门禁要以 `pnpm release` 的**脚本链**为准 —— 逐条手跑容易漏（本轮就漏了 `check-fallback-tiers`，直到 release 才暴露）。
 
 ## [2.1.4] - 2026-10-04
 

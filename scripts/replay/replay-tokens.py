@@ -99,12 +99,16 @@ def find_blocks(s, conv=lambda t: t):
 ROOT_PATCHES = [
     ('fs-tiers', "  --nf-fs-caption: 11px;",
      """  --nf-fs-caption: 11px;
-  /* 字号档补齐：此前 --nf-text-12 / --nf-fs-13 被多处内联引用却从未定义，
-   * var() 静默回落到继承值 → NoticeBar 的 success / error 共用同一字号，
-   * 视觉权重完全相同，「这是一条错误」这件事就丢了。 */
+  /* 字号档补齐：此前 --nf-text-12 被多处内联引用却从未定义，var() 静默回落到继承值
+   * → NoticeBar 的 success / error 共用同一字号，视觉权重完全相同，「这是一条错误」
+   * 这件事就丢了。
+   *
+   * 注意**不要发明 `--nf-fs-13` 这种非规范档位**：规范档位是 10/12/14/16…（数字即标准
+   * 档的 px）。非规范档位有两个后果：它不随密度档重映射（于是「紧凑模式」在它身上失效），
+   * 且 `check-fallback-tiers` 会判 fallback 不匹配。需要「小一号」时用 `--nf-fs-14` —— 
+   * 紧凑档下它本来就是 13px。 */
   --nf-fs-display: 24px;
   --nf-fs-title: 16px;
-  --nf-fs-13: 13px;
   --nf-fs-notice: 12px;
   --nf-fs-notice-strong: 13px;"""),
 

@@ -42,7 +42,7 @@ APPEND_PAYLOAD = r"""
   width: 16px;
   height: 16px;
   margin-top: 1px;
-  font-size: var(--nf-fs-13, 13px);
+  font-size: var(--nf-fs-14, 14px);
   font-weight: 700;
   border-radius: 50%;
 }
@@ -53,7 +53,7 @@ APPEND_PAYLOAD = r"""
 
 .noticeDetail {
   font-weight: 400;
-  font-size: var(--nf-fs-13, 13px);
+  font-size: var(--nf-fs-14, 14px);
   opacity: .9;
 }
 
@@ -61,7 +61,7 @@ APPEND_PAYLOAD = r"""
 
 .noticeBtn {
   flex: none;
-  font-size: var(--nf-fs-13, 13px);
+  font-size: var(--nf-fs-14, 14px);
   padding: 2px 9px;
   border-radius: 6px;
   border: 1px solid currentColor;
@@ -170,7 +170,7 @@ APPEND_PAYLOAD = r"""
   margin: 0;
   padding: var(--nf-space-8, 8px) var(--nf-space-12, 12px);
   list-style: disc;
-  font-size: var(--nf-fs-13, 13px);
+  font-size: var(--nf-fs-14, 14px);
   line-height: 1.65;
   color: var(--nf-text-2);
   background: var(--nf-bg-inset);
@@ -181,7 +181,7 @@ APPEND_PAYLOAD = r"""
 /* 可逆性说明：不用左边条（检测器判定的 AI 界面特征），改用整块 inset + 文字色。 */
 .confirmAssurance {
   padding: var(--nf-space-8, 8px) var(--nf-space-10, 10px);
-  font-size: var(--nf-fs-13, 13px);
+  font-size: var(--nf-fs-14, 14px);
   line-height: 1.55;
   color: var(--nf-info-ink);
   background: var(--nf-info-ink-soft);
@@ -190,7 +190,7 @@ APPEND_PAYLOAD = r"""
 }
 
 .confirmPhraseRow { display: flex; flex-direction: column; gap: 4px; }
-.confirmPhraseHint { font-size: var(--nf-fs-13, 13px); color: var(--nf-text-3); }
+.confirmPhraseHint { font-size: var(--nf-fs-14, 14px); color: var(--nf-text-3); }
 .confirmPhraseInput {
   font-family: var(--nf-mono, ui-monospace, monospace);
   font-size: var(--nf-fs-14, 14px);
@@ -205,7 +205,7 @@ APPEND_PAYLOAD = r"""
   display: flex;
   align-items: flex-start;
   gap: var(--nf-space-8, 8px);
-  font-size: var(--nf-fs-13, 13px);
+  font-size: var(--nf-fs-14, 14px);
   line-height: 1.5;
   color: var(--nf-text-2);
   cursor: pointer;
@@ -287,7 +287,7 @@ APPEND_PAYLOAD = r"""
 }
 
 .cardHeadNote {
-  font-size: var(--nf-fs-13, 13px);
+  font-size: var(--nf-fs-14, 14px);
   color: var(--nf-text-3);
   min-width: 0;
   overflow: hidden;

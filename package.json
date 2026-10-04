@@ -113,6 +113,7 @@
     "check:styles": "node scripts/check-theme-sizes.mjs",
     "check:vars": "node scripts/check-css-vars.mjs",
     "check:dead-classes": "node scripts/check-dead-classes.mjs",
+    "check:fallback": "node scripts/check-fallback-tiers.mjs",
     "check:third-party": "node scripts/check-third-party.mjs",
     "check:contrast": "node scripts/audit-contrast.mjs",
     "check:third-party:list": "node scripts/check-third-party.mjs --list",
