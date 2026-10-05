@@ -26,7 +26,7 @@ export const COMPLIANCE_REDLINES: ReadonlyArray<string> = [
 /** 审稿维度取值：归一化模型输出的 dimension 字段。维度清单以 reviewSystemPrompt 的九条为准。 */
 const REVIEW_DIMENSION_IDS = new Set(['character', 'setting', 'redline', 'writing', 'pacing', 'logic', 'anti-ai', 'presentation', 'compliance'])
 
-import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, rmSync, renameSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, rmSync, renameSync, statSync } from 'node:fs'
 import { stripChapterHeadings } from './strip-headings.ts'
 import { alignPlotlineProgress } from './plotline-align.ts'
 import { join, basename, extname } from 'node:path'
@@ -37,7 +37,7 @@ import { BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, effectiveAntiAiRules,
 import { scanAiFlavor } from './ai-scan.ts'
 import { compareStyleFingerprint, extractStyleFingerprint, mergeFingerprints, renderFingerprintComparison, type StyleFingerprint } from './style-fingerprint.ts'
 import { beginLiveCall, endLiveCall, markFirstToken } from './llm-live.ts'
-import { withModelFallback } from './llm-retry.ts'
+import { isCancellation, withModelFallback } from './llm-retry.ts'
 import { streamWithFallback } from './stream-fallback.ts'
 import { convergeRequestParams, fullTextBudget } from './model-capability.ts'
 import { applyModelCapability } from './model-request.ts'
@@ -201,26 +201,40 @@ export function saveProject(outputDir: string, project: ProjectState): void {
   writeFileSync(tmp, data, 'utf8')
   renameSync(tmp, target)
 }
+/** `mergeVolatileFromDisk` 会覆盖的易变字段的全集（也是 `keep` 的合法取值域）。 */
+const VOLATILE_FIELDS = [
+  'bible', 'roles', 'plotlines', 'roleStatus', 'blurb', 'coverPath', 'facts', 'assets', 'world', 'volumes',
+] as const
+
+/** 易变字段名。用于 {@link mergeVolatileFromDisk} 的 `keep`：声明「本次我改过它，别覆盖」。 */
+export type VolatileField = (typeof VOLATILE_FIELDS)[number]
+
 /**
  * 并发保护：长任务（章节计划生成/正文生成）在内存中持有旧快照，
  * 期间其他请求可能修改了「易变字段」（道藏/角色库/剧情线/人物志存档/简介/封面）。
  * 保存前用磁盘最新版本合并这些字段，避免旧快照覆盖新修改（曾导致角色卡丢失）。
- * 注意：调用方若自己修改了这些字段，不要使用本函数。
+ *
+ * ⚠️ `keep` 不是可选的礼貌参数，而是本函数唯一的正确用法保证：
+ * 调用方只要自己写过这些字段中的任何一个（哪怕只是 `project.plotlines[0].chapters.push(no)`），
+ * **必须**把它列进 `keep`，否则本函数会用磁盘旧值把本轮成果整块覆盖掉。
+ * 历史上正是漏了 `facts` / `plotlines`，导致作者复盘回灌的事实与剧情线关联被静默丢弃。
+ *
+ * @param outputDir - 项目目录。
+ * @param project - 待保存的内存项目（原地修改）。
+ * @param keep - 本次调用方已自行修改过的易变字段，这些字段不从磁盘覆盖。
  */
-export function mergeVolatileFromDisk(outputDir: string, project: ProjectState): void {
+export function mergeVolatileFromDisk(outputDir: string, project: ProjectState, keep: readonly VolatileField[] = []): void {
   try {
     const disk = loadProject(outputDir)
     if (disk === undefined) return
-    project.bible = disk.bible
-    project.roles = disk.roles
-    project.plotlines = disk.plotlines
-    project.roleStatus = disk.roleStatus
-    project.blurb = disk.blurb
-    project.coverPath = disk.coverPath
-    project.facts = disk.facts
-    project.assets = disk.assets
-    project.world = disk.world
-    project.volumes = disk.volumes
+    const skip = new Set<string>(keep)
+    const target = project as unknown as Record<string, unknown>
+    const source = disk as unknown as Record<string, unknown>
+    for (const field of VOLATILE_FIELDS) {
+      if (skip.has(field)) continue
+      // 逐字段赋值而非整体解构：字段集合演进时不会静默漏拷。
+      target[field] = source[field]
+    }
   } catch { /* 磁盘读取失败时保持原状 */ }
 }
 
@@ -337,6 +351,23 @@ export function readChapterFile(outputDir: string, chapter: ChapterPlan): string
   return readFileSync(path, 'utf8')
 }
 
+/**
+ * 章节正文的**写盘时间**（文件 mtime，ISO）—— 面板「今日产出 / 日环比」的唯一本地事实来源。
+ *
+ * 为什么不把它写进 novel-project.json：它是**派生数据**。落盘后一旦文件被外部替换、
+ * 从备份回拷、或手工改名，存档里的时间戳就开始撒谎；mtime 永远跟着真实文件走。
+ * 代价是每次 /status 要对每个有正文的章 stat 一次 —— 本地磁盘上是微秒级，
+ * 相对它换来的"今天的产出是真的"，这个代价可以接受。
+ */
+export function chapterWrittenAt(outputDir: string, chapter: ChapterPlan): string | undefined {
+  if (chapter.file === undefined) return undefined
+  try {
+    return statSync(join(outputDir, chapter.file)).mtime.toISOString()
+  } catch {
+    return undefined
+  }
+}
+
 /** Create a fresh project from an outline. */
 export function createProject(outline: string, outlinePath?: string): ProjectState {
   const now = new Date().toISOString()
@@ -369,6 +400,11 @@ interface CompleteOptions {
    * 结构化稳定性优先的前提下覆盖用户的思考档位。
    */
   structured?: boolean
+  /**
+   * 取消信号。客户端断开时中止在飞的 LLM 调用。
+   * 宿主 SDK 约定 `options.signal` 必须被实现尊重，不传等于让调用在后台跑完。
+   */
+  signal?: AbortSignal
 }
 
 /**
@@ -427,14 +463,24 @@ async function complete(
       ...(converged.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(converged.reasoningEffort) }),
     }
     const assembler = new BlockAssembler()
-    for await (const chunk of ctx.llm.stream(request)) {
-      if (chunk.type === 'text-delta') markFirstToken(live)
-      assembler.push(chunk)
+    try {
+      for await (const chunk of ctx.llm.stream(options.signal === undefined ? request : { ...request, signal: options.signal })) {
+        if (chunk.type === 'text-delta') markFirstToken(live)
+        assembler.push(chunk)
+      }
+    } catch (error) {
+      // 取消有两条现场：适配器给 aborted 收尾块，或直接把 AbortError 抛出来。
+      // 两条都必须结案，否则面板的实况会话永远停在「生成中」，用量账本也会漏记这次。
+      endLiveCall(live, assembler, {
+        phase: isCancellation(error) ? 'cancelled' : 'failed',
+        error: (error as Error).message,
+      })
+      throw error
     }
     const finish = assembler.finish
     if (finish.kind === 'error' || finish.kind === 'aborted') {
-      const message = `LLM 调用失败（${finish.kind}）: ${finish.failure.message}`
-      endLiveCall(live, assembler, { phase: 'failed', error: message })
+      const message = `${isCancellation(finish.kind) ? '调用已取消' : 'LLM 调用失败'}（${finish.kind}）: ${finish.failure.message}`
+      endLiveCall(live, assembler, { phase: isCancellation(finish.kind) ? 'cancelled' : 'failed', error: message })
       throw new Error(message)
     }
     if (finish.kind === 'max-tokens') {
@@ -2626,6 +2672,7 @@ export async function* rewriteChapterStream(
   chapterNo: number,
   instructions: string,
   target?: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<{ frame: 'start' } | { frame: 'delta'; text: string } | { frame: 'drafted'; chars: number; draft: string }, void, unknown> {
   const chapter = project.chapters.find(c => c.no === chapterNo)
   if (chapter === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 不在计划中`)
@@ -2730,6 +2777,7 @@ export async function* rewriteChapterStream(
     ctx,
     config,
     request,
+    signal,
     liveLabel: `修订 · 第${chapterNo}章`,
     liveUser: messages[0]?.content !== undefined ? JSON.stringify(messages[0].content).slice(0, 2000) : undefined,
     maxTokensError: '修订输出达到 maxTokens 上限，请增大配置后重试',
@@ -2786,6 +2834,7 @@ export async function* polishChapterStream(
   project: ProjectState,
   outputDir: string,
   chapterNo: number,
+  signal?: AbortSignal,
 ): AsyncGenerator<{ frame: 'start' } | { frame: 'delta'; text: string } | { frame: 'drafted'; chars: number; draft: string }, void, unknown> {
   const chapter = project.chapters.find(c => c.no === chapterNo)
   if (chapter === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 不在计划中`)
@@ -2812,6 +2861,7 @@ export async function* polishChapterStream(
     ctx,
     config,
     request,
+    signal,
     liveLabel: `去 AI 味润色 · 第${chapterNo}章`,
     liveUser: body.slice(0, 2000),
     maxTokensError: '润色输出达到 maxTokens 上限，请增大配置后重试',
@@ -2838,6 +2888,7 @@ export async function* generateChapterStream(
   project: ProjectState,
   outputDir: string,
   chapterNo: number,
+  signal?: AbortSignal,
 ): AsyncGenerator<{ frame: 'start' } | { frame: 'delta'; text: string } | { frame: 'done'; file: string; chars: number; warn?: string }, void, unknown> {
   const chapter = project.chapters.find(c => c.no === chapterNo)
   if (chapter === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 不在计划中`)
@@ -2958,6 +3009,7 @@ export async function* generateChapterStream(
     ctx,
     config,
     request,
+    signal,
     liveLabel: `正文生成 · 第${chapter.no}章`,
     liveUser: user,
     maxTokensError: '达到 maxTokens 上限，正文可能不完整，请增大 maxTokens 后重试',
@@ -3047,6 +3099,7 @@ export async function reverseOutlineFromChapters(
   project: ProjectState,
   outputDir: string,
   onProgress?: (done: number, total: number, phase: string) => void,
+  signal?: AbortSignal,
 ): Promise<string> {
   const written = project.chapters
     .filter(c => c.status !== 'pending' && c.status !== 'generating' && c.status !== 'error')
@@ -3065,7 +3118,7 @@ export async function reverseOutlineFromChapters(
       return '第' + c.no + '章《' + (c.title || '无题') + '》\n' + stripChapterHeadings(body).slice(0, 1000)
     }).join('\n\n---\n\n')
     const system = '你是一位网文编辑。下面是一本书若干章正文的节选。请为每一章输出一行「事件摘要」，格式严格为：第N章《标题》：关键事件+主角状态变化+新增伏笔或线索。每章恰好一行，不要空行，不要评价，不要输出其他内容。'
-    const note = await complete(ctx, config, { system, user: bodies, temperature: 0.2, maxTokens: Math.max(config.maxTokens, 3000), reasoning: config.analysisReasoning ?? 'low' })
+    const note = await complete(ctx, config, { system, user: bodies, temperature: 0.2, maxTokens: Math.max(config.maxTokens, 3000), reasoning: config.analysisReasoning ?? 'low' , signal })
     notes.push(note.trim())
     onProgress?.(Math.min(i + BATCH, total), total, '章节摘要')
   }
@@ -3080,7 +3133,7 @@ export async function reverseOutlineFromChapters(
     '4. 最后给出：全书主线、主要人物弧线、已埋设待回收的伏笔清单。',
     '5. 输出为纯文本 Markdown 结构（# 一级标题、## 二级标题、- 列表），不要多余寒暄。',
   ].join('\n')
-  const outline = await complete(ctx, config, { system: system2, user: notes.join('\n\n'), temperature: 0.4, maxTokens: Math.max(config.maxTokens, 6000), reasoning: config.analysisReasoning ?? 'low' })
+  const outline = await complete(ctx, config, { system: system2, user: notes.join('\n\n'), temperature: 0.4, maxTokens: Math.max(config.maxTokens, 6000), reasoning: config.analysisReasoning ?? 'low' , signal })
   onProgress?.(total, total, '完成')
   return outline.trim()
 }
@@ -3318,7 +3371,7 @@ export async function rewriteAdaptationBook(
   text: string,
   mappings: AdaptationMapping[],
   rules?: AdaptationRules,
-  options: { maxChapters?: number; startNo?: number; endNo?: number; onProgress?: (info: { completed: number; total: number; no: number; title: string }) => void } = {},
+  options: { maxChapters?: number; startNo?: number; endNo?: number; onProgress?: (info: { completed: number; total: number; no: number; title: string }) => void; signal?: AbortSignal } = {},
 ): Promise<{ adaptedText: string; rewritten: Array<{ no: number; title: string; chars: number }>; skipped: number[]; hits: Array<{ source: string; target: string; count: number }> }> {
   const chapters = splitBookText(text).filter(c => c.body.length >= 50)
   if (chapters.length === 0) throw new Error('未能从全文拆出章节（内容过短或无章节结构）')
@@ -3369,12 +3422,14 @@ export async function rewriteAdaptationBook(
     ].filter(s => s !== '').join('\n\n')
     let body = ''
     try {
+      if (options.signal?.aborted === true) return { adaptedText: adaptedParts.join('\n'), rewritten, skipped, hits }
       const out = await complete(ctx, config, {
         system,
         user,
         temperature: 0.7,
         maxTokens: Math.max(config.maxTokens, Math.min(16000, c.body.length * 3)),
         reasoning: config.analysisReasoning ?? 'low',
+        signal: options.signal,
       })
       body = stripRewriteHeading(out)
       if (body.length < 50) body = ''

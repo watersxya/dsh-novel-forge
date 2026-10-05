@@ -27,7 +27,7 @@
   --nf-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* Display 衬线栈（墨纸 R1）：页面大标题 / 章节名专用 —— 宋体系回退，禁加粗。
    * Windows 无预装思源宋体时回落宋体 SimSun，仍有书卷气。UI 正文永远用 --nf-font。 */
-  --nf-font-display: Georgia, 'Times New Roman', 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', SimSun, serif;
+  --nf-font-display: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', SimSun, 'Times New Roman', serif;
   /* 阅读列宽（R2）：章节正文 / 审稿报告 / 复盘等「读的内容」的最大行宽 */
   --nf-measure: 720px;
   /* 节间距（R2）：区块与区块之间的呼吸节奏（卡间距仍用 --nf-space-24 及以下） */
@@ -260,7 +260,7 @@ body[data-ds-dark-theme] .entry {
 
   --nf-bad: #b94a41;
   --nf-hover: rgba(38, 34, 27, 0.05);
-  --nf-success: #34c559;
+  --nf-success: #4f8750;
   --nf-error: #e5484d;
   /* 同义别名：--nf-danger / --nf-toast-ok 此前只以 fallback 裸值散在 CSS 里
    * （#e5484d / #2ec27e），与 error / success 同义却不同名不同值，改主题必漏改。 */
@@ -277,7 +277,7 @@ body[data-ds-dark-theme] .entry {
   --nf-info-ink: #3c5b8a;
   --nf-info-ink-soft: rgba(60, 91, 138, 0.1);
   --nf-toast-ok: var(--nf-success);
-  --nf-warn: #ff9500;
+  --nf-warn: #aa741d;
   --nf-info: #4a6fa5; /* info 去紫 → 冷钢蓝（与 accent 朱砂解耦） */
   --nf-ai: #c07c22;   /* AI 产出 / 机器在跑（琥珀） */
   --nf-human: #2f6fa3; /* 需人裁决 / 命令（钢蓝） */
@@ -360,10 +360,10 @@ body[data-ds-dark-theme] .view:not(:has(> .panel[data-nf-mode='light'])) {
   --nf-ai-soft: rgba(217, 138, 43, 0.12);
   --nf-human-soft: rgba(74, 163, 217, 0.12);
   --nf-ok: #79b372;
-  --nf-warn: #e3a52e;
+  --nf-warn: #e3ad49;
   --nf-bad: #d95753;
   --nf-hover: rgba(242, 233, 220, 0.06);
-  --nf-success: #79b372;
+  --nf-success: #83b87d;
   --nf-error: #d95753;
   --nf-danger: var(--nf-error);
   /* 深色下的 -ink 要比 -error 本身更亮才够对比度。 */
@@ -376,7 +376,7 @@ body[data-ds-dark-theme] .view:not(:has(> .panel[data-nf-mode='light'])) {
   --nf-info-ink: #8aabd8;
   --nf-info-ink-soft: rgba(138, 171, 216, 0.13);
   --nf-toast-ok: var(--nf-success);
-  --nf-warn: #e3a52e;
+  --nf-warn: #aa741d;
   --nf-info: #6b8fc7;
   --nf-ai: #d98a2b;  /* AI 产出（琥珀） */
   --nf-human: #4aa3d9; /* 需人裁决（亮钢蓝） */
@@ -2872,7 +2872,7 @@ select.input {
   --nf-accent-soft: rgba(166, 62, 42, 0.14);
   --nf-accent-fg: #fdf3ee;
   --nf-hover: rgba(38, 34, 27, 0.05);
-  --nf-success: #5f9656;
+  --nf-success: #4f8750;
   --nf-error: #b94a41;
   --nf-danger: var(--nf-error);
   --nf-success-ink: #1b7a3a;
@@ -2925,7 +2925,7 @@ select.input {
   --nf-accent-soft: rgba(166, 62, 42, 0.18);
   --nf-accent-fg: #fdf3ee;
   --nf-hover: rgba(242, 233, 220, 0.06);
-  --nf-success: #79b372;
+  --nf-success: #83b87d;
   --nf-error: #d95753;
   --nf-danger: var(--nf-error);
   --nf-success-ink: #86c47f;
@@ -2937,7 +2937,7 @@ select.input {
   --nf-info-ink: #8aabd8;
   --nf-info-ink-soft: rgba(138, 171, 216, 0.13);
   --nf-toast-ok: var(--nf-success);
-  --nf-warn: #e3a52e;
+  --nf-warn: #e3ad49;
   --nf-info: #6b8fc7;
   --nf-ai: #d98a2b;
   --nf-human: #4aa3d9;
@@ -5116,9 +5116,7 @@ body[data-ds-dark-theme] {
 
 
 /* 状态池（唯一视觉重心） --------------------------------------------------- */
-.wfPoolWrap {
-  position: relative;
-}
+
 
 .wfEmpty {
   border: 1px dashed var(--wf-line);
@@ -5130,80 +5128,23 @@ body[data-ds-dark-theme] {
   line-height: 1.8;
 }
 
-.wfPoolBar {
-  position: relative;
-  display: flex;
-  height: 64px;
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid var(--wf-line2);
-  background: var(--wf-bg3);
-}
 
-.wfPs {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 2px;
-  min-width: 0;
-  padding: 4px 6px;
-  border: none;
-  background: transparent;
-  font-family: var(--wf-mono);
-  color: #221b12;
-  font-weight: 700;
-  font-size: 13.5px;
-  cursor: pointer;
-  transition: filter 0.2s ease;
-  border-right: 1px solid rgba(0, 0, 0, 0.12);
-  overflow: hidden;
-}
 
-.wfPs:last-child {
-  border-right: none;
-}
 
-.wfPs:hover {
-  filter: brightness(1.1);
-}
 
-.wfPsN {
-  font-size: 17px;
-  line-height: 1.15;
-  font-variant-numeric: tabular-nums;
-}
 
-.wfPsLab {
-  font-family: var(--wf-ui);
-  font-weight: 600;
-  font-size: 12px;
-  line-height: 1.2;
-  opacity: 0.95;
-}
 
-.wfPsLegend {
-  display: flex;
-  gap: 16px;
-  margin-top: 8px;
-  flex-wrap: wrap;
-  font-size: 12.5px;
-  color: var(--wf-dim);
-}
 
-.wfPl {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
 
-.wfSw {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  flex: none;
-  display: inline-block;
-}
+
+
+
+
+
+
+
+
+
 
 
 /* 唯一主令 ----------------------------------------------------------------- */
@@ -5678,39 +5619,17 @@ body[data-ds-dark-theme] {
 
 
 /* 信号条 ------------------------------------------------------------------- */
-.wfSignal {
-  display: flex;
-  gap: 22px;
-  align-items: center;
-  flex-wrap: wrap;
-  padding: 10px 18px;
-  border-top: 1px solid var(--wf-line2);
-  background: var(--nf-bg-deep, var(--nf-bg));
-  font-size: 12.5px;
-  color: var(--wf-faint);
-}
 
-.wfSig {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
 
-.wfSig b {
-  color: var(--wf-dim);
-  font-family: var(--wf-mono);
-  font-weight: 600;
-}
 
-.wfSigGood b { color: var(--wf-ok); }
 
-.wfSigBad b { color: var(--nf-error); }
 
-.wfSigRight {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--wf-faint);
-}
+
+
+
+
+
+
 
 
 @keyframes wfBlink {
@@ -5938,7 +5857,7 @@ body[data-ds-dark-theme] {
 }
 
 
-@container nfpanel (max-width: 1180px) {
+@container nfpanel (max-width: 900px) {
   .chWorkGrid { grid-template-columns: 220px minmax(0, 1fr); }
   .chWorkSide {
     grid-column: 1 / -1;
@@ -6294,3 +6213,1881 @@ body[data-ds-dark-theme] {
 }
 .wfRailWrap > .wfRail { min-width: 520px; margin: 0; }
 
+/* ==========================================================================
+ * 嫁接段（2.1.13 皮肤回退）：v2.1.5 之后**新增类**的样式。
+ * 皮肤层（字体栈 / 非对称圆角 / 光晕与纹理 / 色板重校准 / 案头 parity 附录）已回退到
+ * v2.1.5；本段只保留 v2.1.5 里不存在的类，保证新组件（hero / 批注栏 / 侧柜快照 /
+ * 审稿卡片 / 生产单队列 / 骨架 / 章节计划六项 …）不会裸奔。
+ * ========================================================================== */
+
+
+/* 工具收纳菜单：二级能力集中展示，避免生产/分析入口与主流程并列造成重复感。 */
+.topNavMenu {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.topNavChevron {
+  margin-left: 1px;
+  font-size: 12px;
+  line-height: 1;
+  opacity: .65;
+}
+
+.topNavMenuPanel {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 8px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 188px;
+  padding: 7px;
+  border: 1px solid var(--nf-line, var(--nf-border));
+  border-radius: var(--nf-r, 12px);
+  background: var(--nf-bg-raise);
+  box-shadow: 0 14px 30px rgba(38, 34, 27, .14);
+}
+
+.topNavMenuHint {
+  padding: 5px 9px 6px;
+  color: var(--nf-text-3, var(--nf-text-2));
+  font-size: var(--nf-fs-caption, 11px);
+  letter-spacing: .08em;
+}
+
+.topNavMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--nf-r-sm, 8px);
+  background: transparent;
+  color: var(--nf-text-2);
+  font-size: var(--nf-fs-meta, 12px);
+  text-align: left;
+  cursor: pointer;
+}
+
+.topNavMenuItem:hover,
+.topNavMenuItemActive {
+  border-color: color-mix(in srgb, var(--nf-ai) 30%, transparent);
+  background: var(--nf-ai-soft);
+  color: var(--nf-ai);
+}
+
+.topNavMenuItem .topNavBadge {
+  margin-left: auto;
+}
+
+/* 设定与时间线是“读内容”的面：保留卡片边界，但把内部层级交给稿纸纹与分隔线。 */
+.worldIntro,
+.worldSection,
+.timelineSurface {
+  gap: var(--nf-space-12, 12px);
+}
+
+.worldNote {
+  max-width: var(--nf-measure, 720px);
+  padding: 8px 10px;
+  color: var(--nf-text-2);
+  font-size: var(--nf-fs-meta, 12px);
+  line-height: var(--nf-lh-body, 1.65);
+}
+
+.worldSection .cardHead {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--nf-line-2, var(--nf-border));
+}
+
+.timelineIssues {
+  border: 1px solid color-mix(in srgb, var(--nf-warn) 45%, var(--nf-border));
+  border-radius: var(--nf-radius-8, 8px);
+  padding: var(--nf-space-8, 8px);
+  background: color-mix(in srgb, var(--nf-warn) 7%, var(--nf-bg-inset));
+}
+
+.timelineEvents {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-12, 12px);
+  overflow-y: auto;
+  max-height: 52vh;
+  padding: 4px 8px 8px;
+  border-top: 1px solid var(--nf-line-2, var(--nf-border));
+}
+
+.timelineChapter {
+  padding-top: 4px;
+}
+
+.timelineChapterEvents {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-4, 4px);
+}
+
+.timelineEvent {
+  border-bottom: 1px solid var(--nf-line-2, var(--nf-border));
+  padding: 7px 4px;
+  font-size: var(--nf-fs-meta, 12px);
+  line-height: var(--nf-lh-body, 1.65);
+  transition: background var(--nf-dur-base, 0.15s) ease;
+}
+
+.timelineEvent:hover {
+  background: color-mix(in srgb, var(--nf-bg-inset) 72%, transparent);
+}
+
+/* 第二轮：生产单和章节工作台的“操作面 / 阅读面”分层。业务组件继续只负责数据和动作。 */
+.runSurface {
+  background: var(--nf-bg-raise);
+}
+
+.runSurface .runLog {
+  border-color: var(--nf-line-2, var(--nf-border));
+  background: var(--nf-bg-deep);
+}
+
+.runSurface .bigProgressBar {
+  margin-top: 2px;
+}
+
+.chWorkSurface {
+  background: var(--nf-bg);
+}
+
+/* 正文栏的操作面。此前 TSX 里写着 `css.chWorkMainSurface` 但**这个类从未定义** ——
+   className 里直接拼出字符串 "undefined"（不报错、不警告，只是样式悄悄少一层）。
+   与历史上 `--nf-typo` / `--nf-muted` 是同一类缺陷：引用端存在、定义端缺失。 */
+.chWorkMainSurface {
+  background: var(--nf-bg);
+}
+
+.chWorkBarStack {
+  background: var(--nf-bg-deep);
+}
+
+.chWorkAsideSurface,
+.chWorkSideSurface {
+  background: var(--nf-bg-raise);
+}
+
+.shelfSearchWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 220px;
+  min-width: min(100%, 220px);
+}
+
+
+/* 墨纸工作台的窄屏收口：保留层级，减少横向竞争。 */
+@container nfpanel (max-width: 760px) {
+
+  .shelfSearchWrap {
+    flex-basis: 100%;
+  }}
+
+
+/* 生产单运行日志：终端风（B5-8）。 */
+.runLogDetails {
+  flex: 1;
+  min-height: 0;
+}
+
+.runLogDetails > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.runLogDetails > summary::-webkit-details-marker {
+  display: none;
+}
+
+.runLogDetails > summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: var(--nf-space-4, 4px);
+  color: var(--nf-text-3);
+  transition: transform 160ms ease;
+}
+
+.runLogDetails[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+
+/* ---- 生产单 · 作者视图 + 章节队列（2.1.6 / 方案 §8） -----------------------
+ * 设计红线（承 2.1.5）：不用 3px 单侧色条 —— 状态一律由「底色 + 徽章 + 文字色 +
+ * color-mix 描边」承担；技术日志与作者关心的进度分层，默认只露作者那一层。
+ * ------------------------------------------------------------------------- */
+.authorStrip {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-8, 8px);
+  padding: var(--nf-space-12, 12px) var(--nf-space-14, 14px);
+  border: 1px solid var(--nf-glass-border);
+  border-radius: var(--nf-radius-14, 14px);
+  background: var(--nf-glass-face);
+}
+
+.authorStripMain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-2, 2px);
+  min-width: 0;
+}
+
+.authorStripMain > b {
+  font-family: var(--nf-font-display, inherit);
+  font-size: var(--nf-fs-16, 16px);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--nf-text);
+}
+
+.authorStripStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nf-space-16, 16px);
+  font-size: var(--nf-fs-12, 12px);
+  font-variant-numeric: tabular-nums;
+}
+
+.authorStripStats > span {
+  display: flex;
+  align-items: baseline;
+  gap: var(--nf-space-4, 4px);
+}
+
+.authorStripStats b {
+  font-size: var(--nf-fs-16, 16px);
+  font-weight: 600;
+  color: var(--nf-text);
+}
+
+.authorStripStats i {
+  font-style: normal;
+  color: var(--nf-text-3);
+}
+
+.authorStripStats > span[data-tone='bad'] b,
+.authorStripStats > span[data-tone='bad'] i {
+  color: var(--nf-error-ink);
+}
+
+.authorStripStats > span[data-tone='warn'] b,
+.authorStripStats > span[data-tone='warn'] i {
+  color: var(--nf-warn-ink);
+}
+
+.runQueue {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-8, 8px);
+}
+
+.runQueueHead {
+  display: flex;
+  align-items: center;
+  gap: var(--nf-space-10, 10px);
+}
+
+.runQueueHead > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 队列行：章节号 / 标题 / 阶段 / 字数 / 审稿 / 失败 / 动作 —— 七列固定节奏。 */
+.runQueueList {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--nf-border);
+  border-radius: var(--nf-radius-10, 10px);
+  overflow: hidden;
+}
+
+.runQueueRow {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr) auto 68px 84px 76px auto;
+  align-items: center;
+  gap: var(--nf-space-10, 10px);
+  padding: var(--nf-space-6, 6px) var(--nf-space-12, 12px);
+  font-size: var(--nf-fs-12, 12px);
+  border-bottom: 1px solid var(--nf-border);
+  background: transparent;
+}
+
+.runQueueRow:last-child { border-bottom: none; }
+
+.runQueueRow:hover { background: var(--nf-bg-inset); }
+
+/* 正在处理的那一章：整行底色抬一档，不靠左侧色条（静态检测器会判为 AI 味）。 */
+.runQueueRow[data-current='1'] {
+  background: color-mix(in srgb, var(--nf-ai) 12%, transparent);
+}
+
+.runQueueNo {
+  color: var(--nf-text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.runQueueTitle {
+  color: var(--nf-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runQueueMeta {
+  color: var(--nf-text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.runQueueMeta[data-tone='bad'] { color: var(--nf-error-ink); }
+
+.runQueueActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.runQueueActions button { opacity: 0.75; }
+
+.runQueueRow:hover .runQueueActions button { opacity: 1; }
+
+@container nfpanel (max-width: 820px) {
+  .runQueueRow {
+    grid-template-columns: 62px minmax(0, 1fr) auto;
+    row-gap: var(--nf-space-4, 4px);
+  }
+  .runQueueActions { grid-column: 3; justify-content: flex-end; }}
+
+/* ============================================================================
+ * 章节工作台左栏 —— 本章计划六项（方案 §7）
+ * ----------------------------------------------------------------------------
+ * 分组头压得很轻（12px / muted / 字距），让正文内容拿视觉权重；动作按钮右对齐，
+ * 空状态与正文同宽同位，作者扫一遍就能看出哪一项还缺。
+ * 颜色全部走 --nf-* 令牌：--nf-accent 作文字色沿用既有 beats 角色前缀的口径。
+ * ========================================================================== */
+.planGroups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-12, 12px);
+}
+
+.planGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-6, 6px);
+  padding-bottom: var(--nf-space-10, 10px);
+  border-bottom: 1px solid var(--nf-line-2, var(--nf-border));
+}
+
+.planGroup:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.planGroupHead {
+  display: flex;
+  align-items: center;
+  gap: var(--nf-space-6, 6px);
+}
+
+.planGroupTitle {
+  font-size: var(--nf-fs-12, 12px);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--nf-muted, var(--nf-text-2));
+}
+
+.planGroupSpacer { flex: 1; min-width: 0; }
+
+.planGroupText {
+  margin: 0;
+  font-size: var(--nf-fs-12, 12px);
+  line-height: 1.7;
+  color: var(--nf-text);
+  /* 剧情要点是作者分行写的，换行即结构，不能当空白吃掉。 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* beats 的角色前缀（本章目标：/ 爽点：/ 结尾钩子：）逐行加色，与旧内联样式等价。 */
+.planBeatLines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-2, 2px);
+}
+
+.planBeatLine {
+  font-size: var(--nf-fs-12, 12px);
+  line-height: 1.7;
+  color: var(--nf-text);
+}
+
+.planBeatRole { color: var(--nf-accent); }
+
+.planListWrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-4, 4px);
+}
+
+.planListLabel {
+  font-size: var(--nf-fs-10, 10px);
+  letter-spacing: 0.08em;
+  color: var(--nf-muted, var(--nf-text-2));
+}
+
+.planList {
+  margin: 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-2, 2px);
+}
+
+.planListItem {
+  font-size: var(--nf-fs-12, 12px);
+  line-height: 1.6;
+  color: var(--nf-text);
+}
+
+/* 伏笔操作（埋 / 碰 / 施压 / 兑现…）做成小胶囊，和线名区分开。 */
+.planOpTag {
+  display: inline-block;
+  margin-right: var(--nf-space-4, 4px);
+  padding: 0 var(--nf-space-6, 6px);
+  border-radius: 999px;
+  background: var(--nf-accent-soft);
+  color: var(--nf-accent);
+  font-size: var(--nf-fs-10, 10px);
+}
+
+/* 空状态：缺什么 + 用在哪（动作按钮在分组头，不在这里重复一个装饰图标）。 */
+.planGroupEmpty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-4, 4px);
+}
+
+.planGroupEmptyTitle {
+  font-size: var(--nf-fs-12, 12px);
+  color: var(--nf-text);
+}
+
+.planGroupEmptyHint {
+  font-size: var(--nf-fs-12, 12px);
+  line-height: 1.5;
+  color: var(--nf-text-2);
+}
+
+.planGroupEdit,
+.planEditField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-4, 4px);
+}
+
+.planGroupEdit { gap: var(--nf-space-8, 8px); }
+
+.planEditActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nf-space-6, 6px);
+}
+
+/* 六档状态的色相：全部别名到 --nf-* / --wf-*，随墨纸与纸白双档一起换。
+ * 待修订与出错同为红，靠深浅分开（bad = 图形版，error-ink = 更深/更亮的那一档）。 */
+.wfStOk { --st: var(--wf-ok); }
+.wfStGen { --st: var(--wf-ai); }
+.wfStPend { --st: var(--wf-idle); }
+.wfStErr { --st: var(--nf-error-ink); }
+
+/* 待生成 = 还没开写的空工件：斜线织纹而不是实色，读起来是「坑」不是「货」。 */
+.wfPs.wfStPend {
+  background-image:
+    linear-gradient(180deg, var(--st-band) 0 6px, transparent 6px),
+    repeating-linear-gradient(45deg, color-mix(in srgb, var(--st-band) 80%, transparent) 0 6px, transparent 6px 12px);
+}
+
+/* ---- 章节工作台 · 2.1.6（方案 §7）------------------------------------------
+ * 四件事：顶栏两行化 / 审稿问题卡片 / 粘性动作条 / 专注阅读模式。
+ * 红线沿用：状态靠徽章 + 底色 + 文字版语义色（-ink），不做单侧色条；动效尊重
+ * prefers-reduced-motion。
+ * ------------------------------------------------------------------------- */
+
+/* 顶栏两行：第一行「在哪一章」（返回 / 标题 / 卷 / 专注阅读），
+   第二行「这一章什么状态、能做什么」。此前全挤在一行，窄容器各元素互相挤压。 */
+.chWorkBarStack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-8, 8px);
+  padding: var(--nf-space-10, 10px) var(--nf-space-14, 14px);
+  border-bottom: 1px solid var(--nf-border);
+}
+
+.chWorkBarRow {
+  display: flex;
+  align-items: center;
+  gap: var(--nf-space-10, 10px);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.chWorkBarRow .chWorkTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 专注阅读：进入后隐藏左右辅助栏，正文居中锁到阅读列宽。
+   注意选择器写成 `.chWorkGrid.chWorkGridFocus`（两个类）—— 容器查询里的
+   `.chWorkGrid { grid-template-columns: 220px minmax(0,1fr) }` 在文件后面、
+   特异性相同，只写一个类会被它盖掉：左栏虽已 display:none，220px 的轨道还在，
+   正文会被塞进那 220px（实测正文列被压到 220px，读起来一个字一行）。 */
+.chWorkGrid.chWorkGridFocus { grid-template-columns: minmax(0, 1fr); }
+
+/* 双保险：即使某个断点又把轨道加回来，正文也跨满整行。 */
+.chWorkMainFocus { grid-column: 1 / -1; }
+
+.chWorkGridFocus .chWorkAside,
+.chWorkGridFocus .chWorkSide { display: none; }
+
+.chWorkMainFocus .chWorkText {
+  width: 100%;
+  max-width: var(--nf-measure, 720px);
+  margin: 0 auto;
+}
+
+/* 审稿问题卡片：严重度徽章 + 维度 / 问题 / 建议 三层固定结构。 */
+.reviewIssues {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-8, 8px);
+}
+
+.reviewIssue {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--nf-space-8, 8px);
+  padding: var(--nf-space-8, 8px) var(--nf-space-10, 10px);
+  border: 1px solid var(--nf-border);
+  border-radius: var(--nf-radius-10, 10px);
+  background: var(--nf-bg-inset);
+  cursor: pointer;
+}
+
+.reviewIssue[data-sev='high'] {
+  border-color: color-mix(in srgb, var(--nf-error) 42%, transparent);
+}
+
+.reviewIssue[data-sev='medium'] {
+  border-color: color-mix(in srgb, var(--nf-warn) 42%, transparent);
+}
+
+.reviewIssue[data-on='1'] {
+  background: color-mix(in srgb, var(--nf-accent) 7%, var(--nf-bg-inset));
+}
+
+.reviewIssueBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-2, 2px);
+  min-width: 0;
+}
+
+.reviewIssueHead {
+  display: flex;
+  align-items: center;
+  gap: var(--nf-space-6, 6px);
+  flex-wrap: wrap;
+}
+
+.reviewIssueSev {
+  font-size: var(--nf-fs-12, 12px);
+  font-weight: 600;
+  line-height: 1.5;
+  padding: 0 var(--nf-space-6, 6px);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+}
+
+.reviewIssue[data-sev='high'] .reviewIssueSev { color: var(--nf-error-ink); }
+.reviewIssue[data-sev='medium'] .reviewIssueSev { color: var(--nf-warn-ink); }
+.reviewIssue[data-sev='low'] .reviewIssueSev { color: var(--nf-info-ink); }
+
+.reviewIssueDim {
+  font-size: var(--nf-fs-12, 12px);
+  color: var(--nf-text-3);
+}
+
+.reviewIssueItem {
+  font-size: var(--nf-fs-14, 14px);
+  line-height: 1.55;
+  color: var(--nf-text);
+}
+
+.reviewIssueFix {
+  font-size: var(--nf-fs-12, 12px);
+  line-height: 1.55;
+  color: var(--nf-text-2);
+}
+
+.reviewIssueExcerpt {
+  font-size: var(--nf-fs-12, 12px);
+  line-height: 1.5;
+  color: var(--nf-text-3);
+}
+
+/* 卡片末行的勾选口径：比正文小一档、靠边线隔开，读起来像「这张卡的动作」而不是又一条意见。 */
+.reviewIssuePick {
+  margin-top: var(--nf-space-2, 2px);
+  padding-top: var(--nf-space-4, 4px);
+  border-top: 1px solid var(--nf-line-2, var(--nf-border));
+  font-size: var(--nf-fs-12, 12px);
+  letter-spacing: 0.04em;
+  color: var(--nf-muted, var(--nf-text-2));
+}
+
+/* 正文加载骨架：取代裸的「（加载中…）」文本，明确说出在等什么。 */
+.chWorkSkeleton {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-12, 12px);
+  padding: var(--nf-space-20, 20px) var(--nf-space-24, 24px);
+  background-color: var(--nf-bg-raise);
+}
+
+.skeletonLine {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--nf-bg-inset) 0%,
+    color-mix(in srgb, var(--nf-text-3) 22%, var(--nf-bg-inset)) 50%,
+    var(--nf-bg-inset) 100%
+  );
+  background-size: 200% 100%;
+  animation: nfSkeletonSweep 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonLine { animation: none; }}
+
+
+
+/* ============================================================================
+ * 2.1.7 · 总编台：hero / 作者批注栏 / 资料侧柜快照
+ * 取自 prototype/NovelForge_总编台_Demo.html 的**信息结构**，保留本项目的令牌、
+ * 容器查询与状态覆盖。两条红线照旧：① 一屏只有一个朱砂主 CTA；② 不用单侧色条
+ * （严重度靠徽章 + 底色 + -ink 文字色）。
+ * ========================================================================== */
+
+.homeHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 30%);
+  gap: var(--nf-space-28, 28px);
+  padding: var(--nf-space-32, 32px);
+  border: 1px solid var(--nf-glass-border);
+  border-radius: var(--nf-radius-14, 14px);
+  background: linear-gradient(116deg, var(--nf-bg-raise), var(--nf-bg-inset));
+}
+
+.homeHeroMain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-8, 8px);
+  min-width: 0;
+}
+
+.homeHeroKicker {
+  display: flex;
+  align-items: center;
+  gap: var(--nf-space-8, 8px);
+  flex-wrap: wrap;
+  font-size: var(--nf-fs-12, 12px);
+  color: var(--nf-text-3);
+}
+
+.homeHeroKicker b {
+  font-weight: 500;
+  color: var(--nf-seal);
+  letter-spacing: 0.06em;
+}
+
+.homeHeroTitle {
+  margin: 0;
+  font-family: var(--nf-font-display);
+  font-size: var(--nf-fs-34, 34px);
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--nf-text);
+}
+
+.homeHeroWhy {
+  margin: 0;
+  max-width: 62ch;
+  font-size: var(--nf-fs-14, 14px);
+  line-height: 1.7;
+  color: var(--nf-text-2);
+}
+
+.homeHeroActs {
+  display: flex;
+  align-items: center;
+  gap: var(--nf-space-10, 10px);
+  flex-wrap: wrap;
+  margin-top: var(--nf-space-20, 20px);
+}
+
+/* 唯一的朱砂主 CTA。 */
+.homeHeroCta {
+  border: none;
+  border-radius: var(--nf-radius-10, 10px);
+  padding: var(--nf-space-10, 10px) var(--nf-space-20, 20px);
+  background: var(--nf-seal);
+  color: var(--nf-accent-fg);
+  font-size: var(--nf-fs-14, 14px);
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.homeHeroCta:hover:not(:disabled) { filter: brightness(1.08); }
+
+.homeHeroCta:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.homeHeroAlt {
+  border: 1px solid var(--nf-border);
+  border-radius: var(--nf-radius-10, 10px);
+  padding: var(--nf-space-10, 10px) var(--nf-space-16, 16px);
+  background: transparent;
+  color: var(--nf-text-2);
+  font-size: var(--nf-fs-14, 14px);
+  cursor: pointer;
+}
+
+.homeHeroAlt:hover { color: var(--nf-text); border-color: var(--nf-line-2); }
+
+.homeHeroMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nf-space-16, 16px);
+  margin-top: var(--nf-space-4, 4px);
+  font-size: var(--nf-fs-12, 12px);
+}
+
+.homeHeroMeta > span {
+  display: flex;
+  align-items: baseline;
+  gap: var(--nf-space-4, 4px);
+  color: var(--nf-text-3);
+}
+
+.homeHeroMeta i { font-style: normal; }
+
+.homeHeroMeta b {
+  font-weight: 600;
+  color: var(--nf-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.homeHeroMeta > span[data-tone='bad'] b { color: var(--nf-error-ink); }
+.homeHeroMeta > span[data-tone='warn'] b { color: var(--nf-warn-ink); }
+.homeHeroMeta > span[data-tone='ok'] b { color: var(--nf-success-ink); }
+
+.homeHeroSide {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-14, 14px);
+  padding-left: var(--nf-space-20, 20px);
+  border-left: 1px solid var(--nf-border);
+  min-width: 0;
+}
+
+.homeHeroSealRow {
+  display: flex;
+  align-items: center;
+  gap: var(--nf-space-12, 12px);
+}
+
+.homeHeroSeal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nf-space-2, 2px);
+  flex: none;
+  width: 62px;
+  height: 62px;
+  border: 1px solid color-mix(in srgb, var(--nf-seal) 55%, transparent);
+  border-radius: var(--nf-radius-10, 10px);
+  color: var(--nf-seal);
+  text-align: center;
+}
+
+.homeHeroSeal b {
+  font-family: var(--nf-font-display);
+  font-size: var(--nf-fs-22, 22px);
+  font-weight: 500;
+  line-height: 1;
+}
+
+.homeHeroSeal span {
+  font-size: var(--nf-fs-10, 10px);
+  line-height: 1.2;
+  color: var(--nf-text-3);
+}
+
+.homeHeroStage {
+  font-size: var(--nf-fs-12, 12px);
+  color: var(--nf-text-2);
+  line-height: 1.5;
+}
+
+.homeHeroBatch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-6, 6px);
+}
+
+.homeHeroBatchHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--nf-space-8, 8px);
+  font-size: var(--nf-fs-12, 12px);
+  color: var(--nf-text-3);
+}
+
+.homeHeroBatchHead b {
+  font-size: var(--nf-fs-20, 20px);
+  color: var(--nf-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.homeHeroBatchBar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--nf-bg-inset);
+  overflow: hidden;
+}
+
+.homeHeroBatchFill {
+  height: 100%;
+  transform-origin: left center;
+  background: var(--nf-seal);
+  transition: transform 0.3s ease;
+}
+
+.homeHeroBatchCap {
+  font-size: var(--nf-fs-12, 12px);
+  line-height: 1.55;
+  color: var(--nf-text-3);
+}
+
+.homeHeroNodes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
+  gap: var(--nf-space-8, 8px);
+  padding-top: var(--nf-space-12, 12px);
+  border-top: 1px solid var(--nf-border);
+}
+
+.homeHeroNode {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-2, 2px);
+  min-width: 0;
+  font-size: var(--nf-fs-12, 12px);
+}
+
+.homeHeroNode span { color: var(--nf-text-3); }
+
+.homeHeroNode b {
+  font-weight: 500;
+  color: var(--nf-text-2);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.homeHeroNode[data-tone='done'] b { color: var(--nf-text-3); }
+.homeHeroNode[data-tone='now'] span { color: var(--nf-seal); }
+.homeHeroNode[data-tone='now'] b { color: var(--nf-text); }
+
+/* ---- 作者批注栏 ---------------------------------------------------------- */
+.inbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-10, 10px);
+  padding: var(--nf-space-12, 12px) var(--nf-space-14, 14px);
+  border: 1px solid var(--nf-glass-border);
+  border-radius: var(--nf-radius-14, 14px);
+  background: var(--nf-glass-face);
+}
+
+.inboxHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--nf-space-10, 10px);
+}
+
+.inboxTitle {
+  font-size: var(--nf-fs-14, 14px);
+  font-weight: 600;
+  color: var(--nf-text);
+}
+
+.inboxCount {
+  font-size: var(--nf-fs-12, 12px);
+  color: var(--nf-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.inboxAll {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--nf-info-ink);
+  font-size: var(--nf-fs-12, 12px);
+  cursor: pointer;
+}
+
+.inboxEmpty {
+  font-size: var(--nf-fs-12, 12px);
+  line-height: 1.6;
+  color: var(--nf-text-3);
+}
+
+.inboxList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-8, 8px);
+}
+
+.inboxItem {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--nf-space-8, 8px);
+  padding: var(--nf-space-8, 8px) var(--nf-space-10, 10px);
+  border: 1px solid var(--nf-border);
+  border-radius: var(--nf-radius-10, 10px);
+  background: var(--nf-bg-inset);
+}
+
+.inboxItem[data-tone='high'] { border-color: color-mix(in srgb, var(--nf-error) 40%, transparent); }
+.inboxItem[data-tone='warn'] { border-color: color-mix(in srgb, var(--nf-warn) 38%, transparent); }
+
+.inboxBadge {
+  flex: none;
+  padding: 0 var(--nf-space-6, 6px);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: var(--nf-fs-12, 12px);
+  line-height: 1.6;
+  color: var(--nf-text-3);
+}
+
+.inboxItem[data-tone='high'] .inboxBadge { color: var(--nf-error-ink); }
+.inboxItem[data-tone='warn'] .inboxBadge { color: var(--nf-warn-ink); }
+.inboxItem[data-tone='info'] .inboxBadge { color: var(--nf-info-ink); }
+
+.inboxBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-2, 2px);
+}
+
+.inboxItemTitle {
+  font-size: var(--nf-fs-14, 14px);
+  line-height: 1.5;
+  color: var(--nf-text);
+}
+
+.inboxSource {
+  font-size: var(--nf-fs-12, 12px);
+  color: var(--nf-text-3);
+}
+
+.inboxDetail {
+  font-size: var(--nf-fs-12, 12px);
+  line-height: 1.55;
+  color: var(--nf-text-2);
+}
+
+.inboxAct {
+  flex: none;
+  border: 1px solid var(--nf-border);
+  border-radius: var(--nf-radius-10, 10px);
+  padding: var(--nf-space-4, 4px) var(--nf-space-10, 10px);
+  background: transparent;
+  color: var(--nf-text-2);
+  font-size: var(--nf-fs-12, 12px);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.inboxAct:hover { color: var(--nf-text); border-color: var(--nf-line-2); }
+
+.inboxMore {
+  font-size: var(--nf-fs-12, 12px);
+  color: var(--nf-text-3);
+  padding-left: var(--nf-space-4, 4px);
+}
+
+/* ---- 资料侧柜：本书此刻的生成上下文 -------------------------------------- */
+.cabinetSnapshot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-8, 8px);
+}
+
+.cabinetCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-4, 4px);
+  padding: var(--nf-space-10, 10px) var(--nf-space-12, 12px);
+  border: 1px solid var(--nf-border);
+  border-radius: var(--nf-radius-10, 10px);
+  background: var(--nf-bg-inset);
+}
+
+.cabinetCardHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--nf-space-6, 6px);
+  font-size: var(--nf-fs-12, 12px);
+  color: var(--nf-text-3);
+}
+
+.cabinetCardHead b {
+  font-weight: 600;
+  color: var(--nf-text-2);
+}
+
+.cabinetCardBody {
+  font-size: var(--nf-fs-14, 14px);
+  line-height: 1.6;
+  color: var(--nf-text);
+}
+
+.cabinetCardMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--nf-space-8, 8px);
+  font-size: var(--nf-fs-12, 12px);
+  color: var(--nf-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.cabinetCardMeta span[data-tone='ok'] { color: var(--nf-success-ink); }
+.cabinetCardMeta span[data-tone='warn'] { color: var(--nf-warn-ink); }
+
+.cabinetCardEmpty {
+  font-size: var(--nf-fs-12, 12px);
+  line-height: 1.6;
+  color: var(--nf-text-3);
+}
+
+/* 单栏小卡容器（2.1.7：裁决卡并入批注栏后，生产记录独占一行）。 */
+.wfCard1 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--nf-space-14, 14px);
+}
+
+/* 侧柜里的「全部材料与工具」折叠区。 */
+.cabinetAll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-4, 4px);
+  margin-top: var(--nf-space-8, 8px);
+}
+
+.cabinetAll > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--nf-fs-12, 12px);
+  color: var(--nf-text-3);
+}
+
+.cabinetAll > summary::-webkit-details-marker { display: none; }
+
+.cabinetAll > summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: var(--nf-space-4, 4px);
+  transition: transform 160ms ease;
+}
+
+.cabinetAll[open] > summary::before { transform: rotate(90deg); }
+
+@container nfpanel (max-width: 760px) {
+  .homeHero { grid-template-columns: minmax(0, 1fr); }
+  .homeHeroSide {
+    padding-left: 0;
+    padding-top: var(--nf-space-14, 14px);
+    border-left: none;
+    border-top: 1px solid var(--nf-border);
+  }}
+
+@container nfpanel (max-width: 820px) {
+  .homeHeroTitle { font-size: var(--nf-fs-22, 22px); }
+  .inboxItem { flex-wrap: wrap; }
+  .inboxAct { margin-left: auto; }}
+
+
+
+/* 资料侧柜抽屉（2.1.7）：比通用内容抽屉窄 —— 侧柜是「瞄一眼生成上下文」，
+   不需要 760px 的编辑宽度；窄一点才能同时看见底座总编台。 */
+.contentDrawer.drawerNarrow {
+  width: min(420px, 92vw);
+}
+
+.cabinetDrawer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-12, 12px);
+}
+
+/* 最近活动：右侧相对时间（2.1.8）。 */
+.wfFtime {
+  margin-left: auto;
+  flex: none;
+  color: var(--nf-text-3);
+  font-size: var(--nf-fs-12, 12px);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 阅读列（2.1.8 / 方案 §9）：设定 / 道藏 / 大世界这些「读内容」的面统一锁到
+   与正文一致的阅读列宽（--nf-measure，720px）+ 放宽行高；卡片边界保留，
+   但内容不再随面板变宽而被拉成一整行 —— 长文本的可读性由列宽决定，不是屏幕。 */
+.readingCol {
+  max-width: var(--nf-measure, 720px);
+  line-height: 1.8;
+}
+
+/* 资产健康（2.1.8 / 方案 §9）：冲突逐条列出，可当场解除。
+   严重度用图标 + 文字色，不用单侧色条。 */
+.assetConflicts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-6, 6px);
+  margin-top: var(--nf-space-8, 8px);
+}
+
+.assetConflict {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--nf-space-8, 8px);
+  padding: var(--nf-space-8, 8px) var(--nf-space-10, 10px);
+  border: 1px solid color-mix(in srgb, var(--nf-warn) 40%, transparent);
+  border-radius: var(--nf-radius-10, 10px);
+  background: var(--nf-bg-inset);
+}
+
+.assetConflictIcon {
+  flex: none;
+  color: var(--nf-warn-ink);
+  font-weight: 700;
+}
+
+.assetConflictText {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--nf-fs-12, 12px);
+  line-height: 1.6;
+  color: var(--nf-text-2);
+}
+
+.assetConflictFix {
+  flex: none;
+  border: 1px solid var(--nf-border);
+  border-radius: var(--nf-radius-10, 10px);
+  padding: var(--nf-space-4, 4px) var(--nf-space-10, 10px);
+  background: transparent;
+  color: var(--nf-text-2);
+  font-size: var(--nf-fs-12, 12px);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.assetConflictFix:hover:not(:disabled) { color: var(--nf-text); border-color: var(--nf-line-2); }
+
+.assetConflictFix:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 通用骨架块（2.1.8）：说清在等什么 + 几行占位。行样式复用 .skeletonLine。 */
+.skeletonBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nf-space-12, 12px);
+  padding: var(--nf-space-16, 16px) 0;
+}
+
+/* ==========================================================================
+ * ⑪ hero 紧凑档（2.1.12 / 路径 A）：把 418px 的 hero 收成一条「决策带」
+ *
+ * 为什么改：hero 的初衷是首屏只回答「现在该做什么」，但 parity 给它的
+ *   min-height: 330px + padding: 32px + 标题 clamp(…,58px) + 39px 大数字，
+ * 把整块撑到 **418px** —— 实测工序轨道被推到 y=858，而视口只有 799px。
+ * 对已完结/空闲的书，首屏于是只剩「一句大标题 + 四个 0」，
+ * 「这本书走到哪、还有多少章」全在屏幕外。这是**信息优先级**问题，不是审美问题。
+ *
+ * 做法：**决策链一条不删**（在哪章 → 做什么 → 为什么 → 朱砂 CTA → 边界 →
+ * 印章/阶段/进度/节点），只压缩它的物理体积。parity 的装饰环保留但收小，
+ * 不为了省高度去删识别元素。
+ * 目标：hero ≤ 220px，让工序轨道回到首屏。
+ * ========================================================================== */
+.homeHero {
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 290px);
+  gap: 20px;
+  min-height: 0;
+  padding: 14px 18px;
+}
+
+/* 装饰环收小：88 → 56，仍是一枚细圈，但不占视线。 */
+.homeHero::before {
+  top: 12px;
+  right: 16px;
+  width: 56px;
+  height: 56px;
+  opacity: 0.38;
+}
+
+/* 右下同心环同步收小，避免在矮容器里被裁成半截弧线。 */
+.homeHero::after {
+  right: -40px;
+  bottom: -96px;
+  width: 220px;
+  height: 220px;
+}
+
+.homeHeroKicker { gap: 8px; }
+
+/* 海报级 → 版面级：58px 是「一整屏说一句话」，我们要的是「一眼看到该做什么」。 */
+.homeHeroTitle {
+  max-width: 46ch;
+  margin: 4px 0 0;
+  font-size: clamp(20px, 1.9vw, 28px);
+  line-height: 1.28;
+}
+
+.homeHeroWhy {
+  max-width: 66ch;
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  /* 最多两行：hero 是决策带，不是说明文。 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.homeHeroActs { margin-top: 12px; }
+
+.homeHeroMeta { margin-top: 8px; gap: 14px; }
+
+/* 右栏：竖排三块压成「印章 | 阶段 / 进度 / 节点」的紧凑列。 */
+.homeHeroSide {
+  gap: 6px;
+  padding: 0 0 0 18px;
+  justify-content: flex-start;
+}
+
+.homeHeroSealRow { align-items: center; margin-bottom: 2px; }
+
+.homeHeroSeal {
+  width: 52px;
+  height: 52px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--nf-ai) 5%, transparent),
+    inset 0 0 12px color-mix(in srgb, var(--nf-ai) 8%, transparent);
+}
+
+.homeHeroSeal b { font-size: 20px; }
+
+.homeHeroStage { font-size: 10px; line-height: 1.4; }
+
+/* 39px 的进度大数字 → 20px：它仍然是这一栏最重的数字，只是不再比标题抢眼。 */
+.homeHeroBatchHead { margin: 4px 0 4px; }
+
+.homeHeroBatchHead b { font-size: 20px; }
+
+.homeHeroBatchBar { height: 6px; }
+
+.homeHeroBatchCap { font-size: 10px; line-height: 1.4; }
+
+.homeHeroNodes {
+  grid-template-columns: repeat(auto-fit, minmax(62px, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 8px;
+}
+
+.homeHeroNode b { margin-bottom: 2px; }
+
+@container nfpanel (max-width: 1080px) {
+  /* 单列时右栏改横排，省掉一整列的高度。 */
+  .homeHeroSide {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 10px 0 0;
+    border-top: 1px solid color-mix(in srgb, var(--nf-ai) 22%, var(--nf-line));
+    border-left: none;
+  }
+  .homeHeroSealRow { margin-bottom: 0; }
+  .homeHeroNodes { margin-top: 0; padding-top: 0; border-top: none; }
+   .homeHeroNodes::before { display: none; }
+}
+
+@media (pointer: coarse) {
+  /* 命中区扩展：视觉尺寸不变，只把 ::after 撑到 44px（方案 §11 / WCAG 2.2 Target Size）。 */
+  .view .panel :is(.button, .buttonSmall, .iconButton, .iconBtn, .topNavBtn, .cmdItem, .pillNavPill, .assetFilterChip) {
+    position: relative;
+  }
+
+  .view .panel :is(.button, .buttonSmall, .iconButton, .iconBtn, .topNavBtn, .cmdItem, .pillNavPill, .assetFilterChip)::after,
+  .runChip::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+  }
+}
+
+/* ==========================================================================
+ * ⑫ hero → 决策条（2.1.13）：223px 还是太占地方，压成一条 ≤90px 的横向决策带
+ *
+ * 依据：作者两次反馈「不如之前紧凑」。实测对比（同一本书、799px 视口）：
+ *   工序轨道 y —— hero 之前 385 / 现在（223px hero）609 / 差 224px ≈ hero 高度。
+ * 也就是说：**顶栏以下的垂直空间，几乎全被 hero 吃掉**。
+ * 但 hero 的信息（在哪章 / 做什么 / 为什么 / 主 CTA / 边界 / 印章·阶段·进度·节点）
+ * 一条都不该删 —— 所以改成横排：主列一行放下标题 + why + 按钮，右列一行放下四件事。
+ * ========================================================================== */
+.homeHero {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+}
+
+/* 主列：由竖排改为横排（标题 / why / 按钮同一行，窄了就换行）。 */
+.homeHeroMain {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  max-width: none;
+}
+
+.homeHeroKicker { flex: none; }
+
+.homeHeroTitle {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.3;
+  max-width: none;
+  flex: none;
+}
+
+.homeHeroWhy {
+  margin: 0;
+  max-width: 30ch;
+  font-size: 12px;
+  line-height: 1.5;
+  -webkit-line-clamp: 1;
+}
+
+.homeHeroActs { margin: 0; gap: 8px; }
+
+.homeHeroCta { padding: 7px 14px; font-size: 13px; }
+
+.homeHeroAlt { padding: 7px 12px; font-size: 13px; }
+
+/* meta 行跟在按钮之后，保持 11px 小字。 */
+.homeHeroMeta { margin: 0 0 0 4px; gap: 12px; font-size: 11px; }
+
+/* 右列：竖排四块 → 一行；印章缩到 36px，进度条给固定宽度，节点压成三项小字。 */
+.homeHeroSide {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  padding: 0 0 0 14px;
+}
+
+.homeHeroSealRow { margin: 0; gap: 10px; }
+
+.homeHeroSeal { width: 36px; height: 36px; box-shadow: none; }
+
+.homeHeroSeal b { font-size: 15px; }
+
+.homeHeroSeal span { font-size: 9px; }
+
+.homeHeroStage { font-size: 10px; letter-spacing: 0.08em; }
+
+.homeHeroBatch {
+  flex: none;
+  width: 132px;
+  gap: 3px;
+}
+
+.homeHeroBatchHead { margin: 0; }
+
+.homeHeroBatchHead b { font-size: 15px; }
+
+.homeHeroBatchBar { height: 4px; }
+
+.homeHeroBatchCap { font-size: 9px; line-height: 1.3; }
+
+.homeHeroNodes {
+  grid-template-columns: repeat(3, auto);
+  gap: 10px;
+  margin: 0;
+  padding: 0 0 0 14px;
+  border-top: none;
+  border-left: 1px solid var(--nf-line-2);
+}
+
+.homeHeroNodes::before { display: none; }
+
+.homeHeroNode b { margin: 0; font-size: 10px; }
+
+.homeHeroNode span { font-size: 9px; }
+
+/* 窄容器：横排挤不下时退回两行，而不是溢出。 */
+@container nfpanel (max-width: 1080px) {
+  .homeHero { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .homeHeroSide {
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    padding: 8px 0 0;
+    border-top: 1px solid var(--nf-line-2);
+  }
+  .homeHeroNodes { border-left: none; padding-left: 0; }
+}
+
+/* ==========================================================================
+ * ⑬ 作者批注栏改全宽带（2.1.13 重新排版）
+ *
+ * 问题（作者实测）：批注一多，它在右栏变成一条长列表 → grid 行被撑高 → 左栏
+ * 跟着被拉到同一行高，下方留下大片空白（实测 7 条：wfBody 1349px，左栏内容只到 744px）。
+ * 做法：批注栏脱离两栏，占满一行；卡片按容器宽度自动分列（每列 ≥300px），
+ * 于是「变多」只增加行数，不再破坏两栏平衡；同时给列表一个高度上限 + 内部滚动。
+ * ========================================================================== */
+.inbox { gap: var(--nf-space-10, 10px); }
+
+.inboxList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--nf-space-8, 8px);
+  max-height: 46vh;
+  overflow-y: auto;
+  align-items: start;
+}
+
+.inboxItem { min-width: 0; }
+
+/* 两栏各自从顶部开始排，不再互相拉伸到等高（等高正是"中间空一块"的来源）。 */
+.wfBody { align-items: start; }
+
+@container nfpanel (max-width: 820px) {
+  .inboxList { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ==========================================================================
+ * ⑭ 工件池（2.1.14 · 签名元素）+ 账目行
+ *
+ * 设计依据（frontend-design 技能 + docs/design-direction.md）：
+ *   - 技能：「hero 是论点」「结构要编码真实信息，不是装饰」「把胆量花在一个地方」；
+ *   - brief §0：这是"夜里编辑部案头的一块**活版**"——案头的实物就是稿件；
+ *     §4 签名元素：稿纸 / 红章 = 人的裁决 / AI 微签 / 衬线大数字。
+ * 病灶：进度此前被表达了 5 遍（印章章号、过审百分比、刻度进度条、工序轨道、状态池），
+ *   违反 brief §5「每屏一个焦点」。现在收敛成一处实物：**一格 = 一章**。
+ * 颜色纪律：状态色只走 --nf-* 语义 token（brief §3 禁止写死色值）。
+ * ========================================================================== */
+.homeHeroPool {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.heroPoolBar {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+}
+
+
+
+
+
+/* 状态色：与状态池同一套语义（过审=绿 / 待审=蓝 / 待修订=朱砂 / 生成中=琥珀 / 待生成=灰 / 出错=红） */
+
+
+
+
+
+
+
+/* 当前章：一根朱砂刻度压在格上，而不是给整格换色（换色会与语义色打架）。 */
+
+
+.heroPoolMeta {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--nf-text-3);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.heroPoolLegend { display: inline-flex; align-items: center; gap: 4px; }
+
+.heroPoolLegend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--nf-bg-inset);
+}
+
+.heroPoolLegend[data-st='ok'] i { background: var(--nf-success, #4f8750); }
+.heroPoolLegend[data-st='rev'] i { background: var(--nf-human, #2f6fa3); }
+.heroPoolLegend[data-st='fix'] i { background: var(--nf-seal, #a63e2a); }
+.heroPoolLegend[data-st='gen'] i { background: var(--nf-ai, #c07c22); }
+.heroPoolLegend[data-st='pend'] i { background: color-mix(in srgb, var(--nf-text-3, #726858) 40%, transparent); }
+.heroPoolLegend[data-st='err'] i { background: var(--nf-error-ink, #a63e2a); }
+
+.heroPoolEmpty { color: var(--nf-text-3); font-size: 12px; }
+
+/* 账目行：四个等宽卡（技能点名的"big number + small label"模板形态）
+   → 一行账目：发丝分隔、无卡面、mono 小数。信息一样，通用 SaaS 感去掉。 */
+.wfMetrics {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--nf-line);
+  border-radius: var(--nf-radius-10, 10px);
+  background: transparent;
+}
+
+.wfMetric {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 9px 14px;
+  border: none;
+  border-left: 1px solid var(--nf-line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.wfMetric:first-child { border-left: none; }
+
+.wfMetric > span { color: var(--nf-text-3); font-size: 11px; letter-spacing: 0.02em; }
+
+.wfMetric > b { font-family: var(--nf-font-display); font-size: 22px; font-variant-numeric: tabular-nums; line-height: 1.25; }
+
+.wfMetric > small { color: var(--nf-text-3); font-size: 10px; }
+
+.wfMetricWide { flex: 1.15 1 0; }
+
+.wfMetricSpark { margin-top: 1px; }
+
+/* 章数很少时（3-5 章的短篇），一格不该变成一块巨板：给单格上限，池整体左对齐。 */
+.heroPoolBar { justify-content: flex-start; }
+
+
+/* 账目行（2.1.15）：页脚信号条并进来后是 7 格；坏了的那一格自己变红，不用整行喊。 */
+.wfMetric > b[data-bad='yes'] { color: var(--nf-error-ink, #a63e2a); }
+
+/* 窄容器：7 格一行放不下时折成两行，而不是把每格压成一条线。 */
+@container nfpanel (max-width: 1180px) {
+  .wfMetrics { flex-wrap: wrap; }
+  .wfMetric { flex: 1 1 28%; border-left: 1px solid var(--nf-line); }
+  .wfMetric:nth-child(4n + 1) { border-left: none; }
+}
+
+/* 「未跑」是词不是数：不走衬线大数字的尺码，避免一个词占着数字的位置。 */
+.wfMetric > b[data-word='yes'] {
+  color: var(--nf-text-3);
+  font-family: var(--nf-font);
+  font-size: 15px;
+}
+
+/* ==========================================================================
+ * ⑮ hero 排版重修（2.1.16）：把层级装回来
+ *
+ * 上一版为了紧凑把 hero 压成一条 96px 的横排 —— 结果是 13 个信息同一字重挤在一行，
+ * 标题和 why 同排，右侧还拼着印章 / 导出动作 / 编年路径三种不同性质的东西。
+ * 紧凑不等于压扁：这里用四行网格把层級重新分开，高度仍控制在 ~130px。
+ *   ┌ 眉标 · 第 12 章 · 推荐下一步 ─────────────────────────┐
+ *   │ 规划全书卷结构                        [生成卷计划] [打开] │
+ *   │ 按剧情弧线划分卷，章节计划才有骨架可依。                 │
+ *   │ ─────────────────────────────────────────────────────  │
+ *   │ 待你处理 0 条 · 剧情锚点 0 条 · 边界 不会自动改写正文    │
+ *   └────────────────────────────────────────────────────────┘
+ * ========================================================================== */
+.homeHeroMain {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'kicker kicker'
+    'title  acts'
+    'why    why'
+    'meta   meta';
+  align-items: center;
+  gap: 3px 18px;
+  max-width: none;
+}
+
+.homeHeroKicker { grid-area: kicker; margin-bottom: 2px; }
+
+.homeHeroTitle {
+  grid-area: title;
+  margin: 0;
+  font-size: 23px;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+}
+
+.homeHeroActs { grid-area: acts; margin: 0; gap: 8px; }
+
+.homeHeroWhy {
+  grid-area: why;
+  max-width: 62ch;
+  margin: 1px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  -webkit-line-clamp: 2;
+}
+
+/* meta 与标题分层：一条发丝压在上面，成为"脚注行"而不是按钮的尾巴。 */
+.homeHeroMeta {
+  grid-area: meta;
+  gap: 14px;
+  margin: 7px 0 0;
+  padding-top: 7px;
+  border-top: 1px solid var(--nf-line);
+  font-size: 11px;
+}
+
+/* 右栏只剩印章 + 阶段：竖排一行，不再和正文抢横向空间。 */
+.homeHeroSide {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  padding: 0 0 0 18px;
+}
+
+.homeHeroSealRow { margin: 0; gap: 10px; }
+
+/* 工件池（2.1.17）：一格一章 → 一段一组。
+ * 600 章时一格一章是一条约 2px 的栅栏（作者评价「真难看」）。
+ * 聚合口径取自书的真实结构：有卷按卷（宽度 = 该卷章数），没有卷就按块聚到 ≤60 段；
+ * 组内再按状态按比例分色 —— 一眼看的是「哪一卷卡着」，而不是数不清的细条。 */
+.heroPoolBar { gap: 5px; }
+
+.heroPoolGroup {
+  display: flex;
+  flex: 1 1 0;
+  gap: 1px;
+  min-width: 6px;
+  height: 15px;
+  padding: 0;
+  overflow: hidden;
+  border: none;
+  border-radius: 2px;
+  background: var(--nf-bg-inset);
+  cursor: pointer;
+}
+
+.heroPoolGroup:hover { filter: brightness(1.12); }
+
+.heroPoolGroup[data-now='yes'] {
+  height: 21px;
+  box-shadow: inset 0 2px 0 var(--nf-seal, #a63e2a);
+}
+
+.heroPoolSeg { flex: 1 1 0; min-width: 1px; background: var(--nf-bg-inset); }
+.heroPoolSeg[data-st='ok'] { background: var(--nf-success, #4f8750); }
+.heroPoolSeg[data-st='rev'] { background: var(--nf-human, #2f6fa3); }
+.heroPoolSeg[data-st='fix'] { background: var(--nf-seal, #a63e2a); }
+.heroPoolSeg[data-st='gen'] { background: var(--nf-ai, #c07c22); }
+.heroPoolSeg[data-st='pend'] { background: color-mix(in srgb, var(--nf-text-3, #726858) 40%, transparent); }
+.heroPoolSeg[data-st='err'] { background: var(--nf-error-ink, #a63e2a); }
+
+/* 工件池 · 完成态（2.1.18）：全书过审时收成一行事实，不再铺几条绿杠。
+   朱砂不出现在这里 —— 完成不是"要你拍板"，主 CTA（导出全本）在 hero 里。 */
+.heroPoolDone {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--nf-text-3);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.heroPoolDone b {
+  color: var(--nf-text-2);
+  font-family: var(--nf-font-display);
+  font-size: 15px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.heroPoolDoneSep { color: var(--nf-line-2); }
+
+/* ==========================================================================
+ * 批注栏改行式（2.1.19）：卡片网格 → 行列表 + 长文折叠
+ *
+ * 作者实测：批注长度差异极大（「第 1 章已写完，等你判卷」两行 vs 一条 AI 审稿建议十几行）。
+ * 网格里同一行的行高 = 最高那条 → 短卡片下面留出大片空洞，页面像被戳了几个窟窿。
+ * 长度不齐的内容就该用行：徽章 / 标题 / 动作各自成列对齐，行高随内容走，洞自然消失。
+ * 长文默认折两行，按「展开」看全文 —— 列表因此始终能扫。
+ * ========================================================================== */
+.inboxList {
+  display: block;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.inboxItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 9px 4px;
+  border: none;
+  border-top: 1px solid var(--nf-line);
+  border-radius: 0;
+  background: transparent;
+}
+
+.inboxItem:first-of-type { border-top: none; }
+.inboxItem:hover { background: color-mix(in srgb, var(--nf-text-3, #726858) 5%, transparent); }
+
+.inboxBody { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+.inboxActs { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
+
+.inboxMoreBtn {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--nf-text-3);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.inboxMoreBtn:hover { color: var(--nf-text); }
+
+/* 标题同样折两行（2.1.19）：有的批注把整段审稿结论塞进 title，不折就会把行撑成三行。
+   折叠是「默认能扫」，展开是「要看细节」—— 两者共用同一个 data-open 开关。 */
+.inboxItem[data-open='yes'] .inboxItemTitle {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+
+/* 折叠用属性选择器，**不用后代选择器**（2.1.19）：
+   本项目实测 CSS Modules 压缩会把 `.inboxItem[data-open] .inboxItemTitle` 这类后代选择器
+   拍平成单类，祖先条件被丢掉 —— 于是"折叠"与"展开"两条同时生效、后者恒定赢，开关失效。
+   属性选择器没有这个问题，而且折叠与否由 React 直接写死在元素上，读起来也更直接。 */
+.inboxItemTitle[data-clamp='yes'],
+.inboxDetail[data-clamp='yes'] {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* ==========================================================================
+ * 批注栏：一行一条（2.1.20）
+ *
+ * 作者反馈：条目一多，批注栏顶得很长，页面要下拉很多。上一版每条占 81px
+ *（标题两行 + 来源 + 说明两行）—— 但批注栏的职责是**摘要**：让作者扫出"哪几条要动手"，
+ * 正文级信息属于「全部待办」视图。所以收成单行一条，说明按需展开。
+ *
+ * 一律用**属性选择器**且标记挂在元素自己身上：本项目实测压缩器会把
+ * `.parent[data-x] .child` 拍平成单类（祖先条件丢失），后代选择器在这里不可信。
+ * ========================================================================== */
+.inboxList { max-height: 34vh; }
+
+.inboxItem {
+  align-items: center;
+  padding: 5px 4px;
+}
+
+.inboxBody {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.inboxItemTitle {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.inboxItemTitle[data-open='yes'] { white-space: normal; }
+
+.inboxSource { flex: none; }
+
+.inboxDetail { display: none; flex-basis: 100%; }
+.inboxDetail[data-open='yes'] { display: block; }
+
+.inboxActs { flex-direction: row; align-items: center; gap: 8px; }
+
+.inboxItem:has(.inboxDetail[data-open='yes']) { align-items: start; }
+
+/* 总编台要落在一屏内（2.1.20）：两个"可变长度"的列表各自封顶 + 内部滚动，
+   页面本身不再被条数推长。摘要区只负责"扫出要动手的几条"，穷举属于子视图。 */
+.inboxList { max-height: 50vh; }
+
+.wfFeedList {
+  max-height: 12vh;
+  overflow-y: auto;
+}
+
+/* 批注栏进左列后（2.1.22）：左列是「要你动手」，右列是参考区（最近活动 / 生产单 / 环节坐标）。
+   左列允许更高（42vh），因为左列矮了会在右下留洞 —— 洞正是这轮要消掉的东西。 */
+.inbox { min-width: 0; }
+
+/* 两列配平（2.1.22）：左列 = 批注栏（要你动手，可长）；右列 = 生产单 + 环节坐标 + 最近活动（参考）。
+   左列矮会在右下留洞，右列矮会在左下留洞 —— 让左列能长、右列收一档，两边就都满了。 */
+.wfBody { align-items: start; }

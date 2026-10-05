@@ -41,25 +41,32 @@ export interface PickNextResult {
 /**
  * 选出生产单下一章要处理的章。
  *
- * 三种章：已 `approved` 快进；连败达上限的熔断跳过；其余为下一章。
+ * 四种章：已 `approved` 快进；已列入 `pendingManual` 的快进（人工已接管）；
+ * 连败达上限的熔断跳过；其余为下一章。
  *
  * @param chapters - 全书章节计划。
  * @param currentNo - 当前章号（含）。
  * @param endNo - 区间终点（含）。
  * @param failedAttempts - 章号 → 已失败次数（来自 `RunState.failedAttempts`）。
+ * @param pendingManual - 已列入待人工的章号（来自 `RunState.pendingManual`）。
+ *   必须传入，否则重写 N 轮仍不过的章会被反复选中，每轮烧两次 rewrite + 两次 verify。
  */
 export function pickNextChapter(
   chapters: ChapterPlan[],
   currentNo: number,
   endNo: number,
   failedAttempts: Record<string, number>,
+  pendingManual: readonly number[] = [],
 ): PickNextResult {
   const circuitBroken: Array<{ chapter: ChapterPlan; attempts: number }> = []
+  const manual = new Set(pendingManual)
   let advanceTo = currentNo - 1
   for (let no = currentNo; no <= endNo; no++) {
     const ch = chapters.find(c => c.no === no)
     if (ch === undefined) continue
     if (ch.status === 'approved') { advanceTo = no; continue }
+    // 人工已接管的章不再自动重跑：它没有被改成 approved，若不快进会在这里死循环。
+    if (manual.has(no)) { advanceTo = no; continue }
     const attempts = failedAttempts[String(no)] ?? 0
     if (attempts >= MAX_CHAPTER_FAILURES) {
       circuitBroken.push({ chapter: ch, attempts })

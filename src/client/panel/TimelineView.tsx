@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import type { TimelineEvent, TimelineIssue } from '../../protocol.ts'
 import { NoticeBar } from './NoticeBar.tsx'
+import { CardHead } from './CardHead.tsx'
 import css from './panel.module.css'
 
 type Severity = TimelineIssue['severity']
@@ -101,11 +102,8 @@ export default function TimelineView({ api, chapters, onRevise, busy: outerBusy 
   }
 
   return (
-    <div className={css.card} style={{ gap: 'var(--nf-space-12)' }}>
-      <div className={`css.rowBetween css.rowBetweenWrap`} style={{ gap: 'var(--nf-space-8)' }}>
-        <span className={css.cardTitle}>故事时间线</span>
-        <span className={css.meta}>{events.length} 条事件 · {grouped.length} 章</span>
-      </div>
+    <div className={`${css.card} ${css.timelineSurface}`}>
+      <CardHead title="故事时间线" large note={`${events.length} 条事件 · ${grouped.length} 章`} />
 
       <div className={css.row}>
         <select
@@ -137,7 +135,7 @@ export default function TimelineView({ api, chapters, onRevise, busy: outerBusy 
       )}
 
       {issues.length > 0 && (
-        <div style={{ border: '1px solid var(--nf-border)', borderRadius: 8, padding: 8, background: 'var(--nf-bg-inset)' }}>
+        <div className={css.timelineIssues}>
           <b style={{ fontSize: 'var(--nf-fs-12)' }}>发现 {issues.length} 处时间线问题</b>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
             {issues.map((issue, i) => (
@@ -163,14 +161,14 @@ export default function TimelineView({ api, chapters, onRevise, busy: outerBusy 
         </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', maxHeight: '52vh' }}>
+      <div className={`${css.timelineEvents} ${css.docsSurface}`}>
         {events.length === 0 && <span className={css.meta}>还没有时间线事件。生成章节后会自动抽取，也可以在上面选一章手工抽取。</span>}
         {grouped.map(([no, list]) => (
-          <div key={no}>
+          <div key={no} className={css.timelineChapter}>
             <div className={css.meta} style={{ marginBottom: 4 }}>第 {no} 章 · {list.length} 条</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div className={css.timelineChapterEvents}>
               {list.map(e => (
-                <div key={e.id} style={{ border: '1px solid var(--nf-border)', borderRadius: 8, padding: '6px 8px', fontSize: 'var(--nf-fs-12)' }}>
+                <div key={e.id} className={css.timelineEvent}>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', flexWrap: 'wrap' }}>
                     <b>{e.time !== '' ? e.time : '（未标注时间）'}</b>
                     {e.place !== '' && <span className={css.meta}>@{e.place}</span>}

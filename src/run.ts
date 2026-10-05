@@ -235,8 +235,14 @@ export class ProductionRunner {
           this.persist()
           break
         }
-        // 找下一个需要处理的章（approved 快进；连败超限的章跳过不重试）。
-        const picked = pickNextChapter(project.chapters, this.state.currentNo, this.state.endNo, this.state.failedAttempts ?? {})
+        // 找下一个需要处理的章（approved 快进；人工接管快进；连败超限的章跳过不重试）。
+        const picked = pickNextChapter(
+          project.chapters,
+          this.state.currentNo,
+          this.state.endNo,
+          this.state.failedAttempts ?? {},
+          this.state.pendingManual ?? [],
+        )
         if (picked.advanceTo >= this.state.currentNo) this.state.currentNo = picked.advanceTo
         for (const skipped of picked.circuitBroken) this.skipFailedChapter(skipped.chapter, skipped.attempts)
         if (picked.next === undefined) {
@@ -366,10 +372,16 @@ export class ProductionRunner {
               project.facts ??= []
               for (const text of backfillFacts) project.facts.push({ chapterNo: no, text })
             }
-            mergeVolatileFromDisk(outputDir, project)
+            // 保留本函数自己刚写的 plotlines（autoLinkPlotlines）与 facts（回灌），
+            // 否则会被 mergeVolatileFromDisk 用磁盘旧值整块覆盖（见该函数 keep 参数说明）。
+            mergeVolatileFromDisk(outputDir, project, ['plotlines', 'facts'])
             saveProject(outputDir, project)
           }
-        } catch (e) { console.warn('[dsh-novel-forge] run author review:', (e as Error).message) }
+        } catch (e) {
+          // 复盘失败不阻断正文（正文已落盘并审过），但必须让作者知道这章缺了什么。
+          console.warn('[dsh-novel-forge] run author review:', (e as Error).message)
+          this.log(`第${no}章 作者复盘失败（正文已保留，可稍后补跑复盘）：${(e as Error).message}`)
+        }
       }
     } catch (error) {
       chapter.status = 'error'
@@ -439,8 +451,18 @@ export class ProductionRunner {
       // （上一轮基线里已解决的条目不再下发，避免「越修越多」）。
       plan = buildRevisionPlan(fresh ?? project, { chapterNo: no, reviewIssues: highs2, baseReport: verify })
     }
-    if (this.state !== null) this.state.pendingManual.push(no)
-    this.log(`第${no}章  ${MAX_REVISION_ROUNDS} 轮修订仍不过 → 保留草稿待人工`)
+    if (this.state !== null) {
+      const already = this.state.pendingManual.includes(no)
+      if (!already) {
+        this.state.pendingManual.push(no)
+        this.state.pendingManual.sort((a, b) => a - b)
+      }
+      // 必须推进 currentNo：状态仍是 rejected，若只登记 pendingManual 而不快进，
+      // pickNextChapter 下一轮仍会选中它 → 每轮烧 2 次 rewrite + 2 次 verify 直至进程结束。
+      this.state.currentNo = no + 1
+      this.persist()
+    }
+    this.log(`第${no}章  ${MAX_REVISION_ROUNDS} 轮修订仍不过 → 保留草稿待人工（已跳过，可修正后单独重试该章）`)
   }
 
   private applyDraft(project: ProjectState, chapter: ChapterPlan, draft: string, report: ReviewReport): void {

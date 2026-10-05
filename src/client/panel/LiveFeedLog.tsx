@@ -12,8 +12,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useLlmLiveFeed, type LlmLiveSession } from '../llmLive.ts'
-import { NOVEL_API, type LlmPromptRecord, type LlmUsageSummary } from '../../protocol.ts'
+import { useLlmLiveFeed, isActivePhase, type LlmLiveSession } from '../llmLive.ts'
+import { NOVEL_API, type LlmLivePhase, type LlmPromptRecord, type LlmUsageSummary } from '../../protocol.ts'
 import css from './panel.module.css'
 
 /** 毫秒 → 紧凑可读（840ms / 1.2s）。 */
@@ -38,10 +38,22 @@ function usageText(s: LlmLiveSession): string {
   return parts.join(' · ')
 }
 
+/**
+ * 阶段 → 文案。用 Record 全量映射：宿主新增阶段时这里会编译期报错，
+ * 不会出现「面板把未知阶段显示成完成」这类误导。
+ */
+const PHASE_LABEL: Record<LlmLivePhase, string> = {
+  requesting: '请求中',
+  streaming: '生成中',
+  completed: '完成',
+  failed: '失败',
+  cancelled: '已取消',
+}
+
 function PhasePill({ s }: { s: LlmLiveSession }): JSX.Element {
   return (
     <span className={css.lfPill} data-phase={s.phase}>
-      {s.phase === 'requesting' ? '请求中' : s.phase === 'streaming' ? '生成中' : s.phase === 'failed' ? '失败' : '完成'}
+      {PHASE_LABEL[s.phase]}
     </span>
   )
 }
@@ -100,7 +112,7 @@ function PromptDialog({ sessionId, onClose }: { sessionId: string; onClose: () =
 }
 
 function SessionCard({ s, brief, onShowPrompt }: { s: LlmLiveSession; brief: boolean; onShowPrompt: (sessionId: string) => void }): JSX.Element {
-  const active = s.phase === 'requesting' || s.phase === 'streaming'
+  const active = isActivePhase(s.phase)
   const dotState = active ? 'streaming' : s.phase
   return (
     <div style={{ borderBottom: '1px solid var(--nf-border)', padding: '7px 6px' }}>
@@ -137,7 +149,7 @@ export default function LiveFeedLog(): JSX.Element {
   const [cleared, setCleared] = useState(false)
   const [promptId, setPromptId] = useState<string | null>(null)
   const { connected, sessions } = useLlmLiveFeed(true)
-  const active = sessions.filter(s => s.phase === 'requesting' || s.phase === 'streaming').length
+  const active = sessions.filter(s => isActivePhase(s.phase)).length
   const shown = useMemo(() => (cleared ? sessions.slice(-8) : sessions), [sessions, cleared])
 
   // 本次运行用量（进程内累计，来自 /status.usage）。
@@ -175,8 +187,8 @@ export default function LiveFeedLog(): JSX.Element {
         <span className={css.lfPill} data-phase={active > 0 ? 'streaming' : 'requesting'}>
           {active > 0 ? `${active} 项进行中` : connected ? '等待生成' : '正在连接'}
         </span>
-        <button type="button" title={brief ? '详细' : '简略'} onClick={() => setBrief(b => !b)} style={{ border: '1px solid var(--nf-border)', background: 'var(--nf-bg)', color: 'var(--nf-text)', borderRadius: 6, fontSize: 10, padding: '1px 6px', cursor: 'pointer' }}>{brief ? '详细' : '简略'}</button>
-        <button type="button" title="清空当前窗口" onClick={() => setCleared(true)} style={{ border: '1px solid var(--nf-border)', background: 'var(--nf-bg)', color: 'var(--nf-text)', borderRadius: 6, fontSize: 10, padding: '1px 6px', cursor: 'pointer' }}>清空</button>
+        <button type="button" className={css.button + ' ' + css.buttonSmall} title={brief ? '详细' : '简略'} onClick={() => setBrief(b => !b)}>{brief ? '详细' : '简略'}</button>
+        <button type="button" className={css.button + ' ' + css.buttonSmall} title="清空当前窗口" onClick={() => setCleared(true)}>清空</button>
       </div>
       {usage !== null && usage.calls > 0 && (
         <div

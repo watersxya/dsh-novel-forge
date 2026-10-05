@@ -159,8 +159,9 @@ function blockContext(selector) {
 
 const blocks = parseBlocks(css)
 /* 审计覆盖的颜色令牌：基础 7 项 + bg-inset（抽屉/凹陷区实际底色）
- * + 文字版语义色 4 项（图形版当文字色在浅色下不可读，见 -ink 注释）。 */
-const TOKEN_KEYS = '--nf-text|--nf-text-2|--nf-text-3|--nf-bg|--nf-bg-raise|--nf-bg-inset|--nf-accent|--nf-accent-fg|--nf-success-ink|--nf-error-ink|--nf-warn-ink|--nf-info-ink'
+ * + 文字版语义色 4 项（图形版当文字色在浅色下不可读，见 -ink 注释）
+ * + 焦点环 1 项（非文本对比，阈值按 WCAG 1.4.11 / 2.4.11 的 3:1，不是 4.5）。 */
+const TOKEN_KEYS = '--nf-text|--nf-text-2|--nf-text-3|--nf-bg|--nf-bg-raise|--nf-bg-inset|--nf-accent|--nf-accent-fg|--nf-focus|--nf-success-ink|--nf-error-ink|--nf-warn-ink|--nf-info-ink'
 const TOKEN_RE = new RegExp('(?:' + TOKEN_KEYS + ')\\s*:')
 const TOKEN_CAP = new RegExp('(' + TOKEN_KEYS + ')\\s*:\\s*([^;]+)')
 
@@ -199,7 +200,7 @@ const results = []
 for (const ctx of contexts) {
   const tokens = tokensFor(ctx)
   const need = ['--nf-text', '--nf-text-2', '--nf-text-3', '--nf-bg', '--nf-bg-raise', '--nf-bg-inset',
-    '--nf-accent', '--nf-accent-fg',
+    '--nf-accent', '--nf-accent-fg', '--nf-focus',
     '--nf-success-ink', '--nf-error-ink', '--nf-warn-ink', '--nf-info-ink']
   const missing = need.filter(k => tokens[k] === undefined)
   if (missing.length > 0) {
@@ -207,18 +208,29 @@ for (const ctx of contexts) {
     continue
   }
   const canvas = ctx.canvas
-  const bg = parseColor(tokens['--nf-bg'])
-  const bgRaise = parseColor(tokens['--nf-bg-raise'])
+  // 令牌允许写成一层 var() 间接（如 --nf-focus: var(--nf-accent)）：按同一张表 deref，
+  // 否则这类令牌会被算成「解析失败」而静默跳过 —— 审计通过但界面值从未被验过。
+  const deref = (v) => {
+    const m = /^var\((--[\w-]+)\)$/.exec(v)
+    return m ? (tokens[m[1]] ?? v) : v
+  }
+  const bg = parseColor(deref(tokens['--nf-bg']))
+  const bgRaise = parseColor(deref(tokens['--nf-bg-raise']))
   if (!bg || !bgRaise) {
     results.push({ id: ctx.id + '（bg/bg-raise 解析失败，跳过）', rows: [] })
     continue
   }
   const BG = over(bg, canvas)
   const BGraise = over(bgRaise, canvas)
-  const resolve = (name) => over(parseColor(tokens[name]), BG)
-  const accentSolid = over(parseColor(tokens['--nf-accent']), BG)
+  const resolve = (name) => over(parseColor(deref(tokens[name])), BG)
+  const accentSolid = over(parseColor(deref(tokens['--nf-accent'])), BG)
   // bg-inset 也要审：它是抽屉 / 凹陷区的实际底色，浅色下比 bg 更暗一档。
-  const bgInset = over(parseColor(tokens['--nf-bg-inset'] ?? tokens['--nf-bg']), canvas)
+  const bgInset = over(parseColor(deref(tokens['--nf-bg-inset'] ?? tokens['--nf-bg'])), canvas)
+  const focusColor = parseColor(deref(tokens['--nf-focus']))
+  if (!focusColor) {
+    results.push({ id: ctx.id + '（--nf-focus 解析失败，跳过）', rows: [] })
+    continue
+  }
   const rows = [
     ['text / bg', contrast(resolve('--nf-text'), BG), 4.5],
     ['text-2 / bg', contrast(resolve('--nf-text-2'), BG), 4.5],
@@ -236,7 +248,13 @@ for (const ctx of contexts) {
     ['error-ink / bg', contrast(resolve('--nf-error-ink'), BG), 4.5],
     ['warn-ink / bg', contrast(resolve('--nf-warn-ink'), BG), 4.5],
     ['info-ink / bg', contrast(resolve('--nf-info-ink'), BG), 4.5],
-    ['error-ink / bg-inset', contrast(over(parseColor(tokens['--nf-error-ink']), bgInset), bgInset), 4.5],
+    ['error-ink / bg-inset', contrast(over(parseColor(deref(tokens['--nf-error-ink'])), bgInset), bgInset), 4.5],
+    // 焦点环是非文本元素，按 WCAG 1.4.11 / 2.4.11 的 3:1 验收（不是正文的 4.5）。
+    // 三种纸面都要过：环会画在卡片、抽屉底与画布上，浅色档 accent 单独用只有在
+    // 深色档勉强（2.45:1），所以 --nf-focus 独立成令牌并由这里拦住回退。
+    ['focus / bg', contrast(focusColor, BG), 3.0],
+    ['focus / bg-raise', contrast(focusColor, BGraise), 3.0],
+    ['focus / bg-inset', contrast(focusColor, bgInset), 3.0],
   ]
   results.push({ id: ctx.id, rows })
 }

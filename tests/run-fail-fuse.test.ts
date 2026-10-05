@@ -81,3 +81,44 @@ describe('生产单选章与失败熔断', () => {
     expect(picked.next).toBeUndefined()
   })
 })
+
+/**
+ * 「重写 N 轮仍不过」的降级路径与熔断是**两个独立**的失败通道，必须各自被测。
+ *
+ * 熔断（status='error'）走 `failedAttempts` 计数，历史上一直是好的。
+ * 但 `handleRejected` 的收尾（重写 2 轮 + 验证 2 轮仍不过）此前只登记
+ * `pendingManual`、既不改 status 也不推进 currentNo，而 `pickNextChapter`
+ * 也不认 `pendingManual` —— 该章每轮被重新选中，每轮烧 2 次 rewrite
+ * （maxTokens 常 20000）+ 2 次 verify，**永不退出**。
+ *
+ * 下面的用例锁死修复后的行为：人工接管的章必须快进。
+ */
+describe('重写降级（pendingManual）与熔断是独立通道', () => {
+  it('列入 pendingManual 的 rejected 章被快进，不再被重新选中', () => {
+    const chapters = [chapter(1, 'rejected'), chapter(2, 'pending')]
+    const picked = pickNextChapter(chapters, 1, 2, {}, [1])
+    // 第1章人工接管 → 快进；第2章才是下一个
+    expect(picked.next?.no).toBe(2)
+    expect(picked.advanceTo).toBe(1)
+  })
+
+  it('pendingManual 全部覆盖时返回 undefined（整批正常收尾，不是死循环）', () => {
+    const chapters = [chapter(1, 'rejected'), chapter(2, 'rejected')]
+    const picked = pickNextChapter(chapters, 1, 2, {}, [1, 2])
+    expect(picked.next).toBeUndefined()
+    expect(picked.advanceTo).toBe(2)
+  })
+
+  it('不传 pendingManual 时保持旧行为（向后兼容：该章仍会被选中）', () => {
+    const chapters = [chapter(1, 'rejected'), chapter(2, 'pending')]
+    const picked = pickNextChapter(chapters, 1, 2, {})
+    expect(picked.next?.no).toBe(1)
+  })
+
+  it('pendingManual 快进与 approved 快进可叠加（人工管了1、已过审了2）', () => {
+    const chapters = [chapter(1, 'rejected'), chapter(2, 'approved'), chapter(3, 'pending')]
+    const picked = pickNextChapter(chapters, 1, 3, {}, [1])
+    expect(picked.next?.no).toBe(3)
+    expect(picked.advanceTo).toBe(2)
+  })
+})

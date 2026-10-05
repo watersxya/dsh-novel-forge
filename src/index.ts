@@ -15,6 +15,7 @@ import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { ConfigPatch, NovelConfig, ConfigResponse } from './protocol.ts'
 import { makeRoutes } from './routes.ts'
+import { ProductionRunner } from './run.ts'
 import { activeBookOutputDir } from './bookshelf.ts'
 import { loadProject } from './engine.ts'
 import { dshHomePath } from './home.ts'
@@ -299,6 +300,19 @@ export function apply(ctx: Context, config?: Config): void {
   let disposeSection: (() => void) | undefined
   let disposeRoutes: (() => void) | undefined
 
+  /**
+   * 生产单 runner 单例：**必须在 makeRoutes 之外**持有。
+   *
+   * 此前 runner 在 makeRoutes 工厂体内 `new`，而 `sync()` 每次配置变更都会
+   * 重新 makeRoutes + dispose 全部旧路由 —— 于是：
+   * 1. 旧 runner 的 `loop()` 仍在跑并继续 saveProject（失去引用但不停止），同时
+   * 2. 新 runner 的 `isWorking()` 恒为 false，`moveOutputDir` 的守卫失效 →
+   *    可以边迁移目录边写盘。
+   * 提到这里之后，sync() 只重建路由表，runner 及其内存状态（working / 当前章 /
+   * 暂停标志）跨重注册保持连续。
+   */
+  const runner = new ProductionRunner({ ctx, getConfig: resolve })
+
   const sync = (): void => {
     if (disposeSection !== undefined) {
       disposeSection()
@@ -317,7 +331,7 @@ export function apply(ctx: Context, config?: Config): void {
         text: NOVEL_GUIDANCE,
       })
     }
-    const routes = makeRoutes({ ctx, getConfig: resolve, patchConfig, rawConfig: () => current(), settingsNs })
+    const routes = makeRoutes({ ctx, getConfig: resolve, patchConfig, rawConfig: () => current(), settingsNs, runner })
     disposeRoutes = ctx.effect(
       () => {
         const disposers = routes.map(route => ctx.webServer.register(route))

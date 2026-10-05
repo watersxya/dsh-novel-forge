@@ -96,6 +96,9 @@ console.log(NL + '▶ 校验与构建')
 shLive('pnpm typecheck')
 shLive('node scripts/check-theme-sizes.mjs')
 shLive('node scripts/check-fallback-tiers.mjs')
+// 令牌闭合性：var(--nf-typo) 在变量缺失时不报错不警告，页面只是「跟设计稿不一样」，
+// 编译与运行时都无提示，只能靠静态扫描拦住。CI 一直跑这步，发布链此前漏了它。
+shLive('node scripts/check-css-vars.mjs')
 // 来源卫生：防止把外部来源的代码/文案带进本产物（细则见 scripts/check-third-party.mjs 头部说明）。
 shLive('node scripts/check-third-party.mjs')
 // 对比度：无障碍阈值一旦回退很难被肉眼发现，且发布后只能靠新版本修。
@@ -107,7 +110,7 @@ shLive('pnpm test')
 // 幽灵声明：`files` 包含 lib/**/*.d.ts，若 tsc 的旧产物没被清掉，源码已删除的模块
 // 会以 .d.ts 形式**发布出去**（实测发生过）。构建脚本已先清 lib/types，这里再验一次。
 assertNoStaleDeclarations()
-console.log('  · typecheck / check-styles / third-party / contrast / build / test / 声明一致性 全部通过')
+console.log('  · typecheck / check-styles / fallback-tiers / css-vars / third-party / contrast / build / test / 声明一致性 全部通过')
 
 // ---- 4) commit + tag -----------------------------------------------------
 console.log(NL + '▶ 提交与打 tag')

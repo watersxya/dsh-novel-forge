@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import type { WorldFaction, WorldRealm, WorldRegion, WorldState } from '../../protocol.ts'
 import css from './panel.module.css'
+import { CardHead } from './CardHead.tsx'
 
 const EMPTY: WorldState = { realms: [], regions: [], factions: [] }
 
@@ -92,31 +93,30 @@ export function WorldTab({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-12)' }}>
       {error !== '' && <div className={css.card} style={{ borderColor: 'var(--nf-error)' }}><span style={{ color: 'var(--nf-error)' }}>{error}</span></div>}
 
-      <div className={css.card}>
-        <div className={`css.rowBetween`}>
-          <span className={css.cardTitle}>大世界</span>
-          <div className={css.row}>
-            <button type="button" className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`} disabled={busy} onClick={() => { void handleGenerate() }}>
-               提炼
-            </button>
-            <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={busy} onClick={() => { void handleSave() }}>
-               保存
-            </button>
-          </div>
-        </div>
-        <span className={css.meta}>
+      <div className={`${css.card} ${css.worldIntro}`}>
+        <CardHead
+          title="大世界"
+          large
+          note="结构化设定会注入章节生成与审稿提示词。"
+          actions={(
+            <div className={css.row}>
+              <button type="button" className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`} disabled={busy} onClick={() => { void handleGenerate() }}>
+                提炼
+              </button>
+              <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={busy} onClick={() => { void handleSave() }}>
+                保存
+              </button>
+            </div>
+          )}
+        />
+        <div className={`${css.docsSurface} ${css.worldNote} ${css.readingCol}`}>
           境界体系按由低到高排序注入章节生成提示词，模型不得随意跳级或自创境界；区域与势力约束地理/势力设定。提炼不满意可逐条编辑后保存。
-        </span>
+        </div>
       </div>
 
       {/* 境界体系 */}
-      <div className={css.card}>
-        <div className={`css.rowBetween`}>
-          <span className={css.cardTitle}>境界体系（{draft.realms.length}）</span>
-          <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setRealms([...draft.realms, { name: '', description: '' }]) }}>
-            ＋ 新增境界
-          </button>
-        </div>
+      <div className={`${css.card} ${css.worldSection} ${css.docsSurface}`}>
+        <CardHead title="境界体系" count={draft.realms.length} actions={<button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setRealms([...draft.realms, { name: '', description: '' }]) }}>＋ 新增境界</button>} />
         {draft.realms.length === 0 ? (
           <span className={css.meta}>暂无境界体系 — 点击 提炼 或手动添加（由低到高）。</span>
         ) : (
@@ -138,13 +138,8 @@ export function WorldTab({
       </div>
 
       {/* 地理区域 */}
-      <div className={css.card}>
-        <div className={`css.rowBetween`}>
-          <span className={css.cardTitle}>地理区域（{draft.regions.length}）</span>
-          <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setRegions([...draft.regions, { name: '', description: '' }]) }}>
-            ＋ 新增区域
-          </button>
-        </div>
+      <div className={`${css.card} ${css.worldSection} ${css.docsSurface}`}>
+        <CardHead title="地理区域" count={draft.regions.length} actions={<button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setRegions([...draft.regions, { name: '', description: '' }]) }}>＋ 新增区域</button>} />
         {draft.regions.length === 0 ? (
           <span className={css.meta}>暂无地理区域 — 大陆 / 海域 / 秘境 / 遗迹…</span>
         ) : (
@@ -166,13 +161,8 @@ export function WorldTab({
       </div>
 
       {/* 势力分布 */}
-      <div className={css.card}>
-        <div className={`css.rowBetween`}>
-          <span className={css.cardTitle}>势力分布（{draft.factions.length}）</span>
-          <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setFactions([...draft.factions, { name: '', kind: '宗门', description: '' }]) }}>
-            ＋ 新增势力
-          </button>
-        </div>
+      <div className={`${css.card} ${css.worldSection} ${css.docsSurface}`}>
+        <CardHead title="势力分布" count={draft.factions.length} actions={<button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setFactions([...draft.factions, { name: '', kind: '宗门', description: '' }]) }}>＋ 新增势力</button>} />
         {draft.factions.length === 0 ? (
           <span className={css.meta}>暂无势力 — 宗门 / 家族 / 王朝 / 组织…</span>
         ) : (

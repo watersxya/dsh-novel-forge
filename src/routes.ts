@@ -12,7 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { stripChapterHeadings } from './strip-headings.ts'
 import { spawn } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join, basename, extname } from 'node:path'
+import { join, basename, extname, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { Context } from '@deepseek-ai/cordis'
@@ -52,6 +52,8 @@ import {
   type BookshelfSnapshot,
   type ChapterResponse,
   type ChapterPlan,
+  type ChapterPlanPatchRequest,
+  type ChapterPlanPatchResponse,
   type ChapterSaveResponse,
   type ChapterTextRequest,
   type ConfigPatch,
@@ -150,7 +152,7 @@ import { loadAuthorAssets, upsertAuthorAsset, removeAuthorAsset, importDefaultAu
 import { BUILTIN_ANTI_AI_RULES, BUILTIN_GENRE_LIBRARY, BUILTIN_PLOT_BEATS, BUILTIN_PROGRESSION_MODES, BUILTIN_STARTER_STYLE_PROFILES, BUILTIN_STYLE_TEMPLATES, emptyProjectAssets, ensureBuiltinAssets } from './assets.ts'
 import { scanAiFlavor } from './ai-scan.ts'
 import { compareStyleFingerprint, extractStyleFingerprint } from './style-fingerprint.ts'
-import { emitLive, livePrompt, liveUsage, nextSessionId, resetLiveUsage, subscribeLiveFeed } from './llm-live.ts'
+import { livePrompt, liveUsage, resetLiveUsage, subscribeLiveFeed } from './llm-live.ts'
 import { scanMarketRanking } from './market-radar-scan.ts'
 import { addGlobalGenre, addGlobalMode, globalGenreLibrary, globalProgressionLibrary } from './global-assets.ts'
 import {
@@ -220,6 +222,7 @@ import {
   syncProjectWithDisk,
 } from './engine.ts'
 import { countHanzi } from './engine.ts'
+import { chapterWrittenAt } from './engine.ts'
 import { computeBookStage } from './stage-contract.ts'
 import { createSnapshot, loadSnapshots, pruneSnapshots, removeSnapshot, restoreSnapshot, snapshotsBytes } from './snapshots.ts'
 import { detectTimelineIssues } from './timeline.ts'
@@ -231,6 +234,9 @@ import { dshHomePath } from './home.ts'
 /** Cap on JSON request bodies (generous: cover images travel as base64). */
 const MAX_JSON_BODY_BYTES = 64 * 1024 * 1024
 
+/** 允许「服务器本地文件」模式导入的扩展名：纯文本小说。不含 docx/pdf 等二进制。 */
+const IMPORTABLE_EXTENSIONS: readonly string[] = ['.txt', '.md', '.markdown']
+
 /** 包内置风格效果图目录（assets/styles，随 npm 包分发）。 */
 
 /** 解析请求级目标书目录：优先按请求携带的 bookId 查书架，否则回退全局 active 书目录。 */
@@ -240,6 +246,42 @@ function resolveOutputDir(config: NovelConfig, bookId?: string): string {
     if (book !== undefined && book.outputDir !== '') return book.outputDir
   }
   return config.outputDir
+}
+
+/**
+ * 校验一个「客户端自报的目录」是否确实是已登记的书目录。
+ *
+ * 背景：部分路由（封面读取等）历史上直接采信 `?dir=` 参数拼路径读文件。
+ * 本服务只有 loopback 围栏、没有 token，而围栏允许 `Origin` 缺失的请求
+ * （非浏览器客户端、curl、恶意扩展都能过），所以形如
+ * `GET /cover?dir=C:/Users/x` 会让服务读出该目录下任意 `novel-project.json`
+ * 指向的文件并 base64 回吐。
+ *
+ * 正确做法不是「校验路径合法」（攻击者可以传任意合法路径），而是
+ * **只承认自己登记过的目录**：书架里的每本书 + 设置里的默认输出目录。
+ * 攻击者能传的值因此被压缩到一个可枚举的集合内。
+ *
+ * @returns 归一化后的目录；不在白名单内返回 undefined。
+ */
+function resolveRegisteredDir(config: NovelConfig, requested: string | null): string | undefined {
+  if (requested === null || requested === '') return config.outputDir
+  // 归一化，消除 `..`、尾分隔符、大小写与重复分隔符造成的绕过变体。
+  let normalized: string
+  try {
+    normalized = resolve(requested).replace(/[\\/]+$/, '')
+  } catch {
+    return undefined
+  }
+  const store = loadBookshelf()
+  const allowed = [config.outputDir, ...store.books.map(b => b.outputDir)]
+  for (const dir of allowed) {
+    if (dir === '') continue
+    let candidate: string
+    try { candidate = resolve(dir).replace(/[\\/]+$/, '') } catch { continue }
+    // Windows 文件名不区分大小写，用同一套规则比较，避免 `C:\Users` 绕过。
+    if (candidate.toLowerCase() === normalized.toLowerCase()) return candidate
+  }
+  return undefined
 }
 
 /** Loopback-only fence (mirrors the family plugins' pairing routes). */
@@ -289,6 +331,54 @@ async function readJsonBody<T>(req: IncomingMessage): Promise<T | undefined> {
   }
 }
 
+/**
+ * 把「客户端是否还在听」绑成一个 `AbortSignal`。
+ *
+ * ## 为什么必须有
+ *
+ * Node 的 `res.write()` 对已销毁的 socket **不抛异常也不返回 false** ——
+ * 请求处理器会继续跑完。7 条 NDJSON 路由此前零 `close` 监听，于是：
+ * 浏览器关标签页 → `for await (const step of generateChapterStream(...))`
+ * 继续跑完整章生成（2-5 分钟，maxTokens 常 20000），审稿、复盘、落盘全部照跑。
+ * **「关掉页面」不等于「停止烧 token」**，而且 `chapter.status` 已被写盘为
+ * `generating`，只能靠 `/status` 的 10 分钟兜底复位。
+ *
+ * 宿主 SDK 明确约定「implementations must honor `options.signal`」
+ * （`@deepseek-ai/dsh-llm` `LLMAdapter.stream` 文档），所以只要把 signal
+ * 一路传到 `ctx.llm.stream` 就能真正掐断。
+ *
+ * ## 用法
+ *
+ * ```ts
+ * const abort = abortOnClientClose(req, res)
+ * try {
+ *   for await (const step of generateChapterStream(ctx, config, project, dir, no, abort.signal)) { ... }
+ * } catch (err) {
+ *   if (isAbortError(err)) return   // 客户端主动断开：静默收尾，不回错误帧
+ *   ...
+ * }
+ * ```
+ *
+ * @returns controller；`signal` 传给下游，`aborted` 可直接判断。
+ */
+function abortOnClientClose(req: IncomingMessage, res: ServerResponse): AbortController {
+  const controller = new AbortController()
+  // close 在正常写完时也会触发，但那时循环早已结束，abort 无害。
+  const onClose = (): void => {
+    if (!res.writableEnded) controller.abort(new Error('客户端已断开连接'))
+  }
+  res.once('close', onClose)
+  // 兜底：请求流异常结束（连接被强杀）时同样要中止。
+  req.once('aborted', onClose)
+  return controller
+}
+
+/** 判断错误是否为「客户端断开」导致的中止（据此静默收尾而不是回错误帧）。 */
+function isAbortError(err: unknown): boolean {
+  if (err instanceof Error && (err.name === 'AbortError' || err.message.includes('客户端已断开连接'))) return true
+  return false
+}
+
 /** Route deps. */
 export interface NovelRoutesDeps {
   ctx: Context
@@ -300,6 +390,11 @@ export interface NovelRoutesDeps {
   rawConfig?: () => { outputDir?: string }
   /** Loader entry id the settings section is addressed by (undefined when unknown). */
   settingsNs?: string
+  /**
+   * 生产单执行器单例。由宿主持有并跨 `makeRoutes` 重用 —— 见该字段在工厂内的说明。
+   * 测试可省略（内部自建一次性实例）。
+   */
+  runner?: ProductionRunner
 }
 
 /** Default chapter count for planning when the request omits it. */
@@ -349,15 +444,42 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
   }
 
   /** Load (and sync) the project, or respond 400. */
-  const requireProject = (res: ServerResponse): ReturnType<typeof loadProject> => {
+  /**
+   * 取本次请求的目标项目。
+   *
+   * 目录解析与 {@link resolveOutputDir} 同源：按请求携带的 `bookId` 查书架，
+   * 未携带才回退全局 active 书。**此前本函数只看 `getConfig().outputDir`**，
+   * 而约一半路由走它、另一半走 resolveOutputDir，前端每个请求都带 bookId
+   * 却被后端一半静默忽略 —— 多书场景下对非激活书调用会写到激活书目录。
+   *
+   * 顺带修掉写盘副作用：`syncProjectWithDisk` 无条件更新 `updatedAt`，
+   * 使 `saveProject` 的 no-op 检测永不命中，于是每个「读」请求都在重写整个
+   * novel-project.json（长篇项目可达数MB，每 4 秒一次）。这里改成
+   * 同步后按内容比对，仅在真的变化时落盘。
+   *
+   * @param req - 用于解析 `bookId`（GET 查 query，POST 查 body 由调用方保证）。
+   * @param res - 用于回写错误。
+   * @param body - POST 请求体（可能含 bookId）。
+   */
+  const requireProjectAt = (
+    req: IncomingMessage,
+    res: ServerResponse,
+    body?: { bookId?: string },
+  ): ReturnType<typeof loadProject> => {
     const config = getConfig()
-    const project = loadProject(config.outputDir)
+    const bookId = body?.bookId ?? (() => {
+      try { return new URL(req.url ?? '/', 'http://localhost').searchParams.get('bookId') ?? undefined } catch { return undefined }
+    })()
+    const outputDir = resolveOutputDir(config, bookId ?? undefined)
+    const project = loadProject(outputDir)
     if (project === undefined) {
       writeJson(res, 400, { error: '输出目录中没有项目，请先加载大纲' })
       return undefined
     }
-    syncProjectWithDisk(project, config.outputDir)
-    saveProject(config.outputDir, project)
+    // 与磁盘同步（补齐新增字段、回收已删章节），但仅在内容真的变了时才落盘。
+    const before = JSON.stringify(project)
+    syncProjectWithDisk(project, outputDir)
+    if (JSON.stringify(project) !== before) saveProject(outputDir, project)
     return project
   }
 
@@ -390,6 +512,13 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         syncProjectWithDisk(project, outputDir)
         saveProject(outputDir, project)
       }
+      // 章节写盘时间（文件 mtime）：面板的「今日产出 / 日环比」靠它。派生数据不落盘，
+      // 每次 /status 现算（见 chapterWrittenAt 的注释）。
+      const writtenAtByNo = new Map<number, string>()
+      for (const c of project?.chapters ?? []) {
+        const at = chapterWrittenAt(outputDir, c)
+        if (at !== undefined) writtenAtByNo.set(c.no, at)
+      }
       const slim = new URL(req.url ?? '/', 'http://localhost').searchParams.get('slim') === '1'
       // 截断显式化：任何被裁掉的字段都要在响应里声明，客户端/模型不能
       // 把"看到的"当成"全部"。静默截断会让一致性判断建立在不完整事实上。
@@ -412,6 +541,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
             chars: c.chars,
             error: c.error,
             review: c.review !== undefined ? { score: c.review.score, passed: c.review.passed } : undefined,
+            writtenAt: writtenAtByNo.get(c.no),
           })) as unknown as ProjectState['chapters'],
           createdAt: project.createdAt,
           updatedAt: project.updatedAt,
@@ -424,7 +554,11 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         if (allFacts.length > shownFacts.length) {
           truncations.push(`编年录：共 ${allFacts.length} 条，仅返回最近 ${shownFacts.length} 条（较早 ${allFacts.length - shownFacts.length} 条未返回）`)
         }
-        projectPayload = { ...project, facts: shownFacts }
+        projectPayload = {
+          ...project,
+          chapters: project.chapters.map(c => ({ ...c, writtenAt: writtenAtByNo.get(c.no) })),
+          facts: shownFacts,
+        }
       }
       const response: StatusResponse = {
         config,
@@ -656,23 +790,18 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         res.write(JSON.stringify(frame) + '\n')
       }
 
-      const liveSession = nextSessionId()
-      emitLive({ type: 'session_started', sessionId: liveSession, label: '正文生成', model: config.generateModel || config.model, at: new Date().toISOString(), context: { interactionId: liveSession, taskId: `ch-${no}` } })
-      emitLive({ type: 'phase_changed', sessionId: liveSession, phase: 'streaming', phaseMessage: '模型正在返回正文', at: new Date().toISOString() })
-
+      // 实况会话不在这里开：引擎层 streamWithFallback 自己发 session_started/完成，
+      // label 带章号且带真实 token 用量。路由层再套一层同名会话会让一次生成计两次。
+      const abort = abortOnClientClose(req, res)
       try {
         send({ type: 'start', no, title: chapter.title })
-        let genChars = 0
-        for await (const step of generateChapterStream(ctx, config, project, config.outputDir, no)) {
+        for await (const step of generateChapterStream(ctx, config, project, config.outputDir, no, abort.signal)) {
           if (step.frame === 'delta') {
             send({ type: 'delta', text: step.text })
-            genChars += step.text.length
-            emitLive({ type: 'output_delta', sessionId: liveSession, content: step.text, totalChars: genChars, at: new Date().toISOString() })
           } else if (step.frame === 'done') {
             send({ type: 'done', no, file: step.file, chars: step.chars, title: chapter.title, warn: step.warn })
           }
         }
-        emitLive({ type: 'session_completed', sessionId: liveSession, totalChars: genChars, preview: '', at: new Date().toISOString(), phase: 'completed' })
         // Auto pipeline: 摘要 + 事实 + 时间线 = 一次调用（输入同为整章正文，合并省约 44.7% token）。
         // 三项都是 best-effort：失败不阻断出章，作者可在对应页面手工补。
         try {
@@ -719,7 +848,8 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
               if (review.advancedLines !== undefined) {
                 autoLinkPlotlines(project, no, review.advancedLines)
               }
-              mergeVolatileFromDisk(config.outputDir, project)
+              // 保留本块刚写的 plotlines（autoLinkPlotlines），否则会被磁盘旧值覆盖。
+              mergeVolatileFromDisk(config.outputDir, project, ['plotlines'])
               saveProject(config.outputDir, project)
               send({ type: 'author-review', no, review })
             }
@@ -729,6 +859,22 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         }
         res.end()
       } catch (error) {
+        // 客户端主动断开（关标签页 / 停止请求）。socket 已销毁，错误帧无处可发。
+        // 但**章节状态必须就地收尾**：此前这里直接 return，章节停在 generating ——
+        // 作者重新打开面板点「重新生成」会撞上 409「正在生成中」，只能干等 /status
+        // 的 10 分钟兜底复位，界面表现为「明明没在跑却锁着不让动」。
+        if (isAbortError(error)) {
+          chapter.status = 'pending'
+          chapter.generatingAt = undefined
+          chapter.error = undefined
+          // 断开可能发生在正文写盘之后（摘要/审稿阶段）：sync 会把有正文文件的
+          // pending 章抬回 written，让「该审的接着审」而不是当成没写。
+          syncProjectWithDisk(project, config.outputDir)
+          saveProject(config.outputDir, project)
+          // 实况会话不在这里结案：出错的那个会话由它自己的现场（streamWithFallback /
+          // complete）按 cancelled 收尾，账本不计失败，也不会留下「生成中」的僵尸行。
+          return
+        }
         chapter.status = 'error'
         chapter.error = (error as Error).message
         mergeVolatileFromDisk(config.outputDir, project)
@@ -797,8 +943,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         'referrer-policy': 'no-referrer',
       })
       const send = (frame: JobFrame): void => { res.write(JSON.stringify(frame) + '\n') }
+      const abort = abortOnClientClose(req, res)
       try {
-        for await (const step of rewriteChapterStream(ctx, config, project, config.outputDir, no, body?.instructions ?? '', body?.target)) {
+        for await (const step of rewriteChapterStream(ctx, config, project, config.outputDir, no, body?.instructions ?? '', body?.target, abort.signal)) {
           if (step.frame === 'delta') send({ type: 'delta', text: step.text })
           else if (step.frame === 'drafted') send({ type: 'drafted', no, chars: step.chars, draft: step.draft })
         }
@@ -806,6 +953,8 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         // decides; re-run review after applying if wanted.
         res.end()
       } catch (error) {
+        // 客户端主动断开：静默收尾。socket 已销毁，回错误帧既无处可发也会误导日志。
+        if (isAbortError(error)) return
         if (!res.writableEnded) {
           send({ type: 'error', no, message: (error as Error).message })
           res.end()
@@ -841,13 +990,16 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         'referrer-policy': 'no-referrer',
       })
       const send = (frame: JobFrame): void => { res.write(JSON.stringify(frame) + '\n') }
+      const abort = abortOnClientClose(req, res)
       try {
-        for await (const step of polishChapterStream(ctx, config, project, config.outputDir, no)) {
+        for await (const step of polishChapterStream(ctx, config, project, config.outputDir, no, abort.signal)) {
           if (step.frame === 'delta') send({ type: 'delta', text: step.text })
           else if (step.frame === 'drafted') send({ type: 'drafted', no, chars: step.chars, draft: step.draft })
         }
         res.end()
       } catch (error) {
+        // 客户端主动断开：静默收尾。socket 已销毁，回错误帧既无处可发也会误导日志。
+        if (isAbortError(error)) return
         if (!res.writableEnded) {
           send({ type: 'error', no, message: (error as Error).message })
           res.end()
@@ -864,7 +1016,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       const body = await readJsonBody<DraftDecisionRequest>(req)
       if (!Number.isInteger(body?.chapterNo)) {
@@ -915,7 +1067,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       const body = await readJsonBody<DraftDecisionRequest>(req)
       if (!Number.isInteger(body?.chapterNo)) {
@@ -943,7 +1095,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       const body = await readJsonBody<SummaryRequest>(req)
       if (!Number.isInteger(body?.chapterNo)) {
@@ -1091,7 +1243,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       const body = await readJsonBody<ChapterTextRequest>(req)
       const text = body?.text?.trim() ?? ''
@@ -1116,7 +1268,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       const body = await readJsonBody<ChapterTextRequest>(req)
       if (!Number.isInteger(body?.chapterNo)) {
@@ -1189,8 +1341,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         'referrer-policy': 'no-referrer',
       })
       const send = (frame: AssistantFrame): void => { res.write(JSON.stringify(frame) + '\n') }
+      const abort = abortOnClientClose(req, res)
       try {
-        for await (const step of runAssistantTurn(ctx, config, project, outputDir, message)) {
+        for await (const step of runAssistantTurn(ctx, config, project, outputDir, message, abort.signal)) {
           if (step.frame === 'delta') send({ type: 'delta', text: step.text })
           else if (step.frame === 'tool') send({ type: 'tool', name: step.name, status: step.status, detail: step.detail })
           else if (step.frame === 'toolDelta') send({ type: 'toolDelta', name: step.name, text: step.text })
@@ -1199,6 +1352,8 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         send({ type: 'done' })
         res.end()
       } catch (error) {
+        // 客户端主动断开：静默收尾。socket 已销毁，回错误帧既无处可发也会误导日志。
+        if (isAbortError(error)) return
         if (!res.writableEnded) {
           send({ type: 'error', message: (error as Error).message })
           res.end()
@@ -2282,6 +2437,12 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           writeJson(res, 400, { error: 'filePath 不能为空（或请上传文件内容）' })
           return
         }
+        // 限流导入：只接受纯文本小说文件。防止把 filePath 指向任意文件
+        // （密钥、配置、其他书稿）读进来当正文拆章落盘。
+        if (!IMPORTABLE_EXTENSIONS.includes(extname(filePath).toLowerCase())) {
+          writeJson(res, 400, { error: `仅支持纯文本小说文件（${IMPORTABLE_EXTENSIONS.join(' / ')}）` })
+          return
+        }
         if (!existsSync(filePath)) {
           writeJson(res, 400, { error: `文件不存在：${filePath}` })
           return
@@ -2382,7 +2543,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       try {
         const cards = await refreshCharacters(ctx, config, project, config.outputDir)
@@ -2405,7 +2566,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       try {
         const filled = await backfillFacts(ctx, config, project, config.outputDir)
@@ -2424,7 +2585,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       if (project.bible === undefined) {
         writeJson(res, 400, { error: '尚未生成道藏，请先生成' })
@@ -2464,7 +2625,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       const body = await readJsonBody<BlurbRequest>(req)
       try {
@@ -2501,9 +2662,14 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           return
         }
         // 书架页按书读取：?dir=<输出目录>；省略时用当前激活书目录。
+        // dir 是客户端自报值 → 必须过白名单（只承认书架登记过的目录），否则形如
+        // ?dir=C:/Users/x 的请求会让本服务读出任意目录下的项目文件并 base64 回吐。
         const url = new URL(req.url ?? '/', 'http://localhost')
-        const dirParam = url.searchParams.get('dir')
-        const targetDir = dirParam !== null && dirParam !== '' ? dirParam : config.outputDir
+        const targetDir = resolveRegisteredDir(config, url.searchParams.get('dir'))
+        if (targetDir === undefined) {
+          writeJson(res, 400, { error: 'dir 不是已登记的书籍目录' })
+          return
+        }
         const project = loadProject(targetDir)
         const coverPath = project?.coverPath
         if (coverPath === undefined || coverPath === '') {
@@ -2525,7 +2691,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
       }
       if (req.method === 'POST') {
         if (!guard(req, res, 'POST')) return
-        const project = requireProject(res)
+        const project = requireProjectAt(req, res)
         if (project === undefined) return
         const body = await readJsonBody<CoverRequest>(req)
         try {
@@ -2578,7 +2744,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       const body = await readJsonBody<WorldRequest>(req)
       try {
@@ -2612,7 +2778,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       const body = await readJsonBody<RenameRequest>(req)
       const bookName = body?.bookName?.trim()
@@ -2637,7 +2803,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       const body = await readJsonBody<PlotlinesRequest>(req)
       if (project.plotlines === undefined) project.plotlines = []
@@ -2767,7 +2933,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       const body = await readJsonBody<SensitiveCheckRequest>(req)
       const hits: SensitiveHit[] = []
@@ -2814,7 +2980,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       const body = await readJsonBody<RolesRequest>(req)
       if (project.roles === undefined) project.roles = []
@@ -2854,7 +3020,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       const body = await readJsonBody<{ chapterNo?: number }>(req)
       const no = body?.chapterNo
@@ -2884,7 +3050,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       const body = await readJsonBody<{ chapterNo?: number }>(req)
       const no = body?.chapterNo
@@ -2904,6 +3070,72 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     },
   }
 
+  // ------------------------------------------------------- chapter plan patch
+  /**
+   * 补写本章计划（方案 §7「左侧章节计划」六项）。
+   *
+   * 这些字段原本只有规划步骤会写：AI 排偏了，作者却没有纠正入口，而它们正是生成
+   * 与审稿的锚点（见 engine 的本章义务合约拼装）。上限与规划步骤保持一致 ——
+   * 否则「手动能写 10 条、AI 一重排只剩 4 条」就是静默丢数据；超限必然回写 notices。
+   */
+  const chapterPlanRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.chapterPlan,
+    handler: async (req, res) => {
+      if (!guard(req, res, 'POST')) return
+      const config = getConfig()
+      const project = requireProjectAt(req, res)
+      if (project === undefined) return
+      const body = await readJsonBody<ChapterPlanPatchRequest>(req)
+      const no = body?.chapterNo
+      if (!Number.isInteger(no) || no === undefined || no < 1) {
+        writeJson(res, 400, { error: 'chapterNo 须为正整数' })
+        return
+      }
+      const chapter = project.chapters.find(c => c.no === no)
+      if (chapter === undefined) {
+        writeJson(res, 404, { error: `章节 ${no} 不在计划中` })
+        return
+      }
+      const patch = body?.patch
+      if (patch === null || typeof patch !== 'object') {
+        writeJson(res, 400, { error: 'patch 须为对象' })
+        return
+      }
+      const notices: string[] = []
+      const oneLine = (label: string, raw: unknown, max: number): string | undefined => {
+        if (typeof raw !== 'string') return undefined
+        const value = raw.trim()
+        if (value.length <= max) return value
+        notices.push(`${label}：${value.length} 字已裁到 ${max} 字`)
+        return value.slice(0, max)
+      }
+      const items = (label: string, raw: unknown, max: number): string[] | undefined => {
+        if (!Array.isArray(raw)) return undefined
+        const value = raw.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map(x => x.trim())
+        if (value.length <= max) return value
+        notices.push(`${label}：${value.length} 条只保留前 ${max} 条`)
+        return value.slice(0, max)
+      }
+      const obligation = oneLine('本章目标', patch.obligation, 200)
+      if (obligation !== undefined) chapter.obligation = obligation === '' ? undefined : obligation
+      const mustAdvance = items('本章必达项', patch.mustAdvance, 4)
+      if (mustAdvance !== undefined) chapter.mustAdvance = mustAdvance
+      const mustPreserve = items('必须保持', patch.mustPreserve, 4)
+      if (mustPreserve !== undefined) chapter.mustPreserve = mustPreserve
+      const hardFacts = items('人物硬事实', patch.characterHardFacts, 6)
+      if (hardFacts !== undefined) chapter.characterHardFacts = hardFacts
+      const endingHook = oneLine('结尾钩子', patch.endingHook, 120)
+      if (endingHook !== undefined) chapter.endingHook = endingHook === '' ? undefined : endingHook
+      const beats = oneLine('剧情推进', patch.beats, 2000)
+      if (beats !== undefined) chapter.beats = beats
+      project.updatedAt = new Date().toISOString()
+      saveProject(config.outputDir, project)
+      const response: ChapterPlanPatchResponse = { ok: true, chapter, notices }
+      writeJson(res, 200, response)
+    },
+  }
+
   // ------------------------------------------------------ author review backfill
   /** 作者复盘补跑：对已写章节补齐 authorReview（body.chapterNo=单章 JSON，缺省=全书 NDJSON 流）。 */
   const reviewBackfillRoute: WebRoute = {
@@ -2912,9 +3144,10 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       const body = await readJsonBody<{ chapterNo?: number }>(req)
+      const abort = abortOnClientClose(req, res)
 
       /** 对一章执行作者复盘（读取已落盘正文，不改变章节状态/正文）。 */
       const runOne = async (chapter: ChapterPlan): Promise<AuthorReview> => {
@@ -2927,6 +3160,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
             prevTail = stripChapterHeadings(readChapterFile(config.outputDir, prev) ?? '').slice(-600)
           }
         }
+        if (abort.signal.aborted) throw new Error('客户端已断开连接')
         return authorReviewChapter(ctx, config, project, chapter.no, currentBody, prevTail)
       }
 
@@ -3094,7 +3328,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       res.writeHead(200, {
         'content-type': 'application/x-ndjson; charset=utf-8',
@@ -3105,16 +3339,18 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
       const send = (frame: JobFrame): void => {
         res.write(JSON.stringify(frame) + '\n')
       }
+      const abort = abortOnClientClose(req, res)
       try {
         const outline = await reverseOutlineFromChapters(ctx, config, project, config.outputDir, (done, total, phase) => {
           send({ type: 'outline-progress', done, total, phase })
-        })
+        }, abort.signal)
         // 保存总纲（仅更新文本，不动书名/进度）。
         project.outline = outline
         project.updatedAt = new Date().toISOString()
         saveProject(config.outputDir, project)
         send({ type: 'outline-done', outline, chars: outline.length })
       } catch (error) {
+        if (isAbortError(error)) return
         send({ type: 'error', no: 0, message: (error as Error).message })
       } finally {
         res.end()
@@ -3242,7 +3478,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProject(res)
+      const project = requireProjectAt(req, res)
       if (project === undefined) return
       const body = await readJsonBody<BreakdownRequest>(req)
       try {
@@ -3264,8 +3500,16 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
 
 
   // ----------------------------------------------------------- production run
-  /** 生产单执行器（单例）：计划补足 → 逐章生成 → 被拒分级处理 → 断点续跑。 */
-  const runner = new ProductionRunner({ ctx, getConfig })
+  /**
+   * 生产单执行器：计划补足 → 逐章生成 → 被拒分级处理 → 断点续跑。
+   *
+   * 必须由调用方（index.ts）持有并注入，**不要在这里 new**：
+   * 本工厂每次 `sync()` 都会重建，藏在闭包里的 runner 会被丢掉——
+   * 旧实例的 `loop()` 仍在跑并继续写盘，而新实例 `isWorking()` 恒 false，
+   * 于是 `moveOutputDir` 的「正在生产则拒绝迁移」守卫直接失效。
+   * 测试可省略本项，内部自建一个一次性实例。
+   */
+  const runner = deps.runner ?? new ProductionRunner({ ctx, getConfig })
 
   // --------------------------------------------------------- move-output-dir
   /**
@@ -3590,16 +3834,21 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         'referrer-policy': 'no-referrer',
       })
       const send = (frame: AdaptRewriteFrame): void => { res.write(JSON.stringify(frame) + '\n') }
+      const abort = abortOnClientClose(req, res)
       try {
         const result = await rewriteAdaptationBook(ctx, getConfig(), text, mappings, body?.rules, {
           maxChapters: body?.maxChapters,
           startNo: body?.startNo,
           endNo: body?.endNo,
+          signal: abort.signal,
           onProgress: (info) => send({ type: 'progress', completed: info.completed, total: info.total, no: info.no, title: info.title }),
         })
+        // 中止时 rewriteAdaptationBook 返回部分结果；不再往下发 done 帧。
+        if (abort.signal.aborted) return
         const response: AdaptExecuteResponse = { adaptedText: result.adaptedText, mappings: mappings.length, hits: result.hits, mode: 'rewrite', rewritten: result.rewritten, skipped: result.skipped }
         send({ type: 'done', result: response })
       } catch (err) {
+        if (isAbortError(err)) return
         send({ type: 'error', message: err instanceof Error ? err.message : String(err) })
       } finally {
         res.end()
@@ -3837,6 +4086,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     reviewBackfillRoute,
     chapterResetRoute,
     chapterApproveRoute,
+    chapterPlanRoute,
     configRoute,
     moveOutputDirRoute,
     bookSettingsRoute,

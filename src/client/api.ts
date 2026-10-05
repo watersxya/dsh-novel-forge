@@ -17,6 +17,7 @@ import {
   type RemoveProviderResponse,
   type BibleResponse,
   type ChapterResponse,
+  type ChapterPlanPatchResponse,
   type ConfigPatch,
   type ExportResponse,
   type ForeshadowRequest,
@@ -91,7 +92,7 @@ function withBookIdBody(payload: unknown): unknown {
 
 /** POST JSON, return parsed JSON. 若已绑定当前书，自动把 bookId 注入请求体。 */
 async function postJson<T>(path: string, payload: unknown): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(withBookId(path), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(withBookIdBody(payload)),
@@ -178,6 +179,11 @@ export class NovelApi {
   /** 保存手动编辑的正文（自动备份 .bak；带报告则沿用落盘，否则保存后自动审稿）。 */
   async chapterSave(no: number, text: string, report?: ReviewReport): Promise<import('../protocol.ts').ChapterSaveResponse> {
     return postJson<import('../protocol.ts').ChapterSaveResponse>(NOVEL_API.chapterSave, { chapterNo: no, text, report })
+  }
+
+  /** 补写本章计划（目标 / 必达 / 保持 / 硬事实 / 结尾钩子 / 剧情推进）：只覆盖传入字段。 */
+  async chapterPlan(no: number, patch: import('../protocol.ts').ChapterPlanPatchRequest['patch']): Promise<ChapterPlanPatchResponse> {
+    return postJson<ChapterPlanPatchResponse>(NOVEL_API.chapterPlan, { chapterNo: no, patch })
   }
 
   async patchConfig(patch: ConfigPatch): Promise<{ config: NovelConfig; settingsWarning?: string }> {

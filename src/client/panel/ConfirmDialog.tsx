@@ -25,6 +25,48 @@ import css from './panel.module.css'
 
 export type ConfirmTone = 'danger' | 'warn' | 'info'
 
+/** 弹层共用键盘边界与焦点回归；只有最上层弹窗响应按键。 */
+export function useDialogFocus(open: boolean, onClose: () => void, canClose = true) {
+  const ref = useRef<HTMLElement | null>(null)
+  const closeRef = useRef(onClose)
+  const enabledRef = useRef(canClose)
+  closeRef.current = onClose
+  enabledRef.current = canClose
+  useEffect(() => {
+    if (!open || ref.current === null) return
+    const dialog = ref.current
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const controls = () => Array.from(dialog.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [tabindex]'))
+      .filter(el => el.tabIndex >= 0 && !el.matches(':disabled') && el.getClientRects().length > 0)
+    const focusFirst = () => (controls()[0] ?? dialog).focus()
+    focusFirst()
+    const onKey = (event: KeyboardEvent) => {
+      const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"]'))
+      if (dialogs.at(-1) !== dialog) return
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        if (enabledRef.current) closeRef.current()
+      }
+      if (event.key !== 'Tab') return
+      const items = controls()
+      const first = items[0]
+      const last = items.at(-1)
+      if (!first || !last) { event.preventDefault(); dialog.focus(); return }
+      if (!dialog.contains(document.activeElement) || (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+        event.preventDefault()
+        ;(event.shiftKey ? last : first).focus()
+      }
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => {
+      document.removeEventListener('keydown', onKey, true)
+      if (previous?.isConnected) previous.focus()
+    }
+  }, [open])
+  return ref
+}
+
 export interface ConfirmSpec {
   /** 弹窗标题：一句话说清要做什么。 */
   title: string
@@ -59,22 +101,11 @@ export function ConfirmDialog({ spec, onCancel, onDone }: {
   const [ack, setAck] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const confirmRef = useRef<HTMLButtonElement | null>(null)
+  const dialogRef = useDialogFocus(true, onCancel, !busy)
 
   const phraseOk = spec.requirePhrase === undefined || phrase.trim() === spec.requirePhrase
   const ackOk = spec.requirePhrase !== undefined || tone !== 'danger' || ack
   const canConfirm = !busy && phraseOk && ackOk
-
-  // 打开即聚焦确认钮：键盘用户不必再 Tab 一遍到底。
-  useEffect(() => { confirmRef.current?.focus() }, [])
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && !busy) { e.preventDefault(); onCancel() }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => { window.removeEventListener('keydown', onKey) }
-  }, [onCancel, busy])
 
   const run = async (): Promise<void> => {
     setBusy(true)
@@ -94,7 +125,7 @@ export function ConfirmDialog({ spec, onCancel, onDone }: {
       className={css.confirmOverlay}
       onClick={e => { if (e.target === e.currentTarget && !busy) onCancel() }}
     >
-      <div className={css.confirmCard} role="alertdialog" aria-modal="true" aria-label={spec.title} data-tone={tone}>
+      <div ref={el => { dialogRef.current = el }} tabIndex={-1} className={css.confirmCard} role="alertdialog" aria-modal="true" aria-label={spec.title} data-tone={tone}>
         <div className={css.confirmHead}>
           <span className={css.confirmIcon} data-tone={tone} aria-hidden="true">{TONE_ICON[tone]}</span>
           <span className={css.confirmTitle}>{spec.title}</span>
@@ -150,7 +181,6 @@ export function ConfirmDialog({ spec, onCancel, onDone }: {
             {spec.cancelLabel ?? '取消'}
           </button>
           <button
-            ref={confirmRef}
             type="button"
             className={`${css.button} ${css.confirmGo}`}
             data-tone={tone}

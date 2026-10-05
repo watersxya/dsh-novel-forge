@@ -51,7 +51,7 @@ export default function PromptSlotsView({ api }: PromptSlotsViewProps): JSX.Elem
 
   return (
     <div className={css.card} style={{ gap: 'var(--nf-space-12)' }}>
-      <div className={`css.rowBetween css.rowBetweenWrap`} style={{ gap: 'var(--nf-space-8)' }}>
+      <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`} style={{ gap: 'var(--nf-space-8)' }}>
         <span className={css.cardTitle}>提示词槽位（本书）</span>
         <span className={css.meta}>只追加偏好，不覆盖道藏 / 红线 / 合规</span>
       </div>
@@ -76,7 +76,7 @@ export default function PromptSlotsView({ api }: PromptSlotsViewProps): JSX.Elem
         const over = value.length > slot.maxChars
         return (
           <div key={slot.id} style={{ border: '1px solid var(--nf-border)', borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div className={`css.rowBetween css.rowBetweenBaseline`} style={{ gap: 'var(--nf-space-8)' }}>
+            <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenBaseline}`} style={{ gap: 'var(--nf-space-8)' }}>
               <b style={{ fontSize: 'var(--nf-fs-12)' }}>{slot.label}</b>
               <span className={css.meta} style={{ color: over ? 'var(--nf-error)' : undefined }}>
                 {value.length} / {slot.maxChars}

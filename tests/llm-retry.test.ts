@@ -5,7 +5,7 @@
  * 换模型重试一次通常能过去，但必须排除「用户取消 / 参数错误」这类不该重试的情况。
  */
 import { describe, it, expect } from 'vitest'
-import { isRetryableLlmError, shouldSwitchModel, withModelFallback } from '../src/llm-retry.ts'
+import { isCancellation, isRetryableLlmError, shouldSwitchModel, withModelFallback } from '../src/llm-retry.ts'
 
 describe('isRetryableLlmError', () => {
   it('网络 / 超时 / 限流 / 服务端 / 额度类错误可重试', () => {
@@ -30,6 +30,34 @@ describe('isRetryableLlmError', () => {
       'chapter_text 需要 no',
     ]
     for (const message of cases) expect(isRetryableLlmError(new Error(message)), message).toBe(false)
+  })
+})
+
+describe('isCancellation', () => {
+  it('收尾块 kind：aborted 算取消，error / 正常结束不算', () => {
+    expect(isCancellation('aborted')).toBe(true)
+    expect(isCancellation('error')).toBe(false)
+    expect(isCancellation('stop')).toBe(false)
+  })
+
+  it('AbortError 与插件自造的断开错误都算取消', () => {
+    const abort = new Error('The operation was aborted')
+    abort.name = 'AbortError'
+    expect(isCancellation(abort)).toBe(true)
+    expect(isCancellation(new Error('客户端已断开，生成中止'))).toBe(true)
+    expect(isCancellation(new Error('已取消（aborted）: user cancelled'))).toBe(true)
+  })
+
+  it('真实模型失败不算取消', () => {
+    for (const message of ['请求超时', 'rate limit exceeded (429)', 'LLM 调用失败（error）: socket hang up']) {
+      expect(isCancellation(new Error(message)), message).toBe(false)
+    }
+  })
+
+  it('非异常输入（含 undefined）不算取消', () => {
+    expect(isCancellation(undefined)).toBe(false)
+    expect(isCancellation(null)).toBe(false)
+    expect(isCancellation({})).toBe(false)
   })
 })
 

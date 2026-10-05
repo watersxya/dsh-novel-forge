@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { NOVEL_API, type LlmLiveFrame, type LlmTokenUsage } from '../protocol.ts'
+import { NOVEL_API, type LlmLiveFrame, type LlmLivePhase, type LlmTokenUsage } from '../protocol.ts'
 
 // 帧结构定义在 protocol.ts（宿主与浏览器共用同一份线上形状），此处只再导出。
 export type { LlmLiveFrame }
@@ -13,7 +13,8 @@ export interface LlmLiveSession {
   sessionId: string
   label: string
   model?: string
-  phase: 'requesting' | 'streaming' | 'completed' | 'failed'
+  /** 阶段契约只有一份定义（protocol.ts），面板不再自行枚举。 */
+  phase: LlmLivePhase
   phaseMessage: string
   preview: string
   totalChars: number
@@ -33,7 +34,20 @@ export interface LlmLiveSession {
 
 const MAX_PREVIEW_CHARS = 20_000
 
-function applyFrame(current: Record<string, LlmLiveSession>, frame: LlmLiveFrame): Record<string, LlmLiveSession> {
+/** 是否仍在进行中：cancelled 属于已结束，不能显示为「生成中」。 */
+export function isActivePhase(phase: LlmLivePhase): boolean {
+  return phase === 'requesting' || phase === 'streaming'
+}
+
+/** session_completed 的阶段说明：失败/取消要带原因，正常完成只给结论。 */
+function completionMessage(frame: LlmLiveFrame): string {
+  if (frame.phase === 'failed') return frame.error ?? '调用失败'
+  if (frame.phase === 'cancelled') return frame.error ?? '已取消（作者中断或页面关闭）'
+  return '模型结果已准备完成'
+}
+
+/** SSE 帧 → 会话表（纯函数，导出供单测覆盖 cancelled 结案）。 */
+export function applyFrame(current: Record<string, LlmLiveSession>, frame: LlmLiveFrame): Record<string, LlmLiveSession> {
   const next = { ...current }
   const id = frame.sessionId
   let session = next[id]
@@ -69,7 +83,7 @@ function applyFrame(current: Record<string, LlmLiveSession>, frame: LlmLiveFrame
     session = {
       ...session,
       phase: frame.phase ?? 'completed',
-      phaseMessage: frame.phase === 'failed' ? (frame.error ?? '调用失败') : '模型结果已准备完成',
+      phaseMessage: completionMessage(frame),
       totalChars: frame.totalChars ?? session.totalChars,
       preview: session.preview || (frame.preview ?? ''),
       updatedAt: frame.at,

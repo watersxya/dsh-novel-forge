@@ -10,6 +10,7 @@
 
 import type { BlockAssembler, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type {
+  LlmLiveFinalPhase,
   LlmLiveFrame,
   LlmPromptRecord,
   LlmTokenUsage,
@@ -82,6 +83,8 @@ export function toLiveUsage(usage: TokenUsage | undefined): LlmTokenUsage | unde
 
 /** 记一次已完成的调用（由 emitLive 内部调用）。 */
 function recordUsage(frame: LlmLiveFrame): void {
+  // cancelled 不计入失败：作者关页面 / 取消不是模型的错，计入会让「失败 N 次」
+  // 与备用模型统计一起说谎（与「用户取消不切备用模型」同一口径，见 llm-retry.ts）。
   const failed = frame.phase === 'failed' ? 1 : 0
   const usage = frame.usage
   usageTotals.calls += 1
@@ -225,7 +228,7 @@ export function markFirstToken(handle: LiveCallHandle): void {
 export function endLiveCall(
   handle: LiveCallHandle,
   assembler: BlockAssembler,
-  extra: { chars?: number; preview?: string; phase?: 'completed' | 'failed'; error?: string } = {},
+  extra: { chars?: number; preview?: string; phase?: LlmLiveFinalPhase; error?: string } = {},
 ): void {
   const usage = toLiveUsage(assembler.usage)
   emitLive({

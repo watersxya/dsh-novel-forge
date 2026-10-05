@@ -37,6 +37,25 @@ export function isRetryableLlmError(error: unknown): boolean {
 }
 
 /**
+ * 判断一次失败是「取消」（作者关页面 / 主动中断）还是模型故障。
+ *
+ * 取消有两种现场：适配器给出 `aborted` 收尾块，或抛出 `AbortError` / 本插件自己的
+ * 断开错误。它必须和真实失败分开记账——否则面板「本次运行失败 N 次」会把作者的正常
+ * 中断统计成模型不稳定，进而误导备用模型档位判断（与规则 1「用户取消不重试」同一口径）。
+ *
+ * @param input 收尾块 kind（字符串）或捕获到的异常。
+ * @returns 属于取消时为 true。
+ */
+export function isCancellation(input: unknown): boolean {
+  if (typeof input === 'string') return input === 'aborted'
+  if (input instanceof Error) {
+    if (input.name === 'AbortError') return true
+    return /已取消|用户取消|客户端已断开|\baborted\b/i.test(input.message)
+  }
+  return false
+}
+
+/**
  * 判断是否应当切换到备用模型。
  *
  * @param fallbackModel 配置的备用模型（空串 = 未配置）。

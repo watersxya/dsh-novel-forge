@@ -113,7 +113,7 @@ export default function StyleView({ api }: StyleViewProps): JSX.Element {
 
   return (
     <div className={css.card} style={{ gap: 'var(--nf-space-12)' }}>
-      <div className={`css.rowBetween css.rowBetweenWrap`} style={{ gap: 'var(--nf-space-8)' }}>
+      <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`} style={{ gap: 'var(--nf-space-8)' }}>
         <span className={css.cardTitle}>风格漂移曲线</span>
         <span className={css.meta}>
           {points.length} 章 · 可测 {measured.length} 章 · 偏离 {offChapters.length} 章

@@ -4,7 +4,8 @@
  *  B) txt/md 全本 → 点击选择文件，浏览器读取内容 → 服务器拆章预览 → 确认后导入。
  *  Mode B 也保留「服务器本地路径」高级选项（大文件或服务器端已有文件时用）。
  */
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
+import { useDialogFocus } from './ConfirmDialog.tsx'
 import type { NovelApi } from '../api.ts'
 import type { BookImportTextPreviewResponse } from '../../protocol.ts'
 import { readFileTextSmart } from '../text.ts'
@@ -48,6 +49,7 @@ export function ImportModal({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState<ImportResult | null>(null)
+  const dialogRef = useDialogFocus(true, onClose, !busy)
 
   /** 选择文件 → 读取内容 → 调服务器预览拆章。 */
   const onPickFile = async (file: File | undefined) => {
@@ -119,17 +121,8 @@ export function ImportModal({
 
   const switchMode = (m: ImportMode) => { setMode(m); setError(''); setResult(null); setPreview(null) }
 
-  // Esc 关闭弹窗。
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => { window.removeEventListener('keydown', onKey) }
-  }, [onClose])
-
   return (
-    <div className={css.importModalOverlay} role="dialog" aria-modal="true" aria-label="导入小说" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+    <div ref={el => { dialogRef.current = el }} tabIndex={-1} className={css.importModalOverlay} role="dialog" aria-modal="true" aria-label="导入小说" onClick={e => { if (e.target === e.currentTarget && !busy) onClose() }}>
       <div className={css.importModal}>
         <div className={css.importModalHead}>
           <span className={css.panelTitle} style={{ margin: 0 }}> 导入小说</span>

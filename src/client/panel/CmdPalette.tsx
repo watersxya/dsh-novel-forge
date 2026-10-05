@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import css from './panel.module.css'
+import { useDialogFocus } from './ConfirmDialog.tsx'
 
 export interface CmdAction {
   icon: string
@@ -25,6 +26,7 @@ export function CmdPalette({ open, onClose, actions }: {
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const listRef = useRef<HTMLUListElement | null>(null)
+  const dialogRef = useDialogFocus(open, onClose)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -66,7 +68,7 @@ export function CmdPalette({ open, onClose, actions }: {
       onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}
       onKeyDown={onKeyDown}
     >
-      <div className={css.cmdBox} role="dialog" aria-modal="true" aria-label="命令面板">
+      <div ref={el => { dialogRef.current = el }} tabIndex={-1} className={css.cmdBox} role="dialog" aria-modal="true" aria-label="命令面板">
         <input
           ref={inputRef}
           className={css.cmdInput}

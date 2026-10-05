@@ -2,11 +2,12 @@
  * 写作资产页签：题材基底库 / 推进模式库 / 反 AI 规则 / 写法引擎。
  * 四大资产模块（题材 / 推进模式 / 反 AI 规则 / 叙事风格），注入到生成与审稿提示词中。
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { NovelApi } from '../api.ts'
 import { tt } from './helpers.ts'
 import type { AntiAiRule, AssetsResponse, GenreNode, ProgressionMode, StyleAsset } from '../../protocol.ts'
 import css from './panel.module.css'
+import { SkeletonLines } from './Skeleton.tsx'
 
 /** Props. */
 export interface AssetsTabProps {
@@ -194,17 +195,57 @@ export function AssetsTab({ api, initialTab = 'genre' }: AssetsTabProps) {
   }
 
   if (data === null) {
-    return <div className={css.card}><span className={css.meta}>{tt('common.loading')}</span></div>
+    return <div className={css.card}><SkeletonLines label="正在读取写作资产（题材 / 推进模式 / 反 AI 规则 / 写法资产）…" lines={5} /></div>
   }
 
   const assets = data.projectAssets
+
+  /**
+   * 资产冲突检查（2.1.8 / 方案 §9「每个资产必须清楚显示已绑定、未绑定、有冲突、
+   * 最近修改时间和恢复默认值」）。
+   *
+   * 只做**确定性**判定，不猜语义冲突：
+   *   ① 写法资产指纹风险 = high → 仿写会照搬原作特有表达（生成有暴露来源的风险）；
+   *   ② 同一推进模式同时被设为主推进与辅助推进 → 注入提示词时自相矛盾；
+   *   ③ 反 AI 规则重名 → 同名规则在列表里互相覆盖，作者以为删了其实没删。
+   */
+  const assetConflicts = useMemo(() => {
+    const out: Array<{ key: string; text: string; fix?: () => void }> = []
+    for (const s of assets.styleAssets ?? []) {
+      if (s.fingerprintRisk === 'high') {
+        out.push({
+          key: 'fp-' + s.name,
+          text: '写法资产「' + s.name + '」指纹风险高 —— 仿写可能照搬原作特有表达，建议改绑低风险资产或改用「迁移」预设',
+          fix: () => { void patch({ styleAssets: (assets.styleAssets ?? []).filter(x => x.name !== s.name) }) },
+        })
+      }
+    }
+    const primary = assets.primaryProgression
+    if (primary !== undefined) {
+      for (const aux of assets.auxiliaryProgressions ?? []) {
+        if (aux.name === primary.name) {
+          out.push({
+            key: 'prog-' + aux.name,
+            text: '推进模式「' + aux.name + '」同时是主推进与辅助推进 —— 会被注入两次，建议只留一个',
+            fix: () => { void patch({ auxiliaryProgressions: (assets.auxiliaryProgressions ?? []).filter(x => x.name !== primary.name) }) },
+          })
+        }
+      }
+    }
+    const seen = new Map<string, number>()
+    for (const r of assets.antiAiRules ?? []) seen.set(r.name, (seen.get(r.name) ?? 0) + 1)
+    for (const [name, n] of seen) {
+      if (n > 1) out.push({ key: 'rule-' + name, text: '反 AI 规则「' + name + '」重名 ' + String(n) + ' 次 —— 同名规则会互相覆盖，删掉重复的' })
+    }
+    return out
+  }, [assets, patch])
   const builtinRules = data.antiAiLibrary
   const customRules = assets.antiAiRules ?? []
   const genreLibrary = data.genreLibrary
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-12)', flex: 1, minHeight: 0 }}>
-      <div className={`css.rowBetween css.rowBetweenWrap`}>
+      <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`}>
         <div className={css.titleBlock}>
           <span className={css.eyebrow}>Writing Assets</span>
           <span className={css.cardTitleLg}> 创作资产</span>
@@ -237,10 +278,44 @@ export function AssetsTab({ api, initialTab = 'genre' }: AssetsTabProps) {
             <div>题材：{assets.genre?.name ?? '未设置'}</div>
             <div>主推进：{assets.primaryProgression?.name ?? '未设置'}</div>
             <div>已绑写法：{assets.styleAssets?.length ?? 0} 套</div>
+            <div data-tone={assetConflicts.length > 0 ? 'bad' : undefined}>
+              资产冲突：{assetConflicts.length > 0 ? String(assetConflicts.length) + ' 处' : '无'}
+            </div>
+            <div>最近修改：{assets.updatedAt !== undefined && assets.updatedAt !== '' ? new Date(assets.updatedAt).toLocaleDateString('zh-CN') : '—'}</div>
             <div>文戒：{builtinRules.length} 内置 + {(assets.antiAiRules ?? []).length} 自定义</div>
           </div>
         </aside>
         <div className={css.t2Content}>
+
+      {/* 资产健康（2.1.8 / 方案 §9）：已绑定 / 未绑定 / 冲突 / 最近修改一处说清，冲突可当场解除 */}
+      <div className={css.card}>
+        <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`}>
+          <span className={css.cardTitle}>资产健康</span>
+          <span className={css.meta}>
+            已绑定 {String((assets.styleAssets?.length ?? 0) + (assets.antiAiRules ?? []).length + (assets.primaryProgression !== undefined ? 1 : 0))} 项
+            · 未绑定 {String(Math.max(0, data.styleTemplates.length - (assets.styleAssets?.length ?? 0)))} 套笔法帖
+            · 冲突 {assetConflicts.length} 处
+            · 最近修改 {assets.updatedAt !== undefined && assets.updatedAt !== '' ? new Date(assets.updatedAt).toLocaleString('zh-CN') : '—'}
+          </span>
+        </div>
+        {assetConflicts.length === 0 ? (
+          <span className={css.meta}>没有发现冲突 —— 指纹风险、主/辅推进重复、文戒重名三项检查都通过。</span>
+        ) : (
+          <div className={css.assetConflicts}>
+            {assetConflicts.map(c => (
+              <div key={c.key} className={css.assetConflict}>
+                <span className={css.assetConflictIcon} aria-hidden="true">!</span>
+                <span className={css.assetConflictText}>{c.text}</span>
+                {c.fix !== undefined && (
+                  <button type="button" className={css.assetConflictFix} disabled={busy} onClick={() => { c.fix?.() }}>
+                    解除绑定
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* 题材基底库 */}
       {assetTab === 'genre' && (

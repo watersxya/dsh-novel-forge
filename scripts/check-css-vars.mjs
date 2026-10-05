@@ -54,11 +54,6 @@ function stripComments(src) {
     .replace(/(^|[^:])\/\/[^\n]*/g, (m, p1) => p1 + ' '.repeat(Math.max(0, m.length - p1.length)))
 }
 
-/** 模板字符串里拼接的令牌（如 `var(--nf-space-${gap})`）静态不可判定，跳过。 */
-function isTemplated(name) {
-  return /var\(--nf-[A-Za-z0-9-]*\$\{/.test(`${name} `) || name.endsWith('-')
-}
-
 for (const [f, raw] of sources) {
   const src = stripComments(raw)
   for (const m of src.matchAll(/var\((--nf-[A-Za-z0-9-]+)([^)]*)\)/g)) {

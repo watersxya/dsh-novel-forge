@@ -141,7 +141,7 @@ export default function TensionView({ api, onRevise, busy: outerBusy }: TensionV
 
   return (
     <div className={css.card} style={{ gap: 'var(--nf-space-12)' }}>
-      <div className={`css.rowBetween css.rowBetweenWrap`} style={{ gap: 'var(--nf-space-8)' }}>
+      <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`} style={{ gap: 'var(--nf-space-8)' }}>
         <span className={css.cardTitle}>张力曲线</span>
         <span className={css.meta}>{points.length} 章 · 已评 {stat.rated} 章 · 目标均 {stat.targetAvg} / 实际均 {stat.actualAvg}</span>
       </div>
@@ -208,7 +208,7 @@ export default function TensionView({ api, onRevise, busy: outerBusy }: TensionV
           <div onClick={e => e.stopPropagation()} style={{ background: 'var(--nf-bg)', border: '1px solid var(--nf-border)', borderRadius: 10, width: 'min(420px, 92vw)', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <b style={{ fontSize: 'var(--nf-fs-14)' }}>第 {editing} 章 · 目标张力</b>
             <input type="range" min={0} max={100} value={draft} onChange={e => setDraft(Number(e.target.value))} />
-            <div className={`css.rowBetween`}>
+            <div className={`${css.row} ${css.rowBetween}`}>
               <span className={css.meta}>{draft} / 100（{draft < 40 ? '偏松：铺垫、日常、消化信息' : draft > 80 ? '偏紧：对抗、揭示、抉择、代价' : '中等：推进为主' }）</span>
               <input className={css.input} style={{ width: 72 }} type="number" min={0} max={100} value={draft} onChange={e => setDraft(Math.max(0, Math.min(100, Number(e.target.value))))} />
             </div>

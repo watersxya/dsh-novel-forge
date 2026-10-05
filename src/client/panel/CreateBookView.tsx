@@ -295,7 +295,7 @@ export function CreateBookView({
                         className={css.ideaCandidate}
                         style={isPinned ? { borderColor: 'var(--nf-accent)', boxShadow: '0 0 0 2px var(--nf-accent-soft)' } : undefined}
                       >
-                        <div className={`css.rowBetween css.rowBetweenWrap`} style={{ gap: 'var(--nf-space-6)' }}>
+                        <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`} style={{ gap: 'var(--nf-space-6)' }}>
                           <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--nf-space-8)', flexWrap: 'wrap' }}>
                             <b>《{candidate.bookName}》</b>
                             {candidate.genre !== '' && <span className={css.badge} style={{ borderColor: 'var(--nf-accent)', color: 'var(--nf-accent)' }}>{candidate.genre}</span>}

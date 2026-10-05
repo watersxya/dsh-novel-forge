@@ -17,12 +17,33 @@ import MarketRadarView from './MarketRadarView.tsx'
 import BookAnalysisView from './BookAnalysisView.tsx'
 import IdeaInspirationView from './IdeaInspirationView.tsx'
 import css from './panel.module.css'
+import { useDialogFocus } from './ConfirmDialog.tsx'
 
 /** 构建时注入的插件版本（tsdown define 替换为字符串字面量）。 */
 declare const __NOVEL_FORGE_VERSION__: string | undefined
 const PLUGIN_VERSION: string = typeof __NOVEL_FORGE_VERSION__ !== 'undefined' ? __NOVEL_FORGE_VERSION__ : '0.0.0'
 /** GitHub 仓库地址（关于区块点击跳转）。 */
 const REPO_URL = 'https://github.com/watersxya/dsh-novel-forge'
+
+/**
+ * npm 上的版本是否**比本机这个构建更新**。
+ *
+ * 为什么不能只写 `npmLatest !== PLUGIN_VERSION`：本地构建常跑在 npm 版本之前
+ * （本机 2.1.6 / npm 仍是 2.1.5），只比"不等"会让顶栏挂出「更新到 v2.1.5」——
+ * 一条**降级**提示。预发布后缀（-alpha.1）不参与比较。
+ */
+function isNewerVersion(candidate: string, current: string): boolean {
+  const parse = (v: string): number[] =>
+    v.replace(/^v/, '').split('-')[0].split('.').map(n => Number.parseInt(n, 10) || 0)
+  const a = parse(candidate)
+  const b = parse(current)
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const x = a[i] ?? 0
+    const y = b[i] ?? 0
+    if (x !== y) return x > y
+  }
+  return false
+}
 
 type AuthorNav = 'shelf' | 'adapt' | 'assets' | 'library' | 'marketRadar' | 'bookAnalysis' | 'ideaInspiration';
 type AuthorSubNav = AuthorNav;
@@ -88,6 +109,7 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
   const [nav, setNav] = useState<AuthorNav>('shelf');
   // 设置改为右滑抽屉（与总编台参数抽屉同交互），不再是全屏导航页。
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useDialogFocus(settingsOpen, () => setSettingsOpen(false))
   /** 当前是否深色（墨纸）：显式 dark，或跟随系统且系统为深色。 */
   const darkNow = themeMode === 'dark'
     || (themeMode !== 'light' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -186,10 +208,10 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
     <div className={css.authorHome}>
       <nav className={css.authorTopNav} aria-label="作者级导航">
         <div className={css.navTitle}>
-          <div className={css.navTitleLogo}>书</div>
+          <div className={css.navTitleLogo} aria-hidden="true">书</div>
           <div style={{ minWidth: 0 }}>
             <div className={css.navTitleName}>小说工坊<span className={css.brandEn}> · AI Novel Workbench</span></div>
-            <div className={css.navTitleBook}>一个 AI 智能小说助手 · 作者级 · 跨书</div>
+            <div className={css.navTitleBook}>作者工作台 <span aria-hidden="true">·</span> 跨书创作</div>
           </div>
         </div>
         {/* 顶行右侧：仅留设置（创作/灵感策划/资产已下放书架工具行） */}
@@ -219,7 +241,7 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
             <span>ℹ v{PLUGIN_VERSION}</span>
             <span className={css.meta}>GitHub ↗</span>
           </button>
-          {npmLatest !== null && npmLatest !== PLUGIN_VERSION && (
+          {npmLatest !== null && isNewerVersion(npmLatest, PLUGIN_VERSION) && (
             <button type="button" className={css.navAboutUpdate} title="点击自动更新（下载最新 npm 版，完成后请重启 DSH）" disabled={updating} onClick={() => { void doUpdate() }}>
               {updating ? ' 更新中…' : ` 更新到 v${npmLatest}`}
             </button>
@@ -259,7 +281,7 @@ export function AuthorHome({ api, shelf, onOpenBook, onReadBook, onAddBook, onIm
       {/* 设置右滑抽屉（点遮罩/✕ 回书架） */}
       {settingsOpen && (
         <div className={css.settingsDrawerOverlay} onClick={e => { if (e.target === e.currentTarget) setSettingsOpen(false) }}>
-          <aside className={css.settingsDrawer} role="dialog" aria-modal="true" aria-label="设置">
+          <aside ref={el => { settingsRef.current = el }} tabIndex={-1} className={css.settingsDrawer} role="dialog" aria-modal="true" aria-label="设置">
             <div className={css.settingsDrawerHead}>
               <span className={css.cardTitle}>设置 · 全局</span>
               <button type="button" className={`${css.button} ${css.buttonSmall}`} title="关闭" onClick={() => { setSettingsOpen(false) }}>✕</button>

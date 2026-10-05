@@ -58,7 +58,16 @@ function BookCard({
   return (
     <div
       className={`${css.bookCard} ${active ? css.bookCardActive : ''}`}
+      data-active={active ? '' : undefined}
+      tabIndex={0}
       onClick={onOpen}
+      onKeyDown={e => {
+        if (e.target !== e.currentTarget) return
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpen()
+        }
+      }}
       title={`打开《${book.bookName}》`}
     >
       <div className={css.bookCardCover}>
@@ -73,7 +82,7 @@ function BookCard({
       </div>
       <div className={css.bookCardBody}>
         <div className={css.bookCardTitleRow}>
-          <span className={css.bookCardName}>{book.bookName}</span>
+          <span className={css.bookCardName} title={book.bookName}>{book.bookName}</span>
           <span className={`${css.badge} ${status === 'none' ? css.badgePending : status === 'done' ? css.badgeDone : css.badgeWritten}`}>
             {statusLabel}
           </span>
@@ -187,7 +196,7 @@ export function ShelfView({
       </div>
       <div className={css.subPageBody}>
       <div className={css.shelfToolbar}>
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+        <div className={css.shelfSearchWrap}>
           <Search size={15} style={{ position: 'absolute', left: 10, color: 'var(--nf-text-3)', pointerEvents: 'none' }} />
           <input
             className={`${css.input} ${css.shelfSearch}`}
@@ -195,7 +204,7 @@ export function ShelfView({
             placeholder="搜索书名 / 简介…"
             value={query}
             onChange={e => { setQuery(e.target.value) }}
-            style={{ paddingLeft: 'var(--nf-space-30, 30px)' }}
+            style={{ paddingLeft: 'var(--nf-space-32, 32px)' }}
           />
         </div>
         {toolbarExtra !== undefined && (

@@ -60,6 +60,8 @@ export const NOVEL_API = {
   chapterCheck: '/api/dsh-novel-forge/chapter/check',
   /** 保存手动编辑的正文（自动备份 .bak）。 */
   chapterSave: '/api/dsh-novel-forge/chapter/save',
+  /** 补写本章计划的固定六项（目标 / 必达 / 保持 / 硬事实 / 结尾钩子 / 剧情要点）。 */
+  chapterPlan: '/api/dsh-novel-forge/chapter/plan',
   assistant: '/api/dsh-novel-forge/assistant',
   assistantHistory: '/api/dsh-novel-forge/assistant-history',
   /** 清空助手对话记录。 */
@@ -306,6 +308,8 @@ export interface ChapterPlan {
   error?: string
   /** Output file name once generated (relative to the output dir). */
   file?: string
+  /** 正文写盘时间（文件 mtime，ISO）。**派生字段**：只在 /status 响应里出现，不落 novel-project.json。 */
+  writtenAt?: string
   /** LLM summary of the chapter (narrative memory for later chapters). */
   summary?: string
   /** Latest review report (present once reviewed). */
@@ -835,6 +839,8 @@ export interface Plotline {
   goal: string
   /** 当前进度说明（最近推进到哪）。 */
   progress: string
+  /** 下一目标（这条线接下来要推进到哪；作者填写，缺省表示未设定）。 */
+  nextGoal?: string
   /** 生命周期状态。 */
   status: 'active' | 'paused' | 'resolved' | 'abandoned'
   /** 关联章节号（推进/落地的章节）。 */
@@ -1102,6 +1108,42 @@ export interface ChapterSaveResponse {
   file: string
   /** 落盘的审稿报告（沿用工作区报告或保存后自动审稿）。 */
   report?: ReviewReport
+}
+
+/**
+ * POST /chapter/plan 请求：作者补写本章计划的固定六项。
+ *
+ * 只覆盖**传入**的字段（缺省 = 保持原值），传空串 / 空数组表示清空该项。
+ * 这些字段原本只由规划步骤产出，作者没有入口修——但它们是生成与审稿的锚点，
+ * AI 排偏了就必须能人工纠正，所以开放这一条最小写入路径。
+ */
+export interface ChapterPlanPatchRequest {
+  chapterNo: number
+  patch: {
+    /** 本章目标 / 义务合约（≤200 字）。 */
+    obligation?: string
+    /** 本章必达项（≤4 条）。 */
+    mustAdvance?: string[]
+    /** 本章必须保持、不得破坏的项（≤4 条）。 */
+    mustPreserve?: string[]
+    /** 人物硬事实（≤6 条）。 */
+    characterHardFacts?: string[]
+    /** 结尾钩子要求（≤120 字）。 */
+    endingHook?: string
+    /** 剧情要点（≤2000 字）。 */
+    beats?: string
+  }
+}
+
+/** POST /chapter/plan 响应：回传合并后的章节计划，面板不必再拉一次全量 status。 */
+export interface ChapterPlanPatchResponse {
+  ok: true
+  chapter: ChapterPlan
+  /**
+   * 宿主按上限裁掉了什么（字数 / 条数超限）。本项目的不变量是**截断必须显式**：
+   * 作者写了 6 条必达项只留下 4 条时，不能让他以为 6 条都生效了。
+   */
+  notices?: string[]
 }
 
 /** POST /cover 请求：上传或移除封面。 */
@@ -1475,6 +1517,15 @@ export interface LlmTokenUsage {
   cacheReadTokens?: number
 }
 
+/**
+ * LLM 实况阶段。`cancelled` = 作者关页面 / 主动中断，**不是模型失败**：
+ * 既不计入用量账本的「失败」，也不触发备用模型（口径见 llm-retry.ts）。
+ */
+export type LlmLivePhase = 'requesting' | 'streaming' | 'completed' | 'failed' | 'cancelled'
+
+/** 一次调用结束时的阶段（进行中的两个阶段不会出现在这里）。 */
+export type LlmLiveFinalPhase = Extract<LlmLivePhase, 'completed' | 'failed' | 'cancelled'>
+
 /** LLM 实况帧：宿主 → 浏览器的 SSE 事件（每次调用一组 session_* 事件）。 */
 export interface LlmLiveFrame {
   type: 'session_started' | 'output_delta' | 'reasoning_delta' | 'phase_changed' | 'session_completed'
@@ -1494,8 +1545,8 @@ export interface LlmLiveFrame {
   totalChars?: number
   /** reasoning 累计字符数。 */
   totalReasoningChars?: number
-  /** phase_changed：新阶段。 */
-  phase?: 'requesting' | 'streaming' | 'completed' | 'failed'
+  /** phase_changed / session_completed：阶段。 */
+  phase?: LlmLivePhase
   /** phase_changed：阶段描述。 */
   phaseMessage?: string
   /** session_completed：最终预览（截断）。 */

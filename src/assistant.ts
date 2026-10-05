@@ -38,7 +38,7 @@ import {
 import { rewriteChapterStream, countHanzi } from './engine.ts'
 import { computeBookStage, isGenericContinue, renderStageContract, splitByStage, stageAllows, type BookStage } from './stage-contract.ts'
 import { beginLiveCall, endLiveCall, markFirstToken } from './llm-live.ts'
-import { withModelFallback } from './llm-retry.ts'
+import { isCancellation, withModelFallback } from './llm-retry.ts'
 import { createSnapshot } from './snapshots.ts'
 import { NovelActionError, classifyActionError, FailureLedger } from './action-guard.ts'
 
@@ -794,6 +794,7 @@ async function chatOnce(
   config: NovelConfig,
   system: string,
   history: AssistantMessage[],
+  signal?: AbortSignal,
 ): Promise<string> {
   const messages = historyToMessages(history)
   // 纪律提醒贴在最后一条消息（当前用户输入）末尾：紧邻模型要生成回复的位置，
@@ -825,14 +826,24 @@ async function chatOnce(
     // 实况打点：助手对话同样计入用量账本，并能查看实际发送的 Prompt。
     const live = beginLiveCall({ label: 'AI 编辑对话', model, system, user: messages.map(m => JSON.stringify(m.content)).join(' / ').slice(0, 8000) })
     const assembler = new BlockAssembler()
-    for await (const chunk of ctx.llm.stream(request)) {
-      if (chunk.type === 'text-delta') markFirstToken(live)
-      assembler.push(chunk)
+    try {
+      for await (const chunk of ctx.llm.stream(signal === undefined ? request : { ...request, signal })) {
+        if (chunk.type === 'text-delta') markFirstToken(live)
+        assembler.push(chunk)
+      }
+    } catch (error) {
+      // 作者关页面 / 断开连接不是模型故障：单独结案，不计入失败账本。
+      endLiveCall(live, assembler, {
+        phase: isCancellation(error) || signal?.aborted === true ? 'cancelled' : 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
     }
     const finish = assembler.finish
     if (finish.kind === 'error' || finish.kind === 'aborted') {
-      const message = `助手调用失败（${finish.kind}）: ${finish.failure.message}`
-      endLiveCall(live, assembler, { phase: 'failed', error: message })
+      const cancelled = isCancellation(finish.kind)
+      const message = `${cancelled ? '助手对话已取消' : '助手调用失败'}（${finish.kind}）: ${finish.failure.message}`
+      endLiveCall(live, assembler, { phase: cancelled ? 'cancelled' : 'failed', error: message })
       throw new Error(message)
     }
     const blocks = assembler.blocks()
@@ -862,6 +873,7 @@ export async function* runAssistantTurn(
   project: ProjectState,
   outputDir: string,
   userMessage: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<
   | { frame: 'delta'; text: string }
   | { frame: 'tool'; name: string; status: 'start' | 'done' | 'error'; detail?: string }
@@ -946,7 +958,8 @@ export async function* runAssistantTurn(
   }
   for (;;) {
     if (iterations++ > 20) break
-    const reply = await chatOnce(ctx, config, system, history)
+    if (signal?.aborted === true) throw new Error('客户端已断开连接')
+    const reply = await chatOnce(ctx, config, system, history, signal)
 
     // 异常输出防护：全 hex/二进制乱码（模型偶发把回复编码成十六进制）——丢弃重试一次。
     const hexLike = reply.length > 120 && /^[0-9a-fA-F\s]+$/.test(reply.slice(0, 2000))

@@ -1,7 +1,7 @@
 {
   "name": "@waterwx/dsh-novel-forge",
   "description": "AI 编译纯文本小说工作台 for the dsh web GUI: import a novel outline (docx/text), plan volumes & chapters with LLM, generate chapter by chapter (3000-4000 chars each), auto AI review & book audit, and export the full book as Markdown/TXT into your chosen output folder.",
-  "version": "2.1.5",
+  "version": "2.2.0",
   "type": "module",
   "author": "waterwx",
   "repository": {
@@ -116,6 +116,7 @@
     "check:fallback": "node scripts/check-fallback-tiers.mjs",
     "check:third-party": "node scripts/check-third-party.mjs",
     "check:contrast": "node scripts/audit-contrast.mjs",
+    "check:classes": "node scripts/check-css-classes.mjs",
     "check:third-party:list": "node scripts/check-third-party.mjs --list",
     "release": "node scripts/release.mjs",
     "release:dry": "node scripts/release.mjs --dry-run",

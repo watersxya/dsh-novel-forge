@@ -23,7 +23,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { BlockAssembler, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { beginLiveCall, endLiveCall, markFirstToken } from './llm-live.ts'
-import { shouldSwitchModel } from './llm-retry.ts'
+import { isCancellation, shouldSwitchModel } from './llm-retry.ts'
 // 刻意只依赖零运行时依赖的 model-capability / model-request，而不是 engine.ts——
 // 后者会 import 本模块，形成循环。参数收敛与预算重算本来就属于同一层。
 import { fullTextBudget } from './model-capability.ts'
@@ -34,6 +34,17 @@ import type { NovelConfig } from './protocol.ts'
 export type StreamFrame =
   | { frame: 'start' }
   | { frame: 'delta'; text: string }
+
+/**
+ * 统一的取消错误：与 `DOMException('AbortError')` 同名，便于上层用 `name` 判定。
+ * @param reason 取消原因（signal.reason，或适配器抛出的原始异常）。
+ */
+function abortError(reason?: unknown): Error {
+  if (reason instanceof Error) return reason
+  const err = new Error(typeof reason === 'string' ? reason : '客户端已断开连接')
+  err.name = 'AbortError'
+  return err
+}
 
 /** 执行一次流式调用所需的参数。 */
 export interface StreamWithFallbackOptions {
@@ -51,6 +62,14 @@ export interface StreamWithFallbackOptions {
   maxTokensError: string
   /** 产出文本的最小长度；不足则视为失败。 */
   minChars: number
+  /**
+   * 取消信号。客户端断开时应abort —— 宿主 SDK 约定「implementations must honor
+   * `options.signal`」，不发信号等于让 LLM 调用在后台跑完整章（maxTokens 常20000），
+   * 用户关掉页面也停不下来。
+   *
+   * 中止时本函数抛出 `AbortError`，由调用方决定是静默收尾还是回错误帧。
+   */
+  signal?: AbortSignal
 }
 
 /**
@@ -66,13 +85,18 @@ export interface StreamWithFallbackOptions {
 export async function* streamWithFallback(
   options: StreamWithFallbackOptions,
 ): AsyncGenerator<StreamFrame, string, unknown> {
-  const { ctx, config, request, liveLabel, maxTokensError, minChars } = options
+  const { ctx, config, request, liveLabel, maxTokensError, minChars, signal } = options
   const primaryModel = request.model ?? config.model
   let text = ''
   let lastError: Error | undefined
+  // aborted 会在 await 期间被宿主翻转，所以每次都要重新读取；写成函数是为了
+  // 绕开控制流收窄——循环开头的检查会让 TS 认为后面 signal.aborted 恒为 false。
+  const abortedByCaller = (): boolean => signal?.aborted === true
 
   // 最多两次尝试：主模型 → （未产出任何文字且失败可重试时）备用模型。
   for (let attempt = 0; attempt < 2; attempt++) {
+    // 换模型重试前先看是否已被取消：客户端断开后不该再发第二次请求。
+    if (abortedByCaller()) throw abortError(signal?.reason)
     const model = attempt === 0 ? primaryModel : (config.fallbackModel ?? '').trim()
     if (model === '') break
 
@@ -89,19 +113,34 @@ export async function* streamWithFallback(
     const converged = applyModelCapability(request, model, {
       maxTokensFor: m => fullTextBudget(config, m, primaryModel),
     })
-    for await (const chunk of ctx.llm.stream(converged)) {
-      assembler.push(chunk)
-      if (chunk.type === 'text-delta') {
-        produced += chunk.text.length
-        markFirstToken(live)
-        yield { frame: 'delta', text: chunk.text }
+    // 取消可能是收尾块 aborted（下面判定），也可能是适配器直接抛 AbortError。
+    // 两条现场都要结案，否则面板的实况会话永远停在「生成中」。
+    try {
+      for await (const chunk of ctx.llm.stream(signal === undefined ? converged : { ...converged, signal })) {
+        assembler.push(chunk)
+        if (chunk.type === 'text-delta') {
+          produced += chunk.text.length
+          markFirstToken(live)
+          yield { frame: 'delta', text: chunk.text }
+        }
       }
+    } catch (error) {
+      const aborted = isCancellation(error) || abortedByCaller()
+      endLiveCall(live, assembler, {
+        chars: produced,
+        phase: aborted ? 'cancelled' : 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      })
+      if (aborted) throw abortError(signal?.reason ?? error)
+      throw error
     }
 
     const finish = assembler.finish
     lastError = undefined
     if (finish.kind === 'error' || finish.kind === 'aborted') {
-      lastError = new Error(`${liveLabel}失败（${finish.kind}）: ${finish.failure.message}`)
+      // 取消（作者关页面 / 主动中断）单独措辞：它不是模型故障，不该计入失败账本，
+      // 也不该触发备用模型（与「用户取消不切换」同一口径）。
+      lastError = new Error(`${isCancellation(finish.kind) ? '已取消' : `${liveLabel}失败`}（${finish.kind}）: ${finish.failure.message}`)
     } else if (finish.kind === 'max-tokens') {
       lastError = new Error(maxTokensError)
     }
@@ -113,9 +152,10 @@ export async function* streamWithFallback(
       .join('\n')
       .trim()
 
+    const cancelled = lastError !== undefined && isCancellation(lastError)
     endLiveCall(live, assembler, lastError === undefined
       ? { chars: text.length, preview: text.slice(0, 320), phase: text === '' ? 'failed' : 'completed' }
-      : { chars: text.length, phase: 'failed', error: lastError.message })
+      : { chars: text.length, phase: cancelled ? 'cancelled' : 'failed', error: lastError.message })
 
     if (lastError === undefined) break
     // 只有「一个字都没产出」时才换模型重试——已有正文绝不能重复生成（会重复显示）。

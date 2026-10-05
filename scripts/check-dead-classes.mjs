@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 死类名检查：找出「CSS 里定义了但 TSX 从未引用」的类。
+ * 死类名检查：找出「CSS 里定义了但客户端源码从未引用」的类。
  *
  * 为什么需要：CSS Modules 会把每个类名编译成独立哈希，不引用就不占体积 ——
  * 所以死类名不会报错、不会警告、也不会拖慢构建，它只是安静地躺在那里，
@@ -22,12 +22,24 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const PANEL_DIR = join(process.cwd(), 'src', 'client', 'panel')
-const files = readdirSync(PANEL_DIR)
-  .filter(n => (n.endsWith('.css') || n.endsWith('.tsx')) && !n.includes('.bak'))
-  .map(n => join(PANEL_DIR, n))
+const CLIENT_DIR = join(process.cwd(), 'src', 'client')
+/**
+ * 扫描范围 = 面板目录 + 其上一层的客户端源码。
+ *
+ * 只扫 panel 目录会漏掉**所有命令式建 DOM 的 .ts 文件**：run-status.ts 用
+ * `css.runChip` 造运行状态 chip，toast 之外的入口也一样。曾经因此把三个在用的
+ * 类记成「死 CSS」，照着记录去清理就会直接弄坏功能。所以这里连 .ts 一起扫，
+ * 而不是往白名单里逐个补名字。
+ */
+const SCAN_DIRS = [PANEL_DIR, CLIENT_DIR]
+const files = SCAN_DIRS.flatMap(dir =>
+  readdirSync(dir)
+    .filter(n => (n.endsWith('.css') || n.endsWith('.tsx') || n.endsWith('.ts')) && !n.includes('.bak'))
+    .map(n => join(dir, n)),
+)
 
 const cssFiles = files.filter(f => f.endsWith('.css'))
-const tsxFiles = files.filter(f => f.endsWith('.tsx'))
+const consumerFiles = files.filter(f => !f.endsWith('.css'))
 
 /** 宿主契约类：由外部宿主或 data 属性控制，不在 TSX 里直接引用。 */
 const HOST_CLASSES = new Set(['view', 'panel', 'nfToast'])
@@ -64,17 +76,11 @@ for (const f of files) {
   for (const m of src.matchAll(/data-([\w-]+)(?!=)[^\n]*?[\s{>]/g)) dataTokens.add(m[1].replace(/^nf-/, ''))
 }
 
-/** TSX / TS 里通过 css.xxx 引用的类名 + 模板字符串里的拼接。 */
+/** TSX / TS 里通过 css.xxx 引用的类名（模板字符串里的 `${css.foo}` 同样命中）。 */
 const used = new Set()
-for (const f of tsxFiles) {
+for (const f of consumerFiles) {
   const src = readFileSync(f, 'utf8')
   for (const m of src.matchAll(/\bcss\.([A-Za-z_][\w]*)/g)) used.add(m[1])
-}
-
-/** 其他 CSS 里 @container/@media 内通过组合选择器引用到的 —— 上面已覆盖定义侧，这里补 template literal。 */
-for (const f of tsxFiles) {
-  const src = readFileSync(f, 'utf8')
-  for (const m of src.matchAll(/\$\{css\.([A-Za-z_][\w]*)\}/g)) used.add(m[1])
 }
 
 const dead = [...defined.entries()]
@@ -93,7 +99,7 @@ if (dead.length === 0) {
   process.exit(0)
 }
 
-console.log(`△ ${dead.length} 个类已定义但未被 TSX 直接引用（可能是死代码，也可能是 data 属性驱动 / 组合基类）：\n`)
+console.log(`△ ${dead.length} 个类已定义但未被客户端源码（.tsx / .ts）直接引用（可能是死代码，也可能是 data 属性驱动 / 组合基类）：\n`)
 for (const [name, fs] of dead) {
   console.log(`  .${name.padEnd(26)} ${[...new Set(fs.map(f => f.replace(PANEL_DIR, 'panel')))].join(', ')}`)
 }

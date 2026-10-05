@@ -4,6 +4,7 @@
  * 状态 + 耗时），顶部状态条展示当前在做什么；支持清空对话记录。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import type { NovelApi } from '../api.ts'
 import { tt } from './helpers.ts'
 import { useConfirm } from './ConfirmDialog.tsx'
@@ -264,10 +265,10 @@ export function AssistantTab({ api, stage }: AssistantTabProps) {
 
   return (
     <div className={css.card} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <div className={`css.rowBetween`} style={{ gap: 'var(--nf-space-8)' }}>
+      <div className={`${css.row} ${css.rowBetween}`} style={{ gap: 'var(--nf-space-8)' }}>
         <span className={css.meta}>{tt('assistant.hint')}</span>
         <button type="button" className={css.iconButton} title="清空聊天记录" aria-label="清空聊天记录" onClick={() => { void handleClear() }}>
-          
+          <Trash2 size={13} style={{ verticalAlign: -2 }} aria-hidden="true" />
         </button>
       </div>
       {notice !== '' && <span style={{ color: 'var(--nf-success)', fontSize: 'var(--nf-fs-12)' }}>{notice}</span>}

@@ -14,15 +14,15 @@ import { statusBadgeClass } from './status-badge.ts'
 import { parseEnum, parseIntInRange, parseNumberRecord } from './storage-parse.ts'
 import { usePersistentState } from './usePersistentState.ts'
 import type { PanelController } from './controller.ts'
-import { tt } from './helpers.ts'
+import { moveFocusByArrow, tt } from './helpers.ts'
 import type { NovelKey } from '../locales.ts'
 import { ReasoningSection } from './ReasoningSection.tsx'
 import LiveFeedLog from './LiveFeedLog.tsx'
 import { CmdPalette } from './CmdPalette.tsx'
-import { useConfirm } from './ConfirmDialog.tsx'
+import { useConfirm, useDialogFocus } from './ConfirmDialog.tsx'
 import type { CmdAction } from './CmdPalette.tsx'
 import { showToast } from './toast.ts'
-import { BarChart3, Book, BookMarked, BookOpen, Brain, Factory, FileText, Folder, GitBranch, Library, ListTree, MessageSquare, ScrollText, Search, Settings, Sparkles } from 'lucide-react'
+import { Activity, BarChart3, Book, Bot, BookMarked, BookOpen, Brain, Factory, FileText, Folder, GitBranch, Library, ListTree, ScrollText, Search, Settings, Sparkles } from 'lucide-react'
 import { AssistantTab } from './AssistantTab.tsx'
 import { AssetsTab } from './AssetsTab.tsx'
 import { AuthorHome } from './AuthorHome.tsx'
@@ -31,7 +31,15 @@ import { PageHeader } from './PageHeader.tsx'
 import { Sparkline, describeShape } from './Sparkline.tsx'
 import { ReaderView } from './ReaderView.tsx'
 import { RunPanel } from './RunPanel.tsx'
+import { ReviewIssueCard } from './ReviewIssueCard.tsx'
+import { HomeHero } from './HomeHero.tsx'
+import { AuthorInbox } from './AuthorInbox.tsx'
+import type { InboxItem } from './AuthorInbox.tsx'
+import { CabinetSnapshot } from './CabinetSnapshot.tsx'
+import { SkeletonLines } from './Skeleton.tsx'
 import { CreateBookView } from './CreateBookView.tsx'
+import { NoticeBar } from './NoticeBar.tsx'
+import { ChapterPlanPanel, renderBeats } from './ChapterPlanPanel.tsx'
 import { ImportModal } from './ImportModal.tsx'
 import { WorldTab } from './WorldTab.tsx'
 import DirectorView from './DirectorView.tsx'
@@ -89,6 +97,18 @@ export interface NovelPanelProps {
 }
 
 /** One progress console line. */
+/** 相对时间（最近活动用）：刚刚 / N 分钟前 / N 小时前 / N 天前。 */
+function relTime(ms: number): string {
+  const diff = Date.now() - ms
+  if (!Number.isFinite(diff) || diff < 0) return ''
+  const min = Math.floor(diff / 60000)
+  if (min < 1) return '刚刚'
+  if (min < 60) return String(min) + ' 分钟前'
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return String(hr) + ' 小时前'
+  return String(Math.floor(hr / 24)) + ' 天前'
+}
+
 interface ProgressLine {
   id: number
   text: string
@@ -113,12 +133,21 @@ const CMD_DRAWER_OF: Partial<Record<NovelTab, 'write' | 'setup' | 'assets' | 'pa
   breakdown: 'breakdown',
 }
 
-/** 侧栏导航分组（按创作阶段归类）。 */
-const NAV_GROUPS: ReadonlyArray<{ id: string; label: string; collapsible?: boolean; items: ReadonlyArray<{ id: NovelTab; label: string; icon: ReactElement }> }> = [  {
+/**
+ * 全局信息架构分组（方案 §5）：总编台 / 写作 / 设定 / 工具 四类，按作者真实流程排。
+ *
+ * 两个刻意的设计：
+ *   1. **AI 不与写作、设定并列**。AI 助手 / AI 进度是贯穿所有阶段的能力，
+ *      所以它们是顶栏快捷入口 + 命令面板的两条独立命令，而不是一个叫「AI 协同」的分类
+ *      ——把 AI 单列成业务分类，会让「在哪找到 AI」变成第二个问题。
+ *   2. 这份表**只喂给 ⌘K 命令面板**（左/侧导航的 DOM 早已被顶栏 + 抽屉取代，
+ *      panelNav / navGroup 那套类名现在是死 CSS）。
+ */
+const NAV_GROUPS: ReadonlyArray<{ id: string; label: string; collapsible?: boolean; items: ReadonlyArray<{ id: NovelTab; label: string; icon: ReactElement }> }> = [
+  {
     id: 'dashboard',
-    label: '概览',
+    label: '总编台',
     items: [
-      { id: 'overview', label: tt('tab.overview'), icon: <FileText size={18} /> },
       { id: 'workflow', label: tt('tab.workflow'), icon: <GitBranch size={18} /> },
     ],
   },
@@ -131,37 +160,24 @@ const NAV_GROUPS: ReadonlyArray<{ id: string; label: string; collapsible?: boole
     ],
   },
   {
-    id: 'world',
+    id: 'setup',
     label: '设定',
     items: [
+      { id: 'overview', label: tt('tab.overview'), icon: <FileText size={18} /> },
       { id: 'book', label: '本书设定', icon: <Library size={18} /> },
-      { id: 'knowledge', label: '知识库', icon: <BookOpen size={18} /> },
+      { id: 'plotlines', label: '长线管理', icon: <ScrollText size={18} /> },
     ],
   },
   {
-    id: 'assets',
-    label: '资产',
-    items: [
-      { id: 'blurb', label: '简介 / 封面', icon: <Book size={18} /> },
-      { id: 'assets', label: '创作资产', icon: <Folder size={18} /> },
-    ],
-  },
-  {
-    id: 'ai',
-    label: 'AI 协同',
-    items: [
-      { id: 'assistant', label: tt('tab.assistant'), icon: <MessageSquare size={18} /> },
-      { id: 'progress', label: 'AI 进度', icon: <BarChart3 size={18} /> },
-    ],
-  },
-  {
-    id: 'analyze',
-    label: '分析',
+    id: 'tools',
+    label: '工具',
     collapsible: true,
     items: [
-      { id: 'plotlines', label: '长线管理', icon: <ScrollText size={18} /> },
+      { id: 'knowledge', label: '知识库', icon: <BookOpen size={18} /> },
       { id: 'breakdown', label: '拆书分析', icon: <Search size={18} /> },
       { id: 'director', label: '自动编辑', icon: <Brain size={18} /> },
+      { id: 'assets', label: '创作资产', icon: <Folder size={18} /> },
+      { id: 'blurb', label: '简介 / 封面', icon: <Book size={18} /> },
     ],
   },
 ]
@@ -170,16 +186,15 @@ const NAV_GROUPS: ReadonlyArray<{ id: string; label: string; collapsible?: boole
 const SETTINGS_TAB: { id: NovelTab; label: string; icon: ReactElement } = { id: 'settings', label: tt('tab.settings'), icon: <Settings size={18} /> }
 
 /**
- * 工作台顶栏导航项（组件内构造，因为 go / badge 依赖当前状态）。
+ * 顶栏导航与抽屉标题的图标语汇。
  *
  * 修订（设计专属性）：此前顶栏用 5 个 Unicode 字形（▣ ✎ ❖ ▦ ⚙），
- * 而 NAV_GROUPS 里已经躺着 13 个 lucide 图标 + 6 个「按创作阶段归类」的分组 ——
+ * 而 NAV_GROUPS 里已经躺着 lucide 图标 + 按创作阶段归类的分组 ——
  * 一套被设计好、写过、注释里解释清楚的东西从未被渲染，被临时字形替掉了。
- * 现在统一到 lucide 图标语汇，并按 NAV_GROUPS 的阶段语义重排：
+ * 现在统一到 lucide 图标语汇。
  *
- *   构思 → 总纲 → 设定 → 写作 → 分析
- *
- * 顺序不再按「功能」（写作/设定/资产），而是按作者真实的推进顺序；
+ * 归类与排序按方案 §5 的四类：**总编台 → 写作（含生产单）→ 设定 → 工具**，
+ * AI 助手 / AI 进度是横切能力（顶栏右侧快捷入口），不作为并列的业务分类。
  * `title` 说明每个入口到底做什么（原来只有 3 个字，看不出边界）。
  */
 /** 抽屉标题元数据：图标 + 文案。原先用 Unicode 字形（✎❖▦⚙⌘⚲…），
@@ -188,6 +203,7 @@ const DRAWER_META: Record<string, { icon: ReactNode; label: string }> = {
   write: { icon: <BookMarked size={14} />, label: '写作 · 章节索引' },
   setup: { icon: <BookOpen size={14} />, label: '设定 · 道藏' },
   assets: { icon: <Folder size={14} />, label: '资产 · 创作素材库' },
+  cabinet: { icon: <Library size={14} />, label: '资料侧柜 · 本书此刻' },
   params: { icon: <Settings size={14} />, label: '写作参数 · 设置' },
   overview: { icon: <FileText size={14} />, label: '总纲 / 大纲' },
   blurb: { icon: <Book size={14} />, label: '简介 / 封面' },
@@ -335,27 +351,7 @@ function paragraphDiff(oldText: string, newText: string): DiffRow[] {
   return merged
 }
 
-/** 把章节 beats 按结构标签渲染（本章目标/剧情要点/爽点/结尾钩子 等）。 */
-function renderBeats(beats: string): ReactElement {
-  const lines = beats.split('\n')
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-2)' }}>
-      {lines.map((line, i) => {
-        const trimmed = line.trim()
-        const match = /^([^：:]{2,14})[：:]/.exec(trimmed)
-        if (match !== null) {
-          return (
-            <div key={i}>
-              <b style={{ color: 'var(--nf-accent)' }}>{match[1]}</b>
-              {trimmed.slice(match[0].length)}
-            </div>
-          )
-        }
-        return <div key={i}>{line}</div>
-      })}
-    </div>
-  )
-}
+/** 把章节 beats 按结构标签渲染的实现见 ChapterPlanPanel.renderBeats（左栏与计划抽屉共用）。 */
 
 /** The diff list of a draft-vs-original comparison (scrollable). */
 function DiffList({ original, draft, fontSize }: { original: string; draft: string; fontSize?: number }): ReactElement {  const rows = useMemo(() => paragraphDiff(original, draft), [original, draft])
@@ -431,6 +427,7 @@ type ChapterSideTab = 'diff' | 'review' | 'author' | 'versions'
 /** 章节工作台（独立全页）需要的全部输入；所有数据来自真实 project.chapters。 */
 interface ChapterWorkbenchProps {
   chapter: ChapterPlan
+  bookKey: string
   /** 已加载的正文 markdown；'' 表示未加载 / 尚未生成。 */
   text: string
   /** 润色 / 修订草稿；存在时「对比」页可做逐段 diff。 */
@@ -460,17 +457,27 @@ interface ChapterWorkbenchProps {
   snapshots: ChapterSnapshot[]
   onRestoreSnapshot: (id: string) => void
   onCreateSnapshot: () => void
+  /** 左栏「本章计划」：剧情线用于关联项，api + onPlanSaved 提供就地补写通道。 */
+  plotlines: Plotline[]
+  api: NovelApi
+  onPlanSaved: (chapter: ChapterPlan) => void
+  /** 截断声明汇入外层进度台。 */
+  onNotice: (message: string) => void
+  onLinkLines: () => void
+  /** 失败态的出路之一：打开「AI 进度」浮窗看这一章的运行详情（Prompt / 耗时 / 原始错误）。 */
+  onOpenRunLog: () => void
 }
 
 /**
  * 章节工作台：**独立全页**（不塞进抽屉或主从布局，内容太重）。
- * 三栏并发 —— 左：本章节拍；中：正文；右：对比 / 审稿 / 复盘。
+ * 三栏并发 —— 左：本章计划（六项固定分组，见 ChapterPlanPanel）；中：正文；右：对比 / 审稿 / 复盘 / 历史。
  */
 function ChapterWorkbench({
-  chapter, text, draft, fontSize, busy, busyAny,
+  chapter, bookKey, text, draft, fontSize, busy, busyAny,
   onBack, onWrite, onReview, onApprove, onEdit, onRevisePicked, onReset, onRegenerate, onBackfillAuthor,
   tab, onTabChange, draftReport, onApplyDraft, onDiscardDraft, onCheckDraft,
   snapshots, onRestoreSnapshot, onCreateSnapshot,
+  plotlines, api, onPlanSaved, onNotice, onLinkLines, onOpenRunLog,
 }: ChapterWorkbenchProps): ReactElement {
   const badge = statusBadge(chapter)
   const review: ReviewReport | undefined = chapter.review
@@ -484,7 +491,42 @@ function ChapterWorkbench({
   const canRevise = disposable && review !== undefined && review.issues.length > 0
   /** 作者勾选「要修哪几条意见」；默认勾 high，无 high 则勾 medium（与工作区一致）。 */
   const [picked, setPicked] = useState<number[]>([])
-  const issueSig = review === undefined ? '' : `${review.score}/${review.issues.length}`
+  /** 专注阅读模式（2.1.6 / 方案 §7）：隐藏左右辅助栏，正文居中锁阅读列宽。 */
+  const [focus, setFocus] = useState(false)
+  /** 审稿页签的严重度过滤：false = 全部，true = 仅高优。 */
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'high' | 'unhandled'>('all')
+  const issueKey = (issue: ReviewReport['issues'][number]): string => JSON.stringify([review?.reviewedAt, issue])
+  const [handledIssues, setHandledIssues] = usePersistentState<Record<string, boolean>>({
+    key: `dsh-novel-forge.review-handled.${bookKey}.${chapter.no}`,
+    parse: raw => {
+      try {
+        const value: unknown = JSON.parse(raw)
+        if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+        const result: Record<string, boolean> = {}
+        for (const [key, state] of Object.entries(value)) if (typeof state === 'boolean') result[key] = state
+        return result
+      } catch { return undefined }
+    },
+    serialize: value => JSON.stringify(value),
+    fallback: {},
+  })
+  /**
+   * 专注阅读下 Esc **先退出专注**，而不是直接关掉整个工作台。
+   *
+   * 用捕获阶段 + stopPropagation：外层的「Esc 关闭工作台」监听在 window 冒泡阶段，
+   * 捕获先跑并掐断传播，作者按一次 Esc 只退一层 —— 与浮层「由最上层响应」的约定一致。
+   */
+  useEffect(() => {
+    if (!focus) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      setFocus(false)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => { window.removeEventListener('keydown', onKey, true) }
+  }, [focus])
+  const issueSig = review === undefined ? '' : `${review.score}/${review.issues.length}/${review.issues.map(issueKey).join('\u0001')}`
   useEffect(() => {
     if (review === undefined) { setPicked([]); return }
     const high = review.issues.map((it, i) => ({ it, i })).filter(x => x.it.severity === 'high').map(x => x.i)
@@ -511,9 +553,9 @@ function ChapterWorkbench({
           className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`}
           disabled={busy || busyAny || picked.length === 0}
           onClick={() => { onRevisePicked(r.issues.filter((_, i) => picked.includes(i))) }}
-          title={`按上方勾选的 ${picked.length} 条意见整章修订；产出草稿后自动附带一次 AI 审查（最多取前 5 条）`}
+          title={`修订上方勾选的 ${picked.length} 条意见（整章重写，产出草稿后自动附带一次 AI 审查；最多取前 5 条）`}
         >
-          按意见修订（{picked.length}）
+          修订已选 {picked.length} 条
         </button>
       )
     }
@@ -583,18 +625,38 @@ function ChapterWorkbench({
     )
   }
   return (
-    <div className={css.chWork}>
-      <div className={css.chWorkBar}>
-        <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={onBack} title="返回上一页（Esc）">
-          ← 返回
-        </button>
-        <span className={css.chWorkTitle}>第 {chapter.no} 章 · {chapter.title}</span>
-        <span className={`${css.badge} ${badge.cls}`}>{badge.label}</span>
-        <span className={css.meta}>
-          {chapter.chars !== undefined ? `${chapter.chars} 字` : '未生成'}
-          {chapter.volume > 0 ? ` · 第 ${chapter.volume} 卷` : ''}
-        </span>
-        <div className={css.chWorkActions}>
+    <div className={`${css.chWork} ${css.chWorkSurface}`}>
+      {/* 2.1.6 顶栏两行化：第一行「在哪一章」，第二行「什么状态 / 能做什么」。 */}
+      <div className={css.chWorkBarStack}>
+        <div className={css.chWorkBarRow}>
+          <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={onBack} title="返回上一页（Esc）">
+            ← 返回
+          </button>
+          <span className={css.chWorkTitle}>第 {chapter.no} 章 · {chapter.title}</span>
+          {chapter.volume > 0 && <span className={css.meta}>第 {chapter.volume} 卷</span>}
+          {/*
+            专注阅读按钮**贴标题放**，不用 margin-left:auto 推到最右：
+            面板右上角常驻着悬浮的「生产状态芯片」（runChip），它是 fixed 定位、
+            z 序在上面 —— 放最右会被完全盖住（实测 elementFromPoint 命中的是芯片）。
+          */}
+          <button
+            type="button"
+            className={`${css.button} ${css.buttonSmall}${focus ? ` ${css.buttonPrimary}` : ''}`}
+            aria-pressed={focus}
+            onClick={() => { setFocus(v => !v) }}
+            title="专注阅读：隐藏左右辅助栏，正文居中锁到阅读列宽（Esc 退出）"
+          >
+            {focus ? '退出专注' : '专注阅读'}
+          </button>
+        </div>
+        {/* 状态行是本章结论所在：做成 live region，读屏用户不必重新 Tab 一遍
+            也能听到「生成中 → 已生成，等待审稿」这类变化（方案 §12）。 */}
+        <div className={css.chWorkBarRow} role="status" aria-live="polite">
+          <span className={`${css.badge} ${badge.cls}`}>{badge.label}</span>
+          <span className={css.meta}>
+            {chapter.chars !== undefined ? `${chapter.chars} 字` : '未生成'}
+          </span>
+          <div className={css.chWorkActions}>
           {(chapter.status === 'pending' || chapter.status === 'error') && (
             <button type="button" className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`} disabled={busy || busyAny} onClick={onWrite}>
               生成正文
@@ -611,20 +673,51 @@ function ChapterWorkbench({
             </button>
           )}
         </div>
+        </div>
       </div>
 
-      <div className={css.chWorkGrid}>
-        <aside className={css.chWorkAside}>
-          <div className={css.chWorkAsideTitle}>本章节拍</div>
+      {/*
+        失败态给三条出路（方案 §8：发生了什么 / 可能原因 / 你可以），
+        不让作者停在一个红色徽章前面不知道下一步。
+      */}
+      {chapter.status === 'error' && (
+        <NoticeBar
+          kind="error"
+          detail={
+            <>
+              可能原因：模型响应超时、网络或额度中断、输出目录不可写。
+              {chapter.error !== undefined && chapter.error !== '' && <> 原始错误：{chapter.error}</>}
+            </>
+          }
+          onRetry={onWrite}
+          retryLabel="重试本章"
+          actions={
+            <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={onOpenRunLog}>
+              查看运行详情
+            </button>
+          }
+        >
+          第 {chapter.no} 章生成未完成，正文尚未写回。
+        </NoticeBar>
+      )}
+
+      <div className={`${css.chWorkGrid}${focus ? ` ${css.chWorkGridFocus}` : ''}`}>
+        <aside className={`${css.chWorkAside} ${css.chWorkAsideSurface}`}>
+          <div className={css.chWorkAsideTitle}>本章计划</div>
           <div className={css.chWorkAsideBody}>
-            <div className={css.meta}>{renderBeats(chapter.beats)}</div>
-            {chapter.summary !== undefined && chapter.summary !== '' && (
-              <div className={css.meta}><b>摘要：</b>{chapter.summary}</div>
-            )}
+            <ChapterPlanPanel
+              chapter={chapter}
+              plotlines={plotlines}
+              api={api}
+              busy={busy}
+              onSaved={onPlanSaved}
+              onNotice={onNotice}
+              onLinkLines={onLinkLines}
+            />
           </div>
         </aside>
 
-        <main className={css.chWorkMain}>
+        <main className={`${css.chWorkMain} ${css.chWorkMainSurface}${focus ? ` ${css.chWorkMainFocus}` : ''}`}>
           <div className={css.chWorkToolbar}>
             <span className={css.meta}>正文 · {text === '' ? (notWritten ? '尚未生成' : '加载中') : `${text.length} 字`}</span>
             <span className={css.chWorkToolActions}>
@@ -640,17 +733,27 @@ function ChapterWorkbench({
               )}
             </span>
           </div>
-          <pre className={css.chWorkText} style={{ fontSize }}>
-            {text === '' ? (notWritten ? '（本章尚未生成正文）' : '（加载中…）') : text}
-          </pre>
+          {!notWritten && text === '' ? (
+            /* 2.1.6：加载态说清「在等什么」，并用骨架占位代替裸的「（加载中…）」。 */
+            <div className={css.chWorkSkeleton} aria-busy="true" aria-live="polite">
+              <span className={css.meta}>正在读取第 {chapter.no} 章正文…</span>
+              {[92, 100, 86, 95, 72, 88].map((w, i) => (
+                <span key={i} className={css.skeletonLine} style={{ width: `${w}%` }} />
+              ))}
+            </div>
+          ) : (
+            <pre className={css.chWorkText} style={{ fontSize }}>
+              {text === '' ? '（本章尚未生成正文）' : text}
+            </pre>
+          )}
         </main>
 
-        <aside className={css.chWorkSide}>
+        <aside className={`${css.chWorkSide} ${css.chWorkSideSurface}`}>
           <div className={css.chWorkSideHead}>
             <SlideNav
               ariaLabel="章节工作台"
               items={[
-                { id: 'review', label: '审稿' },
+                { id: 'review', label: review !== undefined && review.issues.length > 0 ? `审稿 · ${review.issues.length}` : '审稿' },
                 { id: 'diff', label: hasDraft ? '对比 · 草稿' : '对比' },
                 { id: 'author', label: '复盘' },
                 { id: 'versions', label: snapshots.length > 0 ? `历史版本 · ${snapshots.length}` : '历史版本' },
@@ -662,7 +765,7 @@ function ChapterWorkbench({
           <div className={css.chWorkSideBody}>
             {tab === 'versions' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-8)' }}>
-                <div className={`css.rowBetween`}>
+                <div className={`${css.row} ${css.rowBetween}`}>
                   <span className={css.meta}>覆盖写入前会自动留存；回滚也可再撤销。</span>
                   <button type="button" className={css.button} onClick={onCreateSnapshot}>存档当前正文</button>
                 </div>
@@ -689,7 +792,7 @@ function ChapterWorkbench({
             {tab === 'diff' && (hasDraft ? (
               <>
                 <div className={css.chWorkDraftBar}>
-                  <div className={`css.rowBetween`}>
+                  <div className={`${css.row} ${css.rowBetween}`}>
                     <b>草稿待处置</b>
                     <span className={css.meta}>
                       字数 {text.length} → {draft?.length ?? 0}
@@ -719,7 +822,7 @@ function ChapterWorkbench({
 
             {tab === 'review' && (review !== undefined ? (
               <div className={css.reviewBox}>
-                <div className={`css.rowBetween`}>
+                <div className={`${css.row} ${css.rowBetween}`}>
                   <b>审稿报告</b>
                   <span style={{ color: review.passed ? 'var(--nf-success)' : 'var(--nf-error)' }}>
                     评分 {review.score} — {review.passed ? '通过' : '未通过'}
@@ -735,11 +838,24 @@ function ChapterWorkbench({
                     {(review.aiPhrases ?? []).length > 0 && ` · 套话：` + (review.aiPhrases ?? []).map(p => `${p.word}×${p.count}`).join('、')}
                   </div>
                 )}
-                {review.issues.length > 0 && (
+                 {review.issues.length > 0 && (
                   <>
+                    {/* 2.1.6 意见卡片化 + 严重度过滤：问题与建议分两层，勾选框固定在最左。 */}
                     <div className={css.chWorkPickBar}>
-                      <span className={css.meta}>勾选要修的意见（{picked.length}/{review.issues.length}）</span>
+                      <span className={css.meta}>
+                        勾选要修的意见（{picked.length}/{review.issues.length}
+                         {reviewFilter === 'high' ? ` · 仅显示高优 ${review.issues.filter(x => x.severity === 'high').length} 条` : reviewFilter === 'unhandled' ? ` · 仅显示未处理 ${review.issues.filter(x => !handledIssues[issueKey(x)]).length} 条` : ''}）· ↑↓ 逐条移动，空格勾选
+                      </span>
                       <span className={css.chWorkPickBtns}>
+                         <button type="button" className={`${css.button} ${css.buttonSmall}${reviewFilter === 'all' ? ` ${css.buttonPrimary}` : ''}`} aria-pressed={reviewFilter === 'all'} onClick={() => { setReviewFilter('all') }} title="显示全部意见">
+                           全部
+                         </button>
+                         <button type="button" className={`${css.button} ${css.buttonSmall}${reviewFilter === 'high' ? ` ${css.buttonPrimary}` : ''}`} aria-pressed={reviewFilter === 'high'} onClick={() => { setReviewFilter('high') }} title="只看高优问题">
+                           仅高优
+                         </button>
+                         <button type="button" className={`${css.button} ${css.buttonSmall}${reviewFilter === 'unhandled' ? ` ${css.buttonPrimary}` : ''}`} aria-pressed={reviewFilter === 'unhandled'} onClick={() => { setReviewFilter('unhandled') }} title="只看尚未标记处理的问题">
+                           仅未处理
+                         </button>
                         <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setPicked(review.issues.map((_, i) => i)) }} title="勾选全部意见">
                           全选
                         </button>
@@ -751,23 +867,24 @@ function ChapterWorkbench({
                         </button>
                       </span>
                     </div>
-                    <ul style={{ margin: 0, paddingLeft: 'var(--nf-space-16)', display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', fontSize: 'var(--nf-fs-12)' }}>
-                      {review.issues.map((issue, i) => (
-                        <li key={i} style={{ color: severityColor(issue.severity), display: 'flex', gap: 'var(--nf-space-6)', alignItems: 'flex-start' }}>
-                          <input
-                            type="checkbox"
-                            style={{ marginTop: 'var(--nf-space-2)' }}
-                            checked={picked.includes(i)}
-                            onChange={e => { setPicked(prev => e.target.checked ? [...prev, i] : prev.filter(x => x !== i)) }}
-                            title="勾选后由底部「按意见修订」一起修订"
-                          />
-                          <span>
-                            [{issue.severity}{issue.dimension !== undefined ? ` · ${REVIEW_DIM_ZH[issue.dimension] ?? issue.dimension}` : ''}] {issue.item}
-                            {issue.suggestion !== '' && <span style={{ color: 'var(--nf-text-2)' }}> → {issue.suggestion}</span>}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
+                    <div className={css.reviewIssues} onKeyDown={e => { moveFocusByArrow(e, 'input[type="checkbox"]') }}>
+                      {review.issues
+                        .map((issue, i) => ({ issue, i }))
+                         .filter(x => reviewFilter === 'all' || (reviewFilter === 'high' ? x.issue.severity === 'high' : !handledIssues[issueKey(x.issue)]))
+                         .map(({ issue, i }) => (
+                           <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-4)' }}>
+                             <ReviewIssueCard
+                               issue={issue}
+                               dimensionLabel={issue.dimension !== undefined ? (REVIEW_DIM_ZH[issue.dimension] ?? issue.dimension) : undefined}
+                               checked={picked.includes(i)}
+                               onToggle={next => { setPicked(prev => next ? [...prev, i] : prev.filter(x => x !== i)) }}
+                             />
+                             <button type="button" className={`${css.button} ${css.buttonSmall}`} aria-pressed={handledIssues[issueKey(issue)] === true} onClick={() => { setHandledIssues(prev => ({ ...prev, [issueKey(issue)]: !prev[issueKey(issue)] })) }} title="记录作者已处理状态，不会自动修改正文">
+                               {handledIssues[issueKey(issue)] === true ? '已处理' : '标记已处理'}
+                             </button>
+                           </div>
+                         ))}
+                    </div>
                   </>
                 )}
               </div>
@@ -781,7 +898,7 @@ function ChapterWorkbench({
 
             {tab === 'author' && (author !== undefined ? (
               <div className={css.reviewBox} style={{ borderColor: 'color-mix(in srgb, var(--nf-info) 45%, transparent)' }}>
-                <div className={`css.rowBetween`}>
+                <div className={`${css.row} ${css.rowBetween}`}>
                   <b>作者复盘</b>
                   <span style={{ color: author.hookHonored ? 'var(--nf-success)' : 'var(--nf-warn)' }}>
                     钩子{author.hookHonored ? '已兑现 ✓' : '未兑现 ✗'} · 结尾钩子 {author.endingHook}/10
@@ -910,6 +1027,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     original: string
     instruction: string
     draft: string | null
+    /** 打开工作区时的正文基线（用于判断"有未保存修改"，见 closeWorkspace）。 */
+    baseline: string
     /** 已采纳草稿（原地结论态）：显示已采纳横幅 + 自动审稿结果，返回时才关闭工作区。 */
     applied?: boolean
   } | null>(null)
@@ -973,12 +1092,10 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const [auditStatus, setAuditStatus] = useState<AuditStatus | null>(null)
   /** 宿主算出的创作阶段（/status.stage）：面板角标与「等待中」提示的唯一来源。 */
   const [stage, setStage] = useState<StageInfo | null>(null)
-  /** 总编台首页「资料侧柜」是否展开（默认收起：资产/剧情/复盘/质检/待办折叠为一条抽屉拉手）。 */
-  const [showSideCabinet, setShowSideCabinet] = useState(true)
   /** 全书质检开始 / 出错 / 出结果时自动展开资料侧柜，避免结果埋在折叠区。 */
   useEffect(() => {
     if (auditStatus?.status === 'running' || auditStatus?.status === 'error' || auditIssues !== null) {
-      setShowSideCabinet(true)
+      setRightDrawer(prev => (prev === null || prev === 'cabinet' ? 'cabinet' : prev))
     }
   }, [auditStatus?.status, auditIssues])
   /** 角色卡（从事实库聚合）。 */
@@ -1006,8 +1123,12 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     kind: Plotline['kind']
     goal: string
     progress: string
+    nextGoal: string
     status: Plotline['status']
   } | null>(null)
+  /** 章节索引分段渲染窗口（2.1.9 / 方案 §15）：一次渲染几百行会拖慢抽屉打开。 */
+  const [indexLimit, setIndexLimit] = useState(80)
+
   /** 长线管理页：子页签（剧情线 / 伏笔），localStorage 记忆。 */
   const [longlineTab, setLonglineTab] = usePersistentState<'plotlines' | 'foreshadow'>({
     key: 'dsh-novel-forge.longline.tab',
@@ -1087,7 +1208,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   /** AI 助手悬浮窗：是否打开。 */
   const [assistantOpen, setAssistantOpen] = useState(false)
   /** 顶部导航右滑抽屉：写作/设定/资产/参数/工具页 = 内容抽屉。null = 常驻总编台。资料侧柜走总编台内嵌格，不再有独立滑出层。 */
-  const [rightDrawer, setRightDrawer] = useState<'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown' | 'timeline' | 'tension' | 'style' | 'promptSlots' | null>(null)
+  const [rightDrawer, setRightDrawer] = useState<'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown' | 'timeline' | 'tension' | 'style' | 'promptSlots' | 'cabinet' | null>(null)
   /** 打开参数抽屉或切换激活书时，重新加载本书参数。 */
   useEffect(() => {
     if (rightDrawer !== 'params') return
@@ -1181,9 +1302,11 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const [drawerMax, setDrawerMax] = useState(false)
 
   /** 打开内容抽屉：只滑出抽屉层，不切 activeTab —— 底座总编台保持常驻可见（对齐 demo）。 */
-  const openDrawer = (which: 'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown' | 'timeline' | 'tension' | 'style' | 'promptSlots'): void => {
+  const openDrawer = (which: 'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown' | 'timeline' | 'tension' | 'style' | 'promptSlots' | 'cabinet'): void => {
     setRightDrawer(which)
     setDrawerMax(false)
+    // 章节索引的分段窗口每次重开都回到首屏（2.1.9 / 方案 §15）。
+    setIndexLimit(80)
   }
 
 
@@ -1193,8 +1316,32 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     setDrawerMax(false)
     setActiveTab('workflow')
   }
+  const drawerFocusRef = useDialogFocus(rightDrawer !== null, closeDrawer)
   /** AI进度悬浮窗：是否打开。 */
   const [progressOpen, setProgressOpen] = useState(false)
+  /** 工具菜单：将生产、分析与辅助能力收编到一个一级入口，避免顶栏重复堆叠。 */
+  const [toolsOpen, setToolsOpen] = useState(false)
+  /**
+   * 工具菜单的收起：点菜单外任何一处、或按 Esc 都关掉。
+   * 此前只有点菜单项才关 —— 开着它去点顶栏别的入口，菜单会一直悬在内容上方。
+   */
+  const toolsMenuRef = useRef<HTMLSpanElement | null>(null)
+  useEffect(() => {
+    if (!toolsOpen) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const menu = toolsMenuRef.current
+      if (menu !== null && !(event.target instanceof Node && menu.contains(event.target))) setToolsOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setToolsOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [toolsOpen])
   /** 浮动窗层级管理：点击标题栏把对应窗提到最前（data-top 驱动 z-index）。 */
   const [floatTop, setFloatTop] = useState<'assistant' | 'progress'>('assistant')
 
@@ -1206,11 +1353,10 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       label: `跳转：${item.label}`,
       hint: g.label,
       run: () => {
-        // 内容已搬进右滑抽屉的 tab：跳转 = 开抽屉（底座只留 workflow/plan 深页）
+        // 内容已搬进右滑抽屉的 tab：跳转 = 开抽屉；总编台是底座页，没有抽屉。
+        // AI 助手 / AI 进度不在分组里（方案 §5：AI 是横切能力），见下面两条独立命令。
         const d = CMD_DRAWER_OF[item.id]
         if (d !== undefined) openDrawer(d)
-        else if (item.id === 'assistant') setAssistantOpen(true)
-        else if (item.id === 'progress') setProgressOpen(true)
         else setActiveTab(item.id)
       },
     }))),
@@ -1741,6 +1887,19 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     })
   }
 
+  /**
+   * 本章计划补写落地：宿主已算好合并结果，直接并入 project.chapters。
+   *
+   * 不再拉一次全量 /status —— 工作台读的就是这份数组，回传对象即真值。
+   */
+  const handlePlanSaved = (chapter: ChapterPlan): void => {
+    setProject(prev => prev === null ? prev : {
+      ...prev,
+      chapters: prev.chapters.map(c => c.no === chapter.no ? chapter : c),
+    })
+    pushProgress(`第 ${chapter.no} 章计划已更新`, 'done')
+  }
+
   /** 剧情线：保存草稿（新增或更新）。 */
   const handlePlotlineSave = async (): Promise<void> => {
     if (plotlineDraft === null) return
@@ -1750,6 +1909,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       kind: plotlineDraft.kind,
       goal: plotlineDraft.goal.trim(),
       progress: plotlineDraft.progress.trim(),
+      nextGoal: plotlineDraft.nextGoal.trim(),
       status: plotlineDraft.status,
       chapters: plotlineDraft.id !== ''
         ? (project?.plotlines?.find(l => l.id === plotlineDraft.id)?.chapters ?? [])
@@ -2257,16 +2417,17 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         chars = result.chars
         setWorkspace(prev => prev === null ? prev : {
           ...prev,
-          original: result.markdown ?? prev.original,
-          draft: null,
-          applied: true,
+           original: result.markdown ?? prev.original,
+           baseline: result.markdown ?? prev.original,
+           draft: null,
+           applied: true,
         })
       } else {
         // 无草稿：保存当前原文（沿用报告或后端自动审稿，1-2 分钟）。
         setBusyLabel(`AI 审查 第${no}章`)
         const result = await api.chapterSave(no, workspace.original, wsCheckReport ?? undefined)
         report = result.report
-        setWorkspace(prev => prev === null ? prev : { ...prev, applied: true })
+        setWorkspace(prev => prev === null ? prev : { ...prev, baseline: prev.original, applied: true })
       }
       setDraftNo(null)
       if (report !== undefined) {
@@ -2406,6 +2567,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         no,
         title: chapter.title,
         original: chapterRes.markdown,
+        baseline: chapterRes.markdown,
         instruction: autoInstruction,
         draft: chapter.pendingDraft !== undefined && chapter.pendingDraft !== '' ? chapter.pendingDraft : null,
       })
@@ -2634,6 +2796,42 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     }
   }
 
+  /** 工作区是否有未落盘的修改（改过正文、且还没采纳写回）。 */
+  const wsDirty = workspace !== null && workspace.original !== workspace.baseline
+  useEffect(() => {
+    if (!wsDirty) return
+    const onUnload = (event: BeforeUnloadEvent): void => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onUnload)
+    return () => { window.removeEventListener('beforeunload', onUnload) }
+  }, [wsDirty])
+
+  /**
+   * 关闭工作区（2.1.9 / 方案 §15「关闭工作台前检测未保存草稿」）。
+   *
+   * 此前「← 返回」直接 `setWorkspace(null)` —— 改了一半的正文**静默丢掉**，
+   * 而按钮的 title 还写着"草稿不丢失"（它说的是服务端草稿，不是编辑器里的手改）。
+   * 现在有未保存修改时先确认：说清会丢什么、什么不受影响、怎么保留。
+   */
+  const closeWorkspace = useCallback((): void => {
+    const done = (): void => { setWorkspace(null); setWsResultMode(false) }
+    if (!wsDirty) { done(); return }
+    confirmUi.confirm({
+      title: '放弃未保存的正文修改？',
+      body: '你在工作区里改了正文，还没有保存到磁盘。',
+      effects: [
+        '编辑器里的改动会丢失',
+        '磁盘上的正文文件不受影响 —— 保存前原稿从未被改动',
+      ],
+      assurance: '想保留就先点「保存正文」，再返回。',
+      tone: 'warn',
+      confirmLabel: '放弃修改并返回',
+      onConfirm: () => { done() },
+    })
+  }, [wsDirty, confirmUi])
+
   /** Shared frame handler for generate/rewrite/polish streams. */
   const applyJobFrame = useCallback((frame: JobFrame, label: (no: number) => string) => {
     if (frame.type === 'start') {
@@ -2847,15 +3045,16 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
 
   /** Esc 逐层关闭浮层：章节工作台 > 右滑抽屉（内容抽屉/侧柜）。 */
   useEffect(() => {
-    if (workbenchNo === null && rightDrawer === null) return
+     if (workbenchNo === null && rightDrawer === null && workspace === null) return
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return
-      if (workbenchNo !== null) setWorkbenchNo(null)
-      else closeDrawer()
+       if (workspace !== null) closeWorkspace()
+       else if (workbenchNo !== null) setWorkbenchNo(null)
+       else closeDrawer()
     }
     window.addEventListener('keydown', onKey)
     return () => { window.removeEventListener('keydown', onKey) }
-  }, [workbenchNo, rightDrawer])
+   }, [workbenchNo, rightDrawer, workspace, closeWorkspace])
 
   /** Suggest foreshadows via LLM. */
   const handleSuggestForeshadows = async (): Promise<void> => {
@@ -2937,6 +3136,11 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const chapters = project?.chapters ?? []
   /** 章节工作台（独立全页）当前渲染的章节；关闭时为 null。 */
   const workbench = workbenchNo === null ? null : chapters.find(c => c.no === workbenchNo) ?? null
+  /**
+   * 工作区「返回 / 关闭」的去向（方案 §14：按钮说清回到哪儿，而不是「关闭窗口」）。
+   * 工作台还开着时，关闭工作区露出来的就是工作台；否则是章节列表。
+   */
+  const wsBackTo = workbenchNo !== null ? '返回章节工作台' : '返回章节列表'
 
   /** 草稿审查（验证模式）：携带本章原审稿报告，核对原意见是否解决 + 只挑新增 high。
    *  与工作区的 autoCheckDraft 区别：不读写任何 workspace 状态，只返回报告。 */
@@ -3138,9 +3342,8 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
 
   /**
    * 工作台顶栏导航项 —— 按作者真实的创作推进顺序排列，而非按功能分区。
-   * 顺序依据 NAV_GROUPS 注释里写的「按创作阶段归类」：先看全局（总纲），
-   * 再立设定，然后写，最后回头分析长线与拆书。原来的「写作/设定/资产」是
-   * 文件夹式的功能序，作者点「写作」时还不知道该先做什么。
+   * 归类走方案 §5 的四类（总编台 / 写作 / 设定 / 工具）：生产单跟着「写作」走，
+   * 创作资产退到工具菜单，AI 两个入口留在横切位（顶栏右侧）。
    */
   const WORKBENCH_NAV: WorkbenchNavItem[] = [
     {
@@ -3178,29 +3381,60 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       go: () => { openDrawer('write') },
     },
     {
-      id: 'assets',
-      label: '资产',
-      icon: <Folder size={14} />,
-      on: 'assets',
-      title: '创作素材库：题材、设定模板、世界规则',
-      go: () => { openDrawer('assets') },
-    },
-    {
+      // 生产单属于「写作」这条主线（方案 §5：写作 = 章节计划 / 工作台 / 生产单 / 阅读器），
+      // 不再收在工具菜单里——作者找「下一批跑什么」时不会先去工具。
       id: 'run',
       label: '生产单',
       icon: <Factory size={14} />,
       on: 'run',
-      title: '生产单：批次生产与流水线',
-      go: () => { openDrawer('run') },
+      title: '批次生产与流水线',
+      go: () => { openDrawer('run'); setToolsOpen(false) },
     },
+  ]
+
+  /** 二级工具入口：保留全部能力，但不让辅助功能与核心创作流程争夺一级视觉权重。 */
+  const TOOL_NAV: WorkbenchNavItem[] = [
     {
       id: 'plotlines',
-      label: '长线',
+      label: '长线管理',
       icon: <ScrollText size={14} />,
       on: 'plotlines',
-      title: '剧情线 · 伏笔：长线推进与伏笔账目',
+      title: '剧情线与伏笔管理',
       badge: (() => { const p = foreshadows.filter(f => f.status === 'planned').length; return p > 0 ? String(p) : '' })(),
-      go: () => { openDrawer('plotlines') },
+      go: () => { openDrawer('plotlines'); setToolsOpen(false) },
+    },
+    {
+      id: 'knowledge',
+      label: '知识库',
+      icon: <Library size={14} />,
+      on: 'knowledge',
+      title: '本书参考资料与检索',
+      go: () => { openDrawer('knowledge'); setToolsOpen(false) },
+    },
+    {
+      id: 'breakdown',
+      label: '拆书分析',
+      icon: <Search size={14} />,
+      on: 'breakdown',
+      title: '分析文本结构、卖点与风险',
+      go: () => { openDrawer('breakdown'); setToolsOpen(false) },
+    },
+    {
+      id: 'director',
+      label: '自动编辑',
+      icon: <Brain size={14} />,
+      on: 'director',
+      title: '让 AI 编辑 Agent 执行复杂任务',
+      go: () => { openDrawer('director'); setToolsOpen(false) },
+    },
+    {
+      // 创作资产是「取材/复用」的工具面，不是每次写作都要经过的一级流程（方案 §5）。
+      id: 'assets',
+      label: '创作资产',
+      icon: <Folder size={14} />,
+      on: 'assets',
+      title: '创作素材库：题材、设定模板、世界规则',
+      go: () => { openDrawer('assets'); setToolsOpen(false) },
     },
   ]
 
@@ -3347,6 +3581,180 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     { key: 'knowledge', group: 'tools', name: '知识库', di: '跨书沉淀', go: () => { openDrawer('knowledge') } },
     { key: 'breakdown', group: 'tools', name: '拆书分析', di: '对标拆解', go: () => { openDrawer('breakdown') } },
   ]
+
+  /**
+   * 作者批注栏条目（2.1.7）：把「需要作者动手」的信号聚合到一处。
+   * 数据全部来自已在内存里的 project / chapters，不发新请求。
+   * 排序：高优 → 待确认 → 建议。
+   */
+  const inboxItems = useMemo((): InboxItem[] => {
+    const out: InboxItem[] = []
+    // 1) 生成失败：最硬的高优
+    for (const c of chapters.filter(x => x.status === 'error')) {
+      out.push({
+        id: 'err-' + String(c.no),
+        title: '第 ' + String(c.no) + ' 章生成失败，正文未写回',
+        source: '生产单 · 出错',
+        detail: c.error !== undefined && c.error !== '' ? c.error : '可续写自动重试，或在工作区人工修复',
+        tone: 'high',
+        actionLabel: '去处理',
+        onAction: () => { gotoChapter(c.no) },
+      })
+    }
+    // 2) 待裁决章：写完待审 / 被拒待修订
+    for (const c of chapters.filter(x => x.status === 'written' || x.status === 'rejected')) {
+      const rejected = c.status === 'rejected'
+      out.push({
+        id: 'adj-' + String(c.no),
+        title: rejected
+          ? '第 ' + String(c.no) + ' 章被驳回，需按意见修订'
+          : '第 ' + String(c.no) + ' 章已写完，等你判卷',
+        source: rejected ? 'AI 审稿 · 未通过' : '生产线 · 待审稿',
+        detail: c.review !== undefined ? c.review.verdict : (c.chars !== undefined ? c.chars.toLocaleString() + ' 字' : undefined),
+        tone: rejected ? 'high' : 'warn',
+        actionLabel: '去终裁',
+        onAction: () => { gotoChapter(c.no) },
+      })
+    }
+    // 3) 高优审稿意见（未通过的章才提醒，已通过的不再打扰）
+    for (const c of chapters) {
+      if (c.status === 'approved') continue
+      const highs = (c.review?.issues ?? []).filter(i => i.severity === 'high')
+      if (highs.length === 0) continue
+      const first = highs[0]
+      out.push({
+        id: 'iss-' + String(c.no),
+        title: '修订第 ' + String(c.no) + ' 章：' + first.item,
+        source: 'AI 审稿 · 高优' + (highs.length > 1 ? '（共 ' + String(highs.length) + ' 条）' : ''),
+        detail: first.suggestion !== '' ? '建议：' + first.suggestion : undefined,
+        tone: 'high',
+        actionLabel: '按意见修订',
+        onAction: () => { void handleReviseNow(c.no) },
+      })
+    }
+    // 4) 张力偏差：目标与实际差 ≥ 25 点才算（低于此值是正常起伏）
+    for (const c of chapters) {
+      if (c.tension === undefined || c.tensionActual === undefined) continue
+      const dev = Math.abs(c.tensionActual - c.tension)
+      if (dev < 25) continue
+      out.push({
+        id: 'tn-' + String(c.no),
+        title: '第 ' + String(c.no) + ' 章张力偏差 ' + String(dev) + ' 点',
+        source: '张力曲线 · 建议复核',
+        detail: '目标 ' + String(c.tension) + ' · 实际 ' + String(c.tensionActual),
+        tone: 'info',
+        actionLabel: '去调整',
+        onAction: () => { openDrawer('tension') },
+      })
+    }
+    const rank: Record<string, number> = { high: 0, warn: 1, info: 2 }
+    return out.sort((a, b) => (rank[a.tone] ?? 9) - (rank[b.tone] ?? 9))
+  }, [chapters, gotoChapter, handleReviseNow, openDrawer])
+
+  /**
+   * 最近活动（2.1.8 / 方案 §6「辅助区显示最近活动」）：把「机器最近产出了什么」合成一条时间线。
+   * 三个数据源都在本地：本次会话的生产进度、各章审稿记录（reviewedAt）、编年录抽取（createdAt）。
+   * 没有数据就保持空态 —— 不编造活动。
+   */
+  const activityFeed = useMemo(() => {
+    const items: Array<{ id: string; text: string; tone: 'ok' | 'bad' | ''; when: string }> = []
+    // 会话内的生产进度（最新在前，无时间戳 —— 它们本来就是"刚刚"）
+    for (const p of progress.slice(-3).reverse()) {
+      if (p.live === true) continue
+      items.push({
+        id: 'pg-' + String(p.id),
+        text: p.text,
+        tone: p.kind === 'done' ? 'ok' : p.kind === 'error' ? 'bad' : '',
+        when: '',
+      })
+    }
+    // 持久记录：审稿结论 + 编年录抽取
+    const dated: Array<{ id: string; at: number; text: string; tone: 'ok' | 'bad' | '' }> = []
+    for (const c of chapters) {
+      const r = c.review
+      if (r === undefined) continue
+      const at = Date.parse(String(r.reviewedAt ?? ''))
+      if (!Number.isFinite(at)) continue
+      dated.push({
+        id: 'rv-' + String(c.no),
+        at,
+        text: '第 ' + String(c.no) + ' 章审稿 ' + String(r.score) + ' 分 · ' + (r.passed ? '通过' : '未通过'),
+        tone: r.passed ? 'ok' : 'bad',
+      })
+    }
+    const perChapter = new Map<number, { n: number; at: number }>()
+    for (const ev of project?.timeline ?? []) {
+      const at = Date.parse(String(ev.createdAt ?? ''))
+      const cur = perChapter.get(ev.chapterNo)
+      perChapter.set(ev.chapterNo, {
+        n: (cur?.n ?? 0) + 1,
+        at: Number.isFinite(at) ? Math.max(cur?.at ?? 0, at) : (cur?.at ?? 0),
+      })
+    }
+    for (const [no, v] of perChapter) {
+      dated.push({ id: 'tl-' + String(no), at: v.at, text: '第 ' + String(no) + ' 章抽取到 ' + String(v.n) + ' 条编年录锚点', tone: '' })
+    }
+    dated.sort((a, b) => b.at - a.at)
+    for (const d of dated.slice(0, 6)) {
+      items.push({ id: d.id, text: d.text, tone: d.tone, when: d.at > 0 ? relTime(d.at) : '' })
+    }
+    return items.slice(0, 8)
+  }, [progress, chapters, project])
+
+  /**
+   * 今日产出 / 日环比（2.1.10 / 方案 §6）：宿主在每章上给出 `writtenAt`（文件 mtime），
+   * 这里按本地日历日聚合。**没有昨日数据时不编造百分比** —— 只显示今日章数。
+   */
+  const dailyOutput = useMemo(() => {
+    const startOfLocalDay = (daysAgo: number): number => {
+      const d = new Date()
+      d.setHours(0, 0, 0, 0)
+      return d.getTime() - daysAgo * 24 * 60 * 60 * 1000
+    }
+    const today = startOfLocalDay(0)
+    const yesterday = startOfLocalDay(1)
+    let todayChars = 0
+    let yesterdayChars = 0
+    let todayChapters = 0
+    for (const c of chapters) {
+      const at = c.writtenAt !== undefined ? Date.parse(c.writtenAt) : Number.NaN
+      if (!Number.isFinite(at)) continue
+      const chars = c.chars ?? 0
+      if (at >= today) { todayChars += chars; todayChapters += 1 }
+      else if (at >= yesterday) yesterdayChars += chars
+    }
+    const delta = yesterdayChars > 0 ? Math.round(((todayChars - yesterdayChars) / yesterdayChars) * 100) : null
+    // 宿主还没重载时 /status 不带 writtenAt —— 这时显示"今天还没写"是**谎报**，
+    // 宁可明说"数据源还没上线"（宿主半是启动时载入的，改了要重载插件/重启 dsh）。
+    const available = chapters.length === 0 || chapters.some(c => c.writtenAt !== undefined)
+    return { todayChars, todayChapters, yesterdayChars, delta, available }
+  }, [chapters])
+
+  /** hero 聚焦的章：优先「等你处置」的章，其次正在生成的，再次下一章待写的。 */
+  const heroFocus = chapters.find(c => c.status === 'written' || c.status === 'rejected')
+    ?? chapters.find(c => c.status === 'generating' || c.status === 'reviewing')
+    ?? chapters.find(c => c.status === 'pending')
+    ?? chapters[chapters.length - 1]
+
+  /** hero 眉标：第 N 章 · 标题；没有章节时退回书名。 */
+  const heroKicker = heroFocus !== undefined
+    ? '第 ' + String(heroFocus.no) + ' 章' + (heroFocus.title !== '' ? ' · ' + heroFocus.title : '')
+    : (project?.bookName ?? '')
+
+  /** hero meta 行：只放**能真算出来**的事实（不放 demo 里那种没有数据源的日环比/耗时预估）。 */
+  const heroMeta: Array<{ label: string; value: string; tone?: 'ok' | 'warn' | 'bad' }> = [
+    {
+      label: '待你处理',
+      value: String(inboxItems.length) + ' 条',
+      tone: inboxItems.length > 0 ? (inboxItems.some(i => i.tone === 'high') ? 'bad' : 'warn') : 'ok',
+    },
+    {
+      label: '剧情锚点',
+      value: String((project?.timeline?.length ?? 0) + (project?.plotlines?.filter(l => l.status === 'active').length ?? 0)) + ' 条',
+    },
+    { label: '边界', value: '不会自动改写正文' },
+  ]
+
   /** 自定义背景：优先用户显式选择（themeBg），否则用 config 里的持久化值。 */
   const effectiveBg = themeBg !== undefined && themeBg !== '' ? themeBg : (config?.themeBackground ?? '')
   const effectiveBgBlur = themeBgBlur > 0 ? themeBgBlur : (config?.themeBackgroundBlur ?? 0)
@@ -3451,7 +3859,9 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                 </span>
               </span>
               <span className={css.headSpacer} />
-              {/* 浮窗入口右置（原侧柜/工具卡条目上提）：AI 编辑 / AI 进度，浮窗开启时高亮 */}
+              {/* 浮窗入口右置（原侧柜/工具卡条目上提）：AI 编辑 / AI 进度，浮窗开启时高亮。
+                  方案 §5：AI 不是与写作/设定并列的业务分类，而是贯穿各阶段的横切能力，
+                  所以这两个入口留在页头右侧的横切位，不进工作台导航也不进工具菜单。 */}
               <button
                 type="button"
                 className={`${css.topNavBtn} ${assistantOpen ? css.topNavActive : ''}`}
@@ -3459,7 +3869,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                 onClick={() => { setAssistantOpen(v => !v) }}
                 title="AI 编辑 Agent（浮窗协同改稿）"
               >
-                <span className={css.topNavNi}>✦</span>AI 编辑
+                <span className={css.topNavNi}><Bot size={14} /></span>AI 编辑
               </button>
               <button
                 type="button"
@@ -3468,11 +3878,12 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                 onClick={() => { setProgressOpen(v => !v) }}
                 title="AI 进度（任务队列浮窗）"
               >
-                <span className={css.topNavNi}>◷</span>AI 进度
+                <span className={css.topNavNi}><Activity size={14} /></span>AI 进度
               </button>
               <button type="button" className={css.headChip} title={tt('common.close')} aria-label={tt('common.close')} onClick={() => { controller.close() }}>×</button>
             </header>
-            {/* 工作台导航卡（悬浮）：总编台为常驻底座；写作/设定/资产 走右滑抽屉 */}
+            {/* 工作台导航卡（悬浮）：总编台为常驻底座；主线（总纲/设定/写作/生产单）与
+                工具菜单里的辅助入口都走右滑抽屉 */}
             <nav className={css.topNav} aria-label="总编台主导航">
               <span className={css.topNavLabel}>工作台</span>
               {/* 右对齐：标签靠左，按钮组整体推到容器右端 */}
@@ -3487,15 +3898,47 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                   title={item.title}
                 >
                   <span className={css.topNavNi}>{item.icon}</span>{item.label}
-                  {item.badge !== '' && <span className={css.topNavBadge}>{item.badge}</span>}
+                  {item.badge !== undefined && item.badge !== '' && <span className={css.topNavBadge}>{item.badge}</span>}
                 </button>
               ))}
+              <span className={css.topNavMenu} ref={toolsMenuRef}>
+                <button
+                  type="button"
+                  className={`${css.topNavBtn} ${TOOL_NAV.some(item => item.on === rightDrawer) ? css.topNavActive : ''}`}
+                  aria-expanded={toolsOpen}
+                  aria-haspopup="menu"
+                  onClick={() => { setToolsOpen(v => !v) }}
+                  title="工具：生产、分析与辅助能力"
+                >
+                  <span className={css.topNavNi}><Sparkles size={14} /></span>工具
+                  <span className={css.topNavChevron} aria-hidden="true">⌄</span>
+                </button>
+                {toolsOpen && (
+                  <span className={css.topNavMenuPanel} role="menu" aria-label="工具">
+                    <span className={css.topNavMenuHint}>辅助工具</span>
+                    {TOOL_NAV.map(item => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        role="menuitem"
+                        className={`${css.topNavMenuItem} ${item.on === rightDrawer ? css.topNavMenuItemActive : ''}`}
+                        onClick={item.go}
+                        title={item.title}
+                      >
+                        <span className={css.topNavNi}>{item.icon}</span>
+                        <span>{item.label}</span>
+                        {item.badge !== undefined && item.badge !== '' && <span className={css.topNavBadge}>{item.badge}</span>}
+                      </button>
+                    ))}
+                  </span>
+                )}
+              </span>
               {/* 末位入口：写作参数 → 右滑设置抽屉 */}
               <button
                 type="button"
                 className={`${css.topNavBtn} ${rightDrawer === 'params' ? css.topNavActive : ''}`}
                 aria-current={rightDrawer === 'params' ? 'page' : undefined}
-                onClick={() => { openDrawer('params') }}
+                onClick={() => { setToolsOpen(false); openDrawer('params') }}
                 title="写作参数 / 设置"
               >
                 <span className={css.topNavNi}><Settings size={14} /></span>写作参数
@@ -3505,8 +3948,10 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           </div>
         )}
       {workbench !== null && (
-        <ChapterWorkbench
-          chapter={workbench}
+         <ChapterWorkbench
+           key={`${bookKey}:${workbench.no}`}
+           chapter={workbench}
+           bookKey={bookKey}
           text={chapterText}
           draft={workbench.pendingDraft}
           fontSize={editorFontSize}
@@ -3530,6 +3975,12 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           snapshots={snapshots.filter(s => s.chapterNo === workbench.no)}
           onRestoreSnapshot={id => { void handleRestoreSnapshot(id) }}
           onCreateSnapshot={() => { void handleCreateSnapshot(workbench.no) }}
+          plotlines={project?.plotlines ?? []}
+          api={api}
+          onPlanSaved={chapter => { handlePlanSaved(chapter) }}
+          onNotice={message => { pushProgress(message, 'info') }}
+          onLinkLines={() => { openDrawer('plotlines') }}
+          onOpenRunLog={() => { setProgressOpen(true) }}
         />
       )}
       {/* 右滑抽屉遮罩：覆盖总编台底座，点按关闭并回落 */}
@@ -3538,7 +3989,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       )}
       {/* 内容抽屉（写作/设定/资产/参数/工具页）：独立层叠在遮罩之上，底座总编台保持常驻可见（对齐 demo） */}
       {rightDrawer !== null && (
-        <aside className={`${css.contentDrawer} ${drawerMax ? css.drawerMax : ''}`} role="dialog" aria-label="工作台抽屉">
+        <aside ref={el => { drawerFocusRef.current = el }} tabIndex={-1} className={`${css.contentDrawer}${rightDrawer === 'cabinet' && !drawerMax ? ` ${css.drawerNarrow}` : ''} ${drawerMax ? css.drawerMax : ''}`} role="dialog" aria-modal="true" aria-label="工作台抽屉">
           <div className={css.drawerHead}>
             <span className={css.drawerTitle}>
               <span className={css.drawerTitleNi}>
@@ -3551,19 +4002,47 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
             <button type="button" className={css.drawerHeadBtn} title="关闭抽屉" aria-label="关闭抽屉" onClick={closeDrawer}>×</button>
           </div>
           <div className={css.contentDrawerBody}>
+          {/* 资料侧柜（2.1.7）：改成从右侧滑出的抽屉层 —— 与 demo 一致，
+              底座总编台保持可见（对齐「独立层叠在遮罩之上」的既有约定）。 */}
+          {rightDrawer === 'cabinet' && (
+            <div className={css.cabinetDrawer}>
+              <CabinetSnapshot project={project} />
+              <details className={css.cabinetAll}>
+                <summary>全部材料与工具（{cabinetItems().length} 项）</summary>
+                {cabinetItems().map(it => (
+                  <button
+                    key={it.key}
+                    type="button"
+                    className={css.wfDl + (it.dim === true ? ' ' + css.wfDlDim : '')}
+                    onClick={it.go}
+                    title={it.dim === true ? '尚未生成，前往对应工作台可先补' : '点击前往查看'}
+                  >
+                    <span className={css.wfDlName}>{it.name}</span>
+                    <span className={css.wfDlDi}>{it.di}</span>
+                  </button>
+                ))}
+              </details>
+            </div>
+          )}
           {rightDrawer === 'write' && (
           <div className={css.card}>
-            <div className={`css.rowBetween css.rowBetweenWrap`}>
+            <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`}>
               <span className={css.cardTitle}>章节索引（{chapters.length}）</span>
-              <span className={css.meta}>点任一章 → 进入章节工作台（独立全页）</span>
+              <span className={css.meta}>点任一章 → 进入章节工作台（独立全页）· 进入列表后 ↑↓ 逐章移动焦点，Enter 打开</span>
             </div>
-            <div style={{ marginTop: 'var(--nf-space-8)' }}>
-              {chapterGroups.map(group => (
+            <div style={{ marginTop: 'var(--nf-space-8)' }} onKeyDown={e => { moveFocusByArrow(e, `.${css.wbIndexRow}`) }}>
+              {(() => {
+                let budget = indexLimit
+                return chapterGroups.map(group => {
+                  if (budget <= 0) return null
+                  const shown = group.chapters.slice(0, budget)
+                  budget -= shown.length
+                  return (
                 <div key={group.no}>
                   {group.no !== 0 && (
                     <div className={css.wbIndexVol}>{group.title}（{group.chapters.length}）</div>
                   )}
-                  {group.chapters.map(chapter => {
+                  {shown.map(chapter => {
                     const badge = statusBadge(chapter)
                     return (
                       <button
@@ -3581,8 +4060,22 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                       </button>
                     )
                   })}
+                  {shown.length < group.chapters.length && (
+                    <div className={css.meta} style={{ paddingLeft: 'var(--nf-space-16)' }}>
+                      本卷还有 {group.chapters.length - shown.length} 章未显示
+                    </div>
+                  )}
                 </div>
-              ))}
+                  )
+                })
+              })()}
+              {chapters.length > indexLimit && (
+                <div className={`${css.row} ${css.meta}`} style={{ marginTop: 'var(--nf-space-8)', gap: 'var(--nf-space-8)' }}>
+                  <span>已显示前 {Math.min(indexLimit, chapters.length)} 章 / 共 {chapters.length} 章</span>
+                  <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setIndexLimit(v => v + 100) }}>再显示 100 章</button>
+                  <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setIndexLimit(chapters.length) }}>全部显示</button>
+                </div>
+              )}
             </div>
           </div>
           )}
@@ -3616,7 +4109,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
             {bookTab === 'bible' && (
           <>
           <div className={css.card}>
-            <div className={`css.rowBetween`}>
+            <div className={`${css.row} ${css.rowBetween}`}>
               <span className={css.cardTitle}>{tt('bible.title')}</span>
               <button type="button" className={`${css.button} ${css.buttonPrimary}`} disabled={busy} onClick={() => { void handleBible() }}>
                 {tt('bible.gen')}
@@ -3625,14 +4118,14 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
             {bible === undefined ? (
               <span className={css.meta}>{tt('bible.none')}</span>
             ) : (
-              <div className={css.docsSurface} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-10)' }}>
+              <div className={css.docsSurface + ' ' + css.readingCol} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-10)' }}>
                 {bible.genre !== '' && (
                   <div><b>{tt('bible.genre')}:</b> <span className={css.meta}>{bible.genre}</span></div>
                 )}
                 {/* 世界观规则独立卡片（可编辑，每行一条） */}
                 {bible.worldRules.length > 0 && (
                   <div style={{ border: '1px solid var(--nf-border)', borderRadius: 'var(--nf-radius-10)', padding: 'var(--nf-space-8) var(--nf-space-10)' }}>
-                    <div className={`css.rowBetween`}>
+                    <div className={`${css.row} ${css.rowBetween}`}>
                       <b>{tt('bible.worldRules')}（{bible.worldRules.length}）</b>
                       <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setWorldRulesDraft(bible.worldRules.join('\n')) }}>
                         编辑
@@ -3707,7 +4200,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         {/* 角色库：全书角色主表（独立导航页） */}
             {bookTab === 'roles' && (
           <div className={css.card}>
-            <div className={`css.rowBetween css.rowBetweenWrap`}>
+            <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`}>
               <span className={css.cardTitle}> 角色库（{(project?.roles ?? []).length} 个）</span>
               <div className={css.row}>
                 <button
@@ -3734,7 +4227,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
 
             {roleCandidates !== null && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-6)', border: '1px solid var(--nf-info)', borderRadius: 'var(--nf-radius-12)', padding: 'var(--nf-space-10)' }}>
-                <div className={`css.rowBetween css.rowBetweenWrap`}>
+                <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`}>
                   <b> 提炼候选（{roleCandidates.length}）</b>
                   <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setRoleCandidates(null) }}>收起</button>
                 </div>
@@ -3820,7 +4313,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
 
             {bookTab === 'facts' && (
           <div className={css.card}>
-            <div className={`css.rowBetween css.rowBetweenWrap`}>
+            <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`}>
               <span className={`${css.cardTitle} ${css.cardTitleLg}`}> 编年 / 复盘</span>
             </div>
             <SlideNav
@@ -3835,7 +4328,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
 
             {archiveTab === 'reviews' ? (
               <>
-            <div className={`css.rowBetween css.rowBetweenWrap`}>
+            <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`}>
               <span className={css.cardTitle}> 复盘记录（{chapters.filter(c => c.authorReview !== undefined).length} 章已复盘）</span>
               <div className={css.row}>
                 {(() => {
@@ -3982,7 +4475,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           {rightDrawer === 'params' && (
           <>
             <div className={`${css.card} ${css.settingsCard}`} style={{ gap: 'var(--nf-space-12)' }}>
-              <div className={`css.rowBetween css.rowBetweenWrap`} style={{ gap: 'var(--nf-space-8)' }}>
+              <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`} style={{ gap: 'var(--nf-space-8)' }}>
                 <div className={css.titleBlock}>
                   <span className={css.eyebrow}>Book Prefs</span>
                   <span className={`${css.cardTitle} ${css.cardTitleLg}`}> 本书参数</span>
@@ -4177,7 +4670,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                       }}
                     />
                   </div>
-                  <div className={`css.rowBetween`}>
+                  <div className={`${css.row} ${css.rowBetween}`}>
                     <span className={css.meta}>{tt('overview.outlineChars')}: {outlineText.length}</span>
                     <button type="button" className={css.button} disabled={busy || outlineText.length < 50} onClick={() => { void handleSaveOutline() }}>
                       {tt('overview.saveOutline')}
@@ -4359,7 +4852,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
 
             {longlineTab === 'foreshadow' ? (
               <>
-              <div className={`css.rowBetween css.rowBetweenWrap`}>
+              <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`}>
                 <span className={css.cardTitle}> {tt('foreshadow.title')}（{foreshadows.length}）</span>
                 <button type="button" className={`${css.button} ${css.buttonPrimary}`} disabled={busy} onClick={() => { void handleSuggestForeshadows() }}>
                   {tt('foreshadow.suggest')}
@@ -4409,7 +4902,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
               </>
             ) : (
               <>
-              <div className={`css.rowBetween css.rowBetweenWrap`}>
+              <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`}>
                 <span className={css.cardTitle}> {tt('tab.plotlines')}（{project?.plotlines?.length ?? 0}）</span>
                 <div className={css.row}>
                 <button
@@ -4452,7 +4945,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                   <button
                     type="button"
                     className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`}
-                    onClick={() => { setPlotlineDraft({ id: '', name: '', kind: 'main', goal: '', progress: '', status: 'active' }) }}
+                    onClick={() => { setPlotlineDraft({ id: '', name: '', kind: 'main', goal: '', progress: '', nextGoal: '', status: 'active' }) }}
                   >
                     {tt('plotlines.new')}
                   </button>
@@ -4522,6 +5015,10 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                   <label className={css.fieldLabel}>{tt('plotlines.progress')}</label>
                   <textarea className={css.textarea} style={{ minHeight: 40 }} value={plotlineDraft.progress} onChange={e => { setPlotlineDraft({ ...plotlineDraft, progress: e.target.value }) }} placeholder="如：已取得第二枚残片，正追踪第三枚线索" />
                 </div>
+                <div className={css.field}>
+                  <label className={css.fieldLabel}>{tt('plotlines.nextGoal')}</label>
+                  <textarea className={css.textarea} style={{ minHeight: 40 }} value={plotlineDraft.nextGoal} onChange={e => { setPlotlineDraft({ ...plotlineDraft, nextGoal: e.target.value }) }} placeholder="如：让沈砚发现第二枚印记的代价（写「下一章要推进到哪」）" />
+                </div>
                 <div className={css.row}>
                   <button type="button" className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`} disabled={busy} onClick={() => { void handlePlotlineSave() }}>
                     {tt('plotlines.save')}
@@ -4543,7 +5040,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                     line={line}
                     disabled={busy}
                     onRefresh={() => { void handlePlotlineRefresh(line.id) }}
-                    onEdit={() => { setPlotlineDraft({ id: line.id, name: line.name, kind: line.kind, goal: line.goal, progress: line.progress, status: line.status }) }}
+                    onEdit={() => { setPlotlineDraft({ id: line.id, name: line.name, kind: line.kind, goal: line.goal, progress: line.progress, nextGoal: line.nextGoal ?? '', status: line.status }) }}
                     onRemove={() => { void handlePlotlineRemove(line.id) }}
                   />
                 ))}
@@ -4564,7 +5061,11 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           {rightDrawer === 'style' && <StyleView api={api} />}
           {rightDrawer === 'promptSlots' && <PromptSlotsView api={api} />}
           {rightDrawer === 'run' && (
-          <RunPanel api={api} totalChapters={chapters.length} />
+          <RunPanel
+            api={api}
+            totalChapters={chapters.length}
+            onOpenChapter={no => { closeDrawer(); void openWorkbench(no) }}
+          />
           )}
           {rightDrawer === 'breakdown' && (
           <div className={css.card}>
@@ -4642,6 +5143,13 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
         <div className={css.panelContent} data-tab={activeTab}>
         {error !== '' && <div className={css.card} style={{ borderColor: 'var(--nf-error)' }}><span style={{ color: 'var(--nf-error)' }}>{tt('common.error')}: {error}</span></div>}
         {notice !== '' && <div className={css.card}><span style={{ color: 'var(--nf-success)' }}>{notice}</span></div>}
+        {/* 加载态（2.1.8 / 方案 §10）：书目数据还没到时，工作区此前什么都不渲染 ——
+            作者看到一块空白，分不清「在读」还是「崩了」。现在说清在等什么并给骨架。 */}
+        {project === null && workspace === null && error === '' && viewMode === 'workspace' && (
+          <div className={css.card}>
+            <SkeletonLines label="正在读取这本书的项目数据（大纲 / 道藏 / 章节计划）…" lines={5} />
+          </div>
+        )}
 
         {/* 遗留草稿提示：刷新页面后仍有未采纳的润色/修订草稿 */}
         {workspace === null && draftNo !== null && (
@@ -4665,12 +5173,12 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           <div className={css.wsPage}>
             <div className={css.wsPageHeader}>
               {workspace.applied === true ? (
-                <button type="button" className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`} onClick={() => { setWorkspace(null); setWsResultMode(false); gotoChapter(workspace.no) }} title="关闭工作区，返回章节页并定位到本章（滚动 + 高亮）">
+                <button type="button" className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`} onClick={() => { const no = workspace.no; closeWorkspace(); gotoChapter(no) }} title="关闭工作区，返回章节页并定位到本章（滚动 + 高亮）；有未保存修改会先确认">
                   ← 返回章节页
                 </button>
               ) : (
-                <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={() => { setWorkspace(null); setWsResultMode(false) }} title="返回章节列表（草稿不丢失）">
-                  ← 返回
+                <button type="button" className={`${css.button} ${css.buttonSmall}`} onClick={closeWorkspace} title={`${wsBackTo}；有未保存的修改会先确认（服务端草稿不受影响）`}>
+                  ← {wsBackTo}
                 </button>
               )}
               <span className={css.cardTitle}>第 {workspace.no} 章《{workspace.title}》</span>
@@ -4679,7 +5187,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                 <button type="button" className={css.iconButton} title="减小字号" aria-label="减小字号" onClick={() => { changeEditorFontSize(editorFontSize - 1) }}>A−</button>
                 <span className={css.meta}>{editorFontSize}px</span>
                 <button type="button" className={css.iconButton} title="增大字号" aria-label="增大字号" onClick={() => { changeEditorFontSize(editorFontSize + 1) }}>A＋</button>
-                <button type="button" className={css.iconButton} title="关闭工作区" aria-label="关闭工作区" onClick={() => { setWorkspace(null); setWsResultMode(false) }}>×</button>
+                <button type="button" className={css.iconButton} title={wsBackTo} aria-label={wsBackTo} onClick={closeWorkspace}>×</button>
               </span>
             </div>
             {workspace.applied === true && (
@@ -4743,17 +5251,17 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                   {(wsCheckReport !== null && wsCheckReport.issues.length > 0) ? (
                     <button
                       type="button"
-                      className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`}
+                      className={`${css.button} ${css.buttonSmall}`}
                       disabled={busy || wsChecked.length === 0}
                       onClick={() => { void handleWsReviseByReport() }}
-                      title="按下方勾选的意见自动修订整章；产出草稿后自动附带一次 AI 审查"
+                      title="修订下方勾选的意见（整章重写）；产出草稿后自动附带一次 AI 审查"
                     >
-                       按意见修订（{wsChecked.length}）
+                      修订已选 {wsChecked.length} 条
                     </button>
                   ) : (
                     <button
                       type="button"
-                      className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`}
+                      className={`${css.button} ${css.buttonSmall}`}
                       disabled={busy || workspace.instruction.trim() === ''}
                       onClick={() => { void handleWsRewrite(true) }}
                       title="按指令框内容整章修订"
@@ -4761,7 +5269,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                        整章修订
                     </button>
                   )}
-                  <button type="button" className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`} disabled={busy} onClick={() => { void handleWsPolish() }}>
+                  <button type="button" className={`${css.button} ${css.buttonSmall}`} disabled={busy} onClick={() => { void handleWsPolish() }}>
                      去AI味润色
                   </button>
                   <button type="button" className={`${css.button} ${css.buttonSmall} ${css.buttonPrimary}`} disabled={busy || workspace.original.trim().length < 50} onClick={() => { void handleWsSave() }} title="有草稿则应用草稿，无草稿则保存当前编辑；沿用审查结论或自动审稿，落盘后原地显示结果">
@@ -4874,20 +5382,190 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                 </span>
               )}
               <div className={css.wfTopRight}>
-                <button type="button" className={`${css.wfTool} ${css.wfToolBlue}`} onClick={() => { openDrawer('write') }}>↗ 章节工作台</button>
-                <button type="button" className={`${css.wfTool} ${css.wfToolAmber}`} onClick={() => { openDrawer('run') }}>⚙ 生产单</button>
-                <span className={css.wfSep} />
-                <button type="button" className={css.wfTool} onClick={() => { setShowSideCabinet(v => !v) }} title={showSideCabinet ? '收起资料侧柜' : '展开资料侧柜'}>
-                  ▤ 侧柜{showSideCabinet ? ' · 开' : ' · 收'}
+                <button type="button" className={css.wfTool} onClick={() => { openDrawer('cabinet') }} title="打开资料侧柜：本书此刻的生成上下文（编年录锚点 / 人物志 / 剧情线 / 写作资产）">
+                  ▤ 资料侧柜
                 </button>
+              </div>
+            </div>
+
+            {/* 2.1.7 hero：首屏只回答「现在最该做什么」（信息结构取自 demo，数据全部为本机真实状态） */}
+            {/* hero 右栏只留「印章 / 阶段」：
+                · 过审百分比与刻度条 → 已由工件池承担；
+                · 节点行（上一章 / 现在 / 下一步）→ 删掉。'现在'就是工件池上那道朱砂刻度，
+                  '下一步'就是下面那颗主 CTA —— 同一件事说两遍，正是这块显乱的原因。
+                brief §5：每屏一个焦点，同一条信息不找第二处表达。 */}
+            {project !== null && nextAction !== null && (
+              <HomeHero
+                kicker={heroKicker}
+                seal={heroFocus !== undefined ? String(heroFocus.no).padStart(2, '0') : '--'}
+                sealNote={heroFocus !== undefined && heroFocus.volume > 0 ? '第 ' + String(heroFocus.volume) + ' 卷' : '当前章'}
+                stageLabel={stage !== null ? stage.label : undefined}
+                action={nextAction}
+                secondary={{ label: '打开章节工作台', onClick: () => { openDrawer('write') } }}
+                busy={busy}
+                busyLabel={busyLabel}
+                meta={heroMeta}
+                batch={null}
+                nodes={[]}
+              >
+                {/* 工件池：一格一章，色 = 状态；朱砂只出现在"要你拍板"的那一格（brief §4 红线）。
+                    点任意一格去章节工作台 —— 池是导航，不是装饰。 */}
+                {(() => {
+                  if (chapters.length === 0) {
+                    return <span className={css.heroPoolEmpty}>生产线还是空的 —— 卷计划立好后，这里会长出整本书的工件。</span>
+                  }
+                  const bucketOf = (s: string): string => (
+                    s === 'approved' ? 'ok'
+                      : s === 'written' ? 'rev'
+                        : s === 'rejected' ? 'fix'
+                          : s === 'generating' || s === 'reviewing' ? 'gen'
+                            : s === 'error' ? 'err' : 'pend'
+                  )
+                  const labelOf: Record<string, string> = { ok: '已过审', rev: '待审', fix: '待修订', gen: '生成中', pend: '待生成', err: '出错' }
+                  const counts: Record<string, number> = {}
+                  for (const c of chapters) { const b = bucketOf(c.status); counts[b] = (counts[b] ?? 0) + 1 }
+                  const nowChapter = heroFocus ?? chapters.find(c => c.status === 'generating' || c.status === 'pending') ?? chapters[chapters.length - 1]
+                  const nowNo = nowChapter !== undefined ? nowChapter.no : 0
+                  // 完成态换形态（2.1.18）：全书过审时池子没有信息量（就是几条绿杠），
+                  // 收成一行事实，把 17px 还给页面。池子的价值在**进行中**的书上：哪一卷卡着、哪一卷还没开写。
+                  if (counts.ok === chapters.length) {
+                    const volN = new Set(chapters.map(c => c.volume ?? 0)).size
+                    return (
+                      <span className={css.heroPoolDone}>
+                        <b>{chapters.length}</b> 章{volN > 1 ? <><span className={css.heroPoolDoneSep}>·</span><b>{volN}</b> 卷</> : null}
+                        <span className={css.heroPoolDoneSep}>·</span>全部过审
+                      </span>
+                    )
+                  }
+                  // 600 章时"一格一章"会变成一条噪声栅栏（作者实测反馈）。池子按**真实结构**聚合：
+                  // 有卷就一段一卷（宽度 = 该卷章数，段内按状态再分），没有卷就按块聚到 ≤60 段。
+                  const groups: Array<{ key: string; label: string; items: typeof chapters }> = (() => {
+                    const vols = [...new Set(chapters.map(c => c.volume ?? 0))].sort((a, b) => a - b)
+                    if (vols.length > 1 && vols.length <= 40) {
+                      return vols.map(v => ({
+                        key: 'v' + String(v),
+                        label: v > 0 ? '第 ' + String(v) + ' 卷' : '未分卷',
+                        items: chapters.filter(c => (c.volume ?? 0) === v),
+                      }))
+                    }
+                    const size = Math.max(1, Math.ceil(chapters.length / 60))
+                    const out: Array<{ key: string; label: string; items: typeof chapters }> = []
+                    for (let i = 0; i < chapters.length; i += size) {
+                      const slice = chapters.slice(i, i + size)
+                      const first = slice[0]
+                      const last = slice[slice.length - 1]
+                      out.push({
+                        key: 'b' + String(i),
+                        label: first !== undefined && last !== undefined
+                          ? (slice.length > 1 ? '第 ' + String(first.no) + '–' + String(last.no) + ' 章' : '第 ' + String(first.no) + ' 章')
+                          : '章节',
+                        items: slice,
+                      })
+                    }
+                    return out
+                  })()
+                  return (
+                    <>
+                      <span className={css.heroPoolBar}>
+                        {groups.map(g => {
+                          const gc: Record<string, number> = {}
+                          for (const c of g.items) { const b = bucketOf(c.status); gc[b] = (gc[b] ?? 0) + 1 }
+                          const isNow = g.items.some(c => c.no === nowNo)
+                          const mix = (['ok', 'rev', 'fix', 'gen', 'pend', 'err'] as const)
+                            .filter(k => (gc[k] ?? 0) > 0)
+                            .map(k => `${labelOf[k] ?? ''} ${String(gc[k] ?? 0)}`)
+                            .join(' · ')
+                          return (
+                            <button
+                              key={g.key}
+                              type="button"
+                              className={css.heroPoolGroup}
+                              style={{ flex: String(g.items.length) }}
+                              data-now={isNow ? 'yes' : undefined}
+                              title={`${g.label} · ${mix}`}
+                              onClick={() => { setActiveTab('plan') }}
+                            >
+                              {(['ok', 'rev', 'fix', 'gen', 'pend', 'err'] as const).filter(k => (gc[k] ?? 0) > 0).map(k => (
+                                <span key={k} className={css.heroPoolSeg} data-st={k} style={{ flex: String(gc[k] ?? 0) }} />
+                              ))}
+                            </button>
+                          )
+                        })}
+                      </span>
+                      <span className={css.heroPoolMeta}>
+                        {(['ok', 'rev', 'fix', 'gen', 'pend', 'err'] as const).filter(k => (counts[k] ?? 0) > 0).map(k => (
+                          <span key={k} className={css.heroPoolLegend} data-st={k}>
+                            <i />{labelOf[k]} {k === 'ok' ? String(counts[k] ?? 0) + '/' + String(chapters.length) : String(counts[k] ?? 0)}
+                          </span>
+                        ))}
+                      </span>
+                    </>
+                  )
+                })()}
+              </HomeHero>
+            )}
+
+            {/* 工序轨道（2.1.21 位置修正）：它是「整本书走到哪一步」的刻度，
+                与工件池同属顶部状态区 —— 原来埋在作者批注栏下面，读起来像页脚。 */}
+            <div className={css.wfRailWrap}>
+              <div className={css.wfRail} aria-label="创作工序轨道">
+                {journeyStages.map((s, i) => {
+                  const now = s.id === currentStageId
+                  const go = s.done || now
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      className={`${css.wfRs} ${s.done ? css.wfDone : ''} ${now ? css.wfNow : ''}`}
+                      disabled={!go}
+                      onClick={() => { jumpToStage(s.id) }}
+                      title={`${s.label}${s.done ? ' · 已完成' : now ? ' · 当前工序' : ' · 未开始'}`}
+                    >
+                      <span className={css.wfRsNo}>0{i + 1}</span>
+                      <span className={css.wfRsName}>{s.label}</span>
+                      {s.id === 'write' && go && (
+                        <b className={css.wfRsChk}>{s.done ? '✓' : `${approvedCount}/${chapters.length}`}</b>
+                      )}
+                      {s.id === 'review' && now && (
+                        <b className={css.wfRsChk}>剩 {reviewPendingCount} 待办</b>
+                      )}
+                      {s.id !== 'write' && s.id !== 'review' && s.done && (
+                        <b className={css.wfRsChk}>✓</b>
+                      )}
+                    </button>
+                  )
+                })}
               </div>
             </div>
 
             {/* 四常驻指标：已过审 / 待审 / 待生成 / 全书字数 */}
             <div className={css.wfMetrics} aria-label="总编指标">
-              <div className={css.wfMetric}><span>已过审</span><b className={css.numSerif}>{approvedCount}</b><small>/ {chapters.length} 章</small></div>
+              {/* 方案 §6 的常驻指标第一条：今日产出（真数据：章节文件 mtime 聚合）。
+                  已过审不再占一格 —— hero 的「过审进度」与下方状态池都在显示它。 */}
+              <div className={css.wfMetric}>
+                <span>今日产出</span>
+                <b className={css.numSerif}>{dailyOutput.available ? dailyOutput.todayChars.toLocaleString() : '—'}</b>
+                <small>
+                  {!dailyOutput.available
+                    ? '需重载插件后可用（宿主端新字段）'
+                    : dailyOutput.delta !== null
+                    ? `较昨日 ${dailyOutput.delta >= 0 ? '+' : ''}${String(dailyOutput.delta)}% · ${String(dailyOutput.todayChapters)} 章`
+                    : dailyOutput.todayChapters > 0
+                      ? `${String(dailyOutput.todayChapters)} 章 · 昨日无产出可比`
+                      : '今天还没写'}
+                </small>
+              </div>
               <div className={css.wfMetric}><span>待审 / 待修订</span><b className={css.numSerif}>{reviewPendingCount}</b><small>需人工裁决</small></div>
-              <div className={css.wfMetric}><span>待生成</span><b className={css.numSerif}>{pendingCount}</b><small>第 {chapters.filter(c => c.status === 'pending').map(c => c.no).slice(0, 3).join('·')}…</small></div>
+              {/* 空数组 join 出来的「第 …」是占位残留：0 章待生成时应该说"全部已生成"。 */}
+              <div className={css.wfMetric}>
+                <span>待生成</span>
+                <b className={css.numSerif}>{pendingCount}</b>
+                <small>
+                  {pendingCount === 0
+                    ? '全部已生成'
+                    : `第 ${chapters.filter(c => c.status === 'pending').map(c => c.no).slice(0, 3).join('·')}${pendingCount > 3 ? '…' : ''}`}
+                </small>
+              </div>
               <div className={`${css.wfMetric} ${css.wfMetricWide}`}>
                 <span>全书字数</span>
                 <b className={`${css.numSerif} ${css.tabular}`}>{totalChars.toLocaleString()}</b>
@@ -4898,262 +5576,58 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                   <span className={css.wfMetricSparkNote}>{describeShape(chapterStats.charSeries)}</span>
                 </div>
               </div>
+              {/* 页脚信号条并进来（2.1.15）：出错 / 质检 / 复盘钩子是这里唯一没在账目行出现过的三个数字，
+                  其余（过审、待你终裁、全书）在上面或工件池里已经有了 —— "数字只在一个地方"。 */}
+              {(() => {
+                const reviewed = chapters.filter(c => c.authorReview !== undefined)
+                const honored = reviewed.filter(c => c.authorReview!.hookHonored).length
+                const errN = chapters.filter(c => c.status === 'error').length
+                return (
+                  <>
+                    <div className={css.wfMetric}>
+                      <span>出错</span>
+                      <b className={css.numSerif} data-bad={errN > 0 ? 'yes' : undefined}>{errN}</b>
+                      <small>{errN > 0 ? '需人工介入' : '无'}</small>
+                    </div>
+                    <div className={css.wfMetric}>
+                      <span>质检</span>
+                      <b className={css.numSerif} data-word={auditIssues === null ? 'yes' : undefined}>{auditIssues === null ? '未跑' : auditIssues.length}</b>
+                      <small>{auditIssues === null ? '点「全书质检」' : '处待处理'}</small>
+                    </div>
+                    <div className={css.wfMetric}>
+                      <span>复盘钩子</span>
+                      <b className={css.numSerif} data-word={reviewed.length > 0 ? undefined : 'yes'}>{reviewed.length > 0 ? honored + '/' + String(reviewed.length) : '未跑'}</b>
+                      <small>结尾钩子兑现</small>
+                    </div>
+                  </>
+                )
+              })()}
             </div>
+
 
             <div className={css.wfBody}>
               {/* ==================== 左：主线 ==================== */}
               <div className={css.wfColA}>
-                {/* 工序轨道：整本书走到哪一步 */}
-                <div className={css.wfRailWrap}>
-                  <div className={css.wfRail} aria-label="创作工序轨道">
-                    {journeyStages.map((s, i) => {
-                      const now = s.id === currentStageId
-                      const go = s.done || now
-                      return (
-                        <button
-                          key={s.id}
-                          type="button"
-                          className={`${css.wfRs} ${s.done ? css.wfDone : ''} ${now ? css.wfNow : ''}`}
-                          disabled={!go}
-                          onClick={() => { jumpToStage(s.id) }}
-                          title={`${s.label}${s.done ? ' · 已完成' : now ? ' · 当前工序' : ' · 未开始'}`}
-                        >
-                          <span className={css.wfRsNo}>0{i + 1}</span>
-                          <span className={css.wfRsName}>{s.label}</span>
-                          {s.id === 'write' && go && (
-                            <b className={css.wfRsChk}>{s.done ? '✓' : `${approvedCount}/${chapters.length}`}</b>
-                          )}
-                          {s.id === 'review' && now && (
-                            <b className={css.wfRsChk}>剩 {reviewPendingCount} 待办</b>
-                          )}
-                          {s.id !== 'write' && s.id !== 'review' && s.done && (
-                            <b className={css.wfRsChk}>✓</b>
-                          )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
+                {/* 作者批注栏（2.1.22 位置调整）：它是「要你动手」的清单，占左列；
+                    参考区（最近活动 / 生产单 / 环节坐标）集中到右列。 */}
+        {/* 作者批注栏（2.1.13 重新排版）：从右栏移到**全宽带**。
+            原因见 CHANGELOG：批注一多，右栏长列表会把 grid 行撑高，左栏跟着被拉到
+            同一行高、下方留出上千像素空白（实测 7 条 → wfBody 1349px，左栏内容只到 744px）。
+            全宽后卡片按容器宽度自动分列，加长只增加行数、不再破坏两栏平衡。 */}
+        <AuthorInbox
+          items={inboxItems.slice(0, 8)}
+          total={inboxItems.length}
+          shown={8}
+          onOpenAll={() => { openDrawer('write') }}
+          empty="没有需要你插手的章 —— 机器自己跑着，有裁决或修订才送上来。"
+        />
 
-                {/* 状态池 —— 页面唯一视觉重心：章即工件，色宽 = 章数 */}
-                <div className={css.wfPoolWrap}>
-                  {(() => {
-                    if (chapters.length === 0) {
-                      return (
-                        <div className={css.wfEmpty}>
-                          生产线还是空的 —— 卷计划立好后，AI 会自动开写，这里会长出整本书的 33 个章（工件）。
-                        </div>
-                      )
-                    }
-                    const cnt = (f: (c: { status: string }) => boolean): number => chapters.filter(f).length
-                    const segs = [
-                      { key: 'ok', label: '已过审', count: cnt(c => c.status === 'approved'), bg: 'linear-gradient(180deg,#8dc47e,#5f9656)', fg: '#221b12', to: 'plan' },
-                      { key: 'rev', label: '待审', count: cnt(c => c.status === 'written'), bg: 'linear-gradient(180deg,#eec05f,#cf9426)', fg: '#221b12', to: 'plan' },
-                      { key: 'fix', label: '待修订', count: cnt(c => c.status === 'rejected'), bg: 'linear-gradient(180deg,#e4826b,#c04b37)', fg: '#221b12', to: 'plan' },
-                      { key: 'gen', label: '生成中', count: cnt(c => c.status === 'generating' || c.status === 'reviewing'), bg: 'linear-gradient(180deg,#efb054,#c8831c)', fg: '#221b12', to: 'run' },
-                      { key: 'pend', label: '待生成', count: cnt(c => c.status === 'pending'), bg: 'repeating-linear-gradient(45deg,#5c5344 0 6px,#554c3e 6px 12px)', fg: '#e7dfce', to: 'run' },
-                      { key: 'err', label: '出错', count: cnt(c => c.status === 'error'), bg: 'linear-gradient(180deg,#e0705c,#a53a2a)', fg: '#221b12', to: 'run' },
-                    ].filter(s => s.count > 0)
-                    const full = cnt(() => true)
-                    if (segs.length === 0) {
-                      return <div className={css.wfEmpty}>全书 {full} 章全部过审，生产线完工。</div>
-                    }
-                    return (
-                      <>
-                        <div className={css.wfPoolBar} role="img" aria-label="各章节状态分布">
-                          {segs.map(s => (
-                            <button
-                              key={s.key}
-                              type="button"
-                              className={css.wfPs}
-                              style={{ flex: String(s.count), background: s.bg, color: s.fg }}
-                              title={`${s.label} ${s.count} 章 · 点击前往对应工作台`}
-                              onClick={() => { setActiveTab(s.to as 'plan' | 'run') }}
-                            >
-                              <span className={css.wfPsN}>{s.count}</span>
-                              <span className={css.wfPsLab}>{s.label}</span>
-                            </button>
-                          ))}
-                        </div>
-                        <div className={css.wfPsLegend}>
-                          {(() => {
-                            const all = [
-                              { l: '已过审', n: cnt(c => c.status === 'approved'), c: '#5f9656' },
-                              { l: '待审', n: cnt(c => c.status === 'written'), c: '#cf9426' },
-                              { l: '待修订', n: cnt(c => c.status === 'rejected'), c: '#c04b37' },
-                              { l: '生成中', n: cnt(c => c.status === 'generating' || c.status === 'reviewing'), c: '#c8831c' },
-                              { l: '待生成', n: cnt(c => c.status === 'pending'), c: '#554c3e' },
-                              { l: '出错', n: cnt(c => c.status === 'error'), c: '#b04030' },
-                            ]
-                            return all.filter(x => x.n > 0).map(x => (
-                              <span key={x.l} className={css.wfPl}><i className={css.wfSw} style={{ background: x.c }} />{x.l} {x.n}</span>
-                            ))
-                          })()}
-                        </div>
-                      </>
-                    )
-                  })()}
-                </div>
 
-                {/* 唯一主令：同一刻只给一个「需要你下的命令」 */}
-                {project !== null && nextAction !== null && (
-                  <div className={css.wfCmd}>
-                    <div className={css.wfQt}>
-                      <span className={css.wfQtTone}>{nextAction.eyebrow}</span>
-                      <b>{nextAction.title}</b>
-                      {stage !== null && (
-                        <span className={css.meta} title={`阶段判定：${stage.reason}`} style={{ marginLeft: 'auto' }}>
-                          阶段 · {stage.label}
-                        </span>
-                      )}
-                    </div>
-                    <span className={css.wfCmdReason}>{nextAction.reason}</span>
-                    <button type="button" className={css.wfCmdBtn} disabled={busy} onClick={() => { nextAction.onClick() }}>
-                      {busy ? busyLabel || '运行中…' : nextAction.actionLabel}
-                    </button>
-                  </div>
-                )}
 
-                {/* 需要总编裁决 + 机器最近产出 */}
-                <div className={css.wfCard2}>
-                  <div className={css.wfBox}>
-                    <h5 className={css.wfBoxH}><i className={css.wfDot} style={{ background: 'var(--wf-human)' }} />需要总编裁决 · {(() => {
-                      return chapters.filter(c => c.status === 'written' || c.status === 'rejected' || c.status === 'error').length
-                    })()} 项</h5>
-                    {(() => {
-                      const need = chapters.filter(c => c.status === 'written' || c.status === 'rejected').slice(0, 4)
-                      const failed = chapters.filter(c => c.status === 'error')
-                      if (need.length === 0 && failed.length === 0) {
-                        return <span className={css.wfEmpty2}>没有需要你插手的章 —— 机器自己跑着，有裁决或修订才送上来。</span>
-                      }
-                      return (
-                        <>
-                          {need.map(c => (
-                            <div key={c.no} className={css.wfRow}>
-                              <span className={css.wfCn}>第 {c.no} 章</span>
-                              <span className={`${css.wfSt} ${c.status === 'rejected' ? css.wfStFix : css.wfStRev}`}>
-                                {c.status === 'rejected' ? '待修订' : '待审'}
-                              </span>
-                              <span className={css.wfDs} title={c.status === 'rejected' ? (c.review?.verdict ?? '自动修订未过，需人工处理') : `AI 已写完 ${(c.chars ?? 0).toLocaleString()} 字，等审稿判卷`}>
-                                {c.status === 'rejected'
-                                  ? `审稿：${c.review?.verdict ?? '自动修订 2 轮未过，移交人工'}`
-                                  : `AI 已写完 ${(c.chars ?? 0).toLocaleString()} 字，等审稿判卷`}
-                              </span>
-                              <button type="button" className={css.wfAct} onClick={() => { gotoChapter(c.no) }}>{c.status === 'rejected' ? '处理' : '审'}</button>
-                            </div>
-                          ))}
-                          {need.length === 0 && failed.map(c => (
-                            <div key={c.no} className={css.wfRow}>
-                              <span className={css.wfCn}>第 {c.no} 章</span>
-                              <span className={`${css.wfSt} ${css.wfStFail}`}>出错</span>
-                              <span className={css.wfDs}>生成失败（可续写自动重试），或在工作区人工修复</span>
-                              <button type="button" className={css.wfAct} onClick={() => { gotoChapter(c.no) }}>修复</button>
-                            </div>
-                          ))}
-                          <div className={css.wfSmallFoot}>
-                            {failed.length === 0 ? <span>无生成失败 · 无待采纳草稿 ✓</span> : <span> {failed.length} 章生成失败，已列在上方</span>}
-                            {(need.length + failed.length) > 4 && (
-                              <button type="button" className={css.wfAct} onClick={() => { openDrawer('write') }}>全部 →</button>
-                            )}
-                          </div>
-                        </>
-                      )
-                    })()}
-                  </div>
-
-                  <div className={`${css.wfBox} ${css.wfFeedBox}`}>
-                    <h5 className={css.wfBoxH}><i className={css.wfDot} style={{ background: 'var(--wf-ai)' }} />生产记录 · 机器最近产出</h5>
-                    {(() => {
-                      const feed = progress.filter(p => p.live !== true).slice(-5).reverse()
-                      if (feed.length === 0) {
-                        return <span className={css.wfEmpty2}>活动流是空的 —— AI 跑起来后，这里会实时滚动每一章的产出与判卷。</span>
-                      }
-                      return (
-                        <div className={css.wfFeedList}>
-                          {feed.map(p => (
-                            <div key={p.id} className={css.wfFi} title={p.text}>
-                              <i className={`${css.wfFdot} ${p.kind === 'done' ? css.wfFdotOk : p.kind === 'error' ? css.wfFdotErr : ''}`} />
-                              <span className={css.wfFt}>{p.text}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )
-                    })()}
-                  </div>
-                </div>
-
-                {/* 资料侧柜（抽屉）：材料收纳格，首页只陈列生产线 */}
-                <div className={`${css.wfBox} ${css.wfDrawerBox}`}>
-                  <h5 className={css.wfBoxH}>
-                    <i className={css.wfDot} style={{ background: 'var(--wf-idle)' }} />▤ 这本书的资料侧柜
-                    <button type="button" className={css.wfDrawerToggle} onClick={() => { setShowSideCabinet(v => !v) }} title="展开 / 收起抽屉">
-                      {showSideCabinet ? '收起 ↑' : '展开 ↓'}
-                    </button>
-                  </h5>
-                  {showSideCabinet && (
-                    <div className={css.wfDrawerList}>
-                      {(() => {
-                        // 与顶部导航「▤ 侧柜」抽屉共用同一数据源（cabinetItems）
-                        const items = cabinetItems()
-                        return items.map(it => (
-                          <button
-                            key={it.key}
-                            type="button"
-                            className={`${css.wfDl} ${it.dim ? css.wfDlDim : ''}`}
-                            onClick={it.go}
-                            title={it.dim ? '尚未生成，前往对应工作台可先补' : '点击前往查看'}
-                          >
-                            <span className={css.wfDlName}>{it.name}</span>
-                            <span className={css.wfDlDi}>{it.di}</span>
-                          </button>
-                        ))
-                      })()}
-                    </div>
-                  )}
-                </div>
               </div>
 
               {/* ==================== 右：人在流水线上的两个岗位 ==================== */}
               <div className={css.wfColB}>
-                {/* 审稿台：你的位置 */}
-                <div className={`${css.wfBox} ${css.wfAccentBlue}`}>
-                  <h5 className={css.wfBoxH}><i className={css.wfDot} style={{ background: 'var(--wf-human)' }} />审稿台（你的位置）</h5>
-                  <div className={css.wfHint}>AI 判卷是预筛，最终裁决在你 —— 这里列出全部待你裁决章，逐个开庭。</div>
-                  {(() => {
-                    const need = chapters.filter(c => c.status === 'written' || c.status === 'rejected')
-                    if (need.length === 0) {
-                      return <span className={css.wfEmpty2}>暂无待裁决章 —— 机器还在写，或刚清空。</span>
-                    }
-                    const first = need[0]
-                    const rest = need.slice(1, 5)
-                    return (
-                      <>
-                        <div className={css.wfPreview}>
-                          <div className={css.wfPreviewName}>第 {first.no} 章 · {first.title || '（未命名）'}</div>
-                          <div className={css.wfPreviewLine}>
-                            {first.status === 'rejected' ? `审稿报告预览：${first.review?.verdict ?? '自动修订未过，按意见人工修订'}（${first.review?.issues.length ?? 0} 条意见）` : `审稿报告预览：${first.review !== undefined ? `结构 ${first.review.score} · ${first.review.issues.length} 条意见` : 'AI 已写完待判卷，可先看正文再判'}`}
-                          </div>
-                          <div className={css.wfPreviewActs}>
-                            <button type="button" className={css.wfAct} onClick={() => { gotoChapter(first.no) }}>去终裁</button>
-                            <button type="button" className={css.wfAct} onClick={() => { openDrawer('write') }}>按意见修订</button>
-                          </div>
-                        </div>
-                        {rest.map(c => (
-                          <div key={c.no} className={css.wfRow}>
-                            <span className={css.wfCn}>第 {c.no} 章</span>
-                            <span className={`${css.wfSt} ${c.status === 'rejected' ? css.wfStFix : css.wfStRev}`}>{c.status === 'rejected' ? '待修订' : '待审'}</span>
-                            <span className={css.wfDs}>{c.status === 'rejected' ? (c.review?.verdict ?? '需人工修订') : `已写完 ${(c.chars ?? 0).toLocaleString()} 字`}</span>
-                            <button type="button" className={css.wfAct} onClick={() => { gotoChapter(c.no) }}>审</button>
-                          </div>
-                        ))}
-                        <div className={css.wfSmallFoot}>
-                          对应页签：章节工作台 / 审稿 · 对应操作：审稿、判过、按意见修订
-                        </div>
-                      </>
-                    )
-                  })()}
-                </div>
-
                 {/* 生产单：批量流水线（机器自己在跑） */}
                 <div className={`${css.wfBox} ${css.wfAccentAmber}`}>
                   <h5 className={css.wfBoxH}><i className={css.wfDot} style={{ background: 'var(--wf-ai)' }} />生产单 · 批量流水线（机器自己在跑）<AiTag /></h5>
@@ -5216,31 +5690,30 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                     })()}
                   </div>
                 </div>
+                {/* 最近活动（2.1.22 位置调整）：日志属参考区，与生产单同列；左列留给「要你动手」的批注栏。 */}
+            {/* 需要总编裁决 + 机器最近产出 */}
+            <div className={css.wfCard1}>
+
+              <div className={`${css.wfBox} ${css.wfFeedBox}`}>
+                <h5 className={css.wfBoxH}><i className={css.wfDot} style={{ background: 'var(--wf-ai)' }} />最近活动 · 机器最近产出</h5>
+                {activityFeed.length === 0 ? (
+                  <span className={css.wfEmpty2}>还没有可显示的活动 —— 跑过一次生成或审稿后，审稿结论、编年录抽取与每一步处理都会落在这里。</span>
+                ) : (
+                  <div className={css.wfFeedList}>
+                    {activityFeed.map(it => (
+                      <div key={it.id} className={css.wfFi} title={it.text}>
+                        <i className={`${css.wfFdot} ${it.tone === 'ok' ? css.wfFdotOk : it.tone === 'bad' ? css.wfFdotErr : ''}`} />
+                        <span className={css.wfFt}>{it.text}</span>
+                        {it.when !== '' && <span className={css.wfFtime}>{it.when}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
               </div>
             </div>
 
-            {/* ── 信号条：一行放完 ── */}
-            <div className={css.wfSignal}>
-              {(() => {
-                const reviewed = chapters.filter(c => c.authorReview !== undefined)
-                const honored = reviewed.filter(c => c.authorReview!.hookHonored).length
-                const errN = chapters.filter(c => c.status === 'error').length
-                const stats: Array<{ txt: string; b: string; good?: boolean; bad?: boolean }> = [
-                  { txt: '过审', b: `${approvedCount}/${chapters.length}`, good: approvedCount > 0 },
-                  { txt: '待你终裁', b: String(reviewPendingCount) },
-                  { txt: '出错', b: String(errN), bad: errN > 0 },
-                  { txt: '质检', b: auditIssues === null ? '未跑' : `${auditIssues.length} 处`, good: auditIssues !== null && auditIssues.length === 0, bad: auditIssues !== null && auditIssues.length > 0 },
-                  { txt: '复盘钩子', b: reviewed.length > 0 ? `${honored}/${reviewed.length}` : '未跑' },
-                  { txt: '全书', b: totalChars >= 100000 ? `${(totalChars / 1000).toFixed(0)}k` : `${(totalChars / 1000).toFixed(1)}k`, good: totalChars > 0 },
-                ]
-                return stats.map((s, i) => (
-                  <span key={i} className={`${css.wfSig} ${s.good ? css.wfSigGood : ''} ${s.bad ? css.wfSigBad : ''}`}>
-                    {s.txt} <b>{s.b}</b>
-                  </span>
-                ))
-              })()}
-              <span className={css.wfSigRight}>信号一行放完，不再摊成四张并列大卡</span>
-            </div>
           </div>
           </>
         )}
@@ -5280,7 +5753,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
 
             {sensHits !== null && (
               <div className={css.card} style={{ borderColor: sensHits.length > 0 ? 'var(--nf-warn)' : 'var(--nf-success)' }}>
-                <div className={`css.rowBetween css.rowBetweenWrap`}>
+                <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`}>
                   <span className={css.cardTitle}>
                     {sensHits.length === 0
                       ? tt('sensitive.clean', { n: sensScanned })
@@ -5405,7 +5878,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                       const detailTab = chapterDetailTab
                       return (
                         <>
-                          <div className={`css.rowBetween css.rowBetweenWrap`}>
+                          <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`}>
                             <span className={css.planDetailTitle}>第 {chapter.no} 章 · {chapter.title}</span>
                             <span className={`${css.badge} ${badge.cls}`}>{badge.label}</span>
                           </div>
@@ -5438,7 +5911,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                             )}
                             {detailTab === 'review' && (review !== undefined ? (
                               <div className={css.reviewBox}>
-                                <div className={`css.rowBetween`}>
+                                <div className={`${css.row} ${css.rowBetween}`}>
                                   <b>{tt('plan.reviewReport')}</b>
                                   <span style={{ color: review.passed ? 'var(--nf-success)' : 'var(--nf-error)' }}>
                                     {tt('plan.reviewScore')}: {review.score} — {review.passed ? tt('plan.reviewPass') : tt('plan.reviewFail')}
@@ -5470,7 +5943,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
                             ))}
                             {detailTab === 'author' && (chapter.authorReview !== undefined ? (
                               <div className={css.reviewBox} style={{ borderColor: 'color-mix(in srgb, var(--nf-info) 45%, transparent)' }}>
-                                <div className={`css.rowBetween`}>
+                                <div className={`${css.row} ${css.rowBetween}`}>
                                   <b> 作者复盘</b>
                                   <span style={{ color: chapter.authorReview.hookHonored ? 'var(--nf-success)' : 'var(--nf-warn)' }}>
                                     钩子{chapter.authorReview.hookHonored ? '已兑现 ✓' : '未兑现 ✗'} · 结尾钩子 {chapter.authorReview.endingHook}/10
@@ -5834,7 +6307,7 @@ function OutlineDocument({ text }: { text: string }): ReactElement {
 
   return (
     <div className={css.outlineDocWrap}>
-      <div className={`css.rowBetween css.rowBetweenWrap`} style={{ gap: 'var(--nf-space-8)' }}>
+      <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`} style={{ gap: 'var(--nf-space-8)' }}>
         <span className={css.meta}>大纲是本书的「出生证明」；可点右上「反推大纲」从正文反推，或「更新大纲」手动修订。</span>
         <span className={css.meta}>{text.length} 字 · {volumeCount} 卷</span>
       </div>

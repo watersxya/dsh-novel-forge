@@ -84,6 +84,7 @@ export const zh = {
   'plotlines.kindMystery': '悬念线',
   'plotlines.goal': '目标/终点',
   'plotlines.progress': '当前进度',
+  'plotlines.nextGoal': '下一目标',
   'plotlines.status': '状态',
   'plotlines.statusActive': '推进中',
   'plotlines.statusPaused': '暂停',
