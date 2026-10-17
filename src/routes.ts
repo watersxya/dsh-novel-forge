@@ -75,6 +75,11 @@ import {
   type ExportScope,
   type PromptSlotsRequest,
   type PromptSlotsResponse,
+  type NameForgeGenerateRequest,
+  type NameForgeGenerateResponse,
+  type NameForgeMutateRequest,
+  type NameForgeMutateResponse,
+  type NameForgeBankResponse,
   type SnapshotRequest,
   type SnapshotResponse,
   type RevisionPlanRequest,
@@ -173,6 +178,7 @@ import {
   runMarketCreativeBrief,
   runBookAnalysis,
   runIdeaInspiration,
+  runNameForge,
   runMarketIdeaInspiration,
   runDirectorAdvice,
   extractWorld,
@@ -228,6 +234,7 @@ import { createSnapshot, loadSnapshots, pruneSnapshots, removeSnapshot, restoreS
 import { detectTimelineIssues } from './timeline.ts'
 import { buildCurveData, detectTensionIssues, TENSION_MAX, TENSION_MIN, TENSION_PRESETS, clampTension } from './tension.ts'
 import { PROMPT_SLOTS, normalizeSlotValue, readPromptSlots } from './prompt-slots.ts'
+import { mutateNameBank, readNameBank } from './name-forge.ts'
 import { buildRevisionPlan, describeRevisionPlan, REVISION_ITEM_CAP } from './revision.ts'
 import { dshHomePath } from './home.ts'
 
@@ -2272,6 +2279,58 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     },
   }
 
+  // ------------------------------------------------------------- name-forge
+  /**
+   * 取名器：GET = 本书名字库；POST {action:'generate'} = 生成候选（不落盘）；
+   * POST {action:'adopt'|'discard'|'clear'} = 库维护。
+   */
+  const nameForgeRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.nameForge,
+    handler: async (req, res) => {
+      const config = getConfig()
+      const qurl = new URL(req.url ?? '/', 'http://localhost')
+      if (req.method === 'GET') {
+        if (!isLoopbackRequest(req)) { writeJson(res, 403, { error: 'forbidden: loopback-only' }); return }
+        const outputDir = resolveOutputDir(config, qurl.searchParams.get('bookId') ?? undefined)
+        const project = loadProject(outputDir)
+        if (project === undefined) { writeJson(res, 400, { error: '输出目录中没有项目' }); return }
+        const response: NameForgeBankResponse = { entries: readNameBank(project) }
+        writeJson(res, 200, response)
+        return
+      }
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<(NameForgeGenerateRequest | NameForgeMutateRequest)>(req)
+      if (body === undefined) { writeJson(res, 400, { error: '请求体缺失' }); return }
+      const outputDir = resolveOutputDir(config, body.bookId)
+      const project = loadProject(outputDir)
+      if (project === undefined) { writeJson(res, 400, { error: '输出目录中没有项目' }); return }
+      try {
+        if (body.action === 'generate') {
+          const candidates = await runNameForge(ctx, config, project, {
+            category: body.category,
+            count: body.count,
+            hint: body.hint,
+          })
+          const response: NameForgeGenerateResponse = { candidates }
+          writeJson(res, 200, response)
+          return
+        }
+        const entries = mutateNameBank(project, body.action === 'adopt'
+          ? { kind: 'adopt', category: body.category ?? 'person', candidates: body.candidates ?? [] }
+          : body.action === 'discard'
+            ? { kind: 'discard', id: String(body.id ?? '') }
+            : { kind: 'clear' })
+        project.updatedAt = new Date().toISOString()
+        saveProject(outputDir, project)
+        const response: NameForgeMutateResponse = { entries }
+        writeJson(res, 200, response)
+      } catch (error) {
+        writeJson(res, 400, { error: (error as Error).message })
+      }
+    },
+  }
+
   // ------------------------------------------------------------- bookshelf
   const bookshelfRoute: WebRoute = {
     kind: 'exact',
@@ -4049,6 +4108,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     marketRadarBriefRoute,
     knowledgeRoute,
     bookAnalysisRoute,
+    nameForgeRoute,
     ideaInspirationRoute,
     marketIdeaInspirationRoute,
     directorRoute,

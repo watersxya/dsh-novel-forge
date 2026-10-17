@@ -15,6 +15,7 @@ import type { ProjectState } from '../protocol.ts'
 import { assemblePromptBlocks, type PromptBlock } from '../prompt-cache.ts'
 import { renderAllAssets } from '../assets.ts'
 import { renderPromptSlots } from '../prompt-slots.ts'
+import { renderNameBank } from '../name-forge.ts'
 import { renderChapterWriterSkeleton } from '../prompting.ts'
 import { renderTimelineBlock } from '../timeline.ts'
 import { renderTensionBlock } from '../tension.ts'
@@ -108,6 +109,9 @@ export function writeSystemPrompt(project: ProjectState, targetChars?: number, l
   // 作者自定义槽位（只影响表达方式，不覆盖道藏/红线/合规）。
   const slotBlock = renderPromptSlots(project)
   if (slotBlock !== '') book.push(slotBlock)
+  // 已定名资产（取名器采纳的名字）：本书层，只随作者采纳变。
+  const nameBlock = renderNameBank(project)
+  if (nameBlock !== '') book.push(nameBlock)
   blocks.push({ layer: 'book', text: book.join('\n') })
 
   // ---- 本章层：随创作进度逐章变，垫尾 ----

@@ -627,6 +627,34 @@ export class NovelApi {
     await postJson(NOVEL_API.promptSlots, { id, value })
   }
 
+  /** 取名器：本书名字库。 */
+  async nameForgeBank(): Promise<import('../protocol.ts').NameForgeBankResponse> {
+    const response = await fetch(withBookId(NOVEL_API.nameForge))
+    return readJson<import('../protocol.ts').NameForgeBankResponse>(response)
+  }
+
+  /** 取名器：生成一批候选（不落盘）。 */
+  async nameForgeGenerate(
+    category: import('../protocol.ts').NameCategory,
+    count: number,
+    hint: string,
+  ): Promise<import('../protocol.ts').NameForgeGenerateResponse> {
+    return postJson<import('../protocol.ts').NameForgeGenerateResponse>(NOVEL_API.nameForge, { action: 'generate', category, count, hint })
+  }
+
+  /** 取名器：采纳候选入名字库。 */
+  async nameForgeAdopt(
+    category: import('../protocol.ts').NameCategory,
+    candidates: import('../protocol.ts').NameForgeCandidate[],
+  ): Promise<import('../protocol.ts').NameForgeMutateResponse> {
+    return postJson<import('../protocol.ts').NameForgeMutateResponse>(NOVEL_API.nameForge, { action: 'adopt', category, candidates })
+  }
+
+  /** 取名器：从名字库移除一条。 */
+  async nameForgeDiscard(id: string): Promise<import('../protocol.ts').NameForgeMutateResponse> {
+    return postJson<import('../protocol.ts').NameForgeMutateResponse>(NOVEL_API.nameForge, { action: 'discard', id })
+  }
+
   /** 故事时间线：列表（含规则初筛问题）。 */
   async timeline(): Promise<import('../protocol.ts').TimelineResponse> {
     const response = await fetch(withBookId(NOVEL_API.timeline))

@@ -30,6 +30,7 @@ import { applyModelCapability } from './model-request.ts'
 import { mapTimelineItem, parseFactLines, parseTimelineItems } from './digest-parse.ts'
 import { resolveOutputBudget, STRUCTURED_FIELD_LIMITS } from './output-budget.ts'
 import { normalizeTimelineEvent, sortTimeline } from './timeline.ts'
+import { buildNameForgeUserPrompt, categorySpec, collectNameForgeContext, parseNameCandidates } from './name-forge.ts'
 import { createSnapshot } from './snapshots.ts'
 import { NovelActionError } from './action-guard.ts'
 import { buildChapterContext, renderContextBlocks } from './novel-context.ts'
@@ -48,6 +49,7 @@ import { summaryFactsSystemPrompt, summaryFactsTimelineSystemPrompt, extractFact
 import { auditBatchSystemPrompt, impactAnalysisSystemPrompt } from './prompts/audit.ts'
 import { adaptationAnalyzeSystemPrompt, adaptationAnalyzeUser, adaptationProposeSystemPrompt, adaptationProposeUser, adaptationRewriteSystemPrompt } from './prompts/adapt.ts'
 import { marketRadarSystemPrompt, marketIdeaInspirationSystemPrompt, blurbSystemPrompt } from './prompts/market.ts'
+import { nameForgeSystemPrompt } from './prompts/nameforge.ts'
 import { renderWorld, extractWorldSystemPrompt } from './prompts/world.ts'
 import type {
   AdaptationDimension,
@@ -100,6 +102,8 @@ import type {
   BookAnalysisResult,
   IdeaInspirationRequest,
   IdeaInspirationResult,
+  NameCategory,
+  NameForgeCandidate,
   DirectorRequest,
   DirectorAdvice,
 } from './protocol.ts'
@@ -3884,6 +3888,31 @@ export async function runIdeaInspiration(ctx: Context, config: NovelConfig, req:
     ? v.filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null).map(x => ({ title: str(x.title), hook: str(x.hook), genre: str(x.genre), pov: str(x.pov), payoff: str(x.payoff) }))
     : []
   return { ideas: arr(raw.ideas).slice(0, count) }
+}
+
+/**
+ * 取名器：按类别批量生成专有名字（题材感知 + 世界观避重 + 库内避重）。
+ *
+ * 候选**不落盘**——作者在面板逐条采纳后才进名字库（走 nameForgeRoute 的
+ * adopt 动作）。生成失败（含模型输出无法解析）抛错，由路由转 500。
+ */
+export async function runNameForge(
+  ctx: Context,
+  config: NovelConfig,
+  project: ProjectState,
+  req: { category: NameCategory; count?: number; hint?: string },
+): Promise<NameForgeCandidate[]> {
+  const spec = categorySpec(req.category)
+  const count = Math.max(1, Math.min(spec.maxCount, Math.floor(req.count ?? 10)))
+  const context = collectNameForgeContext(project)
+  const system = nameForgeSystemPrompt()
+  const user = buildNameForgeUserPrompt(spec, count, req.hint ?? '', context)
+  const text = await complete(ctx, config, { system, user, temperature: 0.9, maxTokens: Math.max(config.maxTokens, 2000), liveLabel: `取名·${spec.label}` })
+  const candidates = parseNameCandidates(text, count)
+  if (candidates.length === 0) {
+    throw new Error('取名失败：模型输出无法解析，请重试或调整补充要求')
+  }
+  return candidates
 }
 
 /** 雷达→灵感：基于市场信号/生产底座/创意简报，生成贴合市场的开书灵感。 */

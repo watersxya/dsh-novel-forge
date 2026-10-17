@@ -22,7 +22,7 @@ import { CmdPalette } from './CmdPalette.tsx'
 import { useConfirm, useDialogFocus } from './ConfirmDialog.tsx'
 import type { CmdAction } from './CmdPalette.tsx'
 import { showToast } from './toast.ts'
-import { Activity, BarChart3, Book, Bot, BookMarked, BookOpen, Brain, Factory, FileText, Folder, GitBranch, Library, ListTree, ScrollText, Search, Settings, Sparkles } from 'lucide-react'
+import { Activity, BarChart3, Book, Bot, BookMarked, BookOpen, Brain, Factory, FileText, Folder, GitBranch, Library, ListTree, ScrollText, Search, Settings, Sparkles, Tag } from 'lucide-react'
 import { AssistantTab } from './AssistantTab.tsx'
 import { AssetsTab } from './AssetsTab.tsx'
 import { AuthorHome } from './AuthorHome.tsx'
@@ -48,6 +48,7 @@ import TimelineView from './TimelineView.tsx'
 import TensionView from './TensionView.tsx'
 import StyleView from './StyleView.tsx'
 import PromptSlotsView from './PromptSlotsView.tsx'
+import NameForgeView from './NameForgeView.tsx'
 import { EmptyState, PlotlineCard, PlotlineHealthPanel, PlotlinePlanPanel, PlotlineSuggestionPanel, RoleCandidateRow, RoleCard, SlideNav } from './views.tsx'
 import { extractDocxTextFromBuffer } from '../docx.ts'
 import { EXPORT_SCOPE_LABELS, EXPORT_SCOPE_VALUES } from '../../protocol.ts'
@@ -216,6 +217,7 @@ const DRAWER_META: Record<string, { icon: ReactNode; label: string }> = {
   tension: { icon: <BarChart3 size={14} />, label: '张力曲线' },
   style: { icon: <Sparkles size={14} />, label: '风格漂移' },
   promptSlots: { icon: <ListTree size={14} />, label: '提示词槽位' },
+  nameForge: { icon: <Tag size={14} />, label: '取名' },
   fallback: { icon: <FileText size={14} />, label: '详情' },
 }
 
@@ -224,7 +226,7 @@ interface WorkbenchNavItem {
   label: string
   icon: ReactElement
   /** 高亮判定用的抽屉 id；'workflow' 表示底座（无抽屉）。 */
-  on: 'workflow' | 'write' | 'setup' | 'assets' | 'plotlines' | 'knowledge' | 'run' | 'director' | 'breakdown' | 'overview'
+  on: 'workflow' | 'write' | 'setup' | 'assets' | 'plotlines' | 'knowledge' | 'run' | 'director' | 'breakdown' | 'nameForge' | 'overview'
   title: string
   badge?: string
   go: () => void
@@ -1208,7 +1210,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   /** AI 助手悬浮窗：是否打开。 */
   const [assistantOpen, setAssistantOpen] = useState(false)
   /** 顶部导航右滑抽屉：写作/设定/资产/参数/工具页 = 内容抽屉。null = 常驻总编台。资料侧柜走总编台内嵌格，不再有独立滑出层。 */
-  const [rightDrawer, setRightDrawer] = useState<'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown' | 'timeline' | 'tension' | 'style' | 'promptSlots' | 'cabinet' | null>(null)
+  const [rightDrawer, setRightDrawer] = useState<'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown' | 'timeline' | 'tension' | 'style' | 'promptSlots' | 'nameForge' | 'cabinet' | null>(null)
   /** 打开参数抽屉或切换激活书时，重新加载本书参数。 */
   useEffect(() => {
     if (rightDrawer !== 'params') return
@@ -1302,7 +1304,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
   const [drawerMax, setDrawerMax] = useState(false)
 
   /** 打开内容抽屉：只滑出抽屉层，不切 activeTab —— 底座总编台保持常驻可见（对齐 demo）。 */
-  const openDrawer = (which: 'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown' | 'timeline' | 'tension' | 'style' | 'promptSlots' | 'cabinet'): void => {
+  const openDrawer = (which: 'write' | 'setup' | 'assets' | 'params' | 'overview' | 'blurb' | 'plotlines' | 'director' | 'knowledge' | 'run' | 'breakdown' | 'timeline' | 'tension' | 'style' | 'promptSlots' | 'nameForge' | 'cabinet'): void => {
     setRightDrawer(which)
     setDrawerMax(false)
     // 章节索引的分段窗口每次重开都回到首屏（2.1.9 / 方案 §15）。
@@ -3420,6 +3422,14 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
       go: () => { openDrawer('breakdown'); setToolsOpen(false) },
     },
     {
+      id: 'nameForge',
+      label: '取名',
+      icon: <Tag size={14} />,
+      on: 'nameForge',
+      title: '批量生成专有名字，采纳后注入写作',
+      go: () => { openDrawer('nameForge'); setToolsOpen(false) },
+    },
+    {
       id: 'director',
       label: '自动编辑',
       icon: <Brain size={14} />,
@@ -3580,6 +3590,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     { key: 'timeline', group: 'tools', name: '故事时间线', di: (project?.timeline ?? []).length > 0 ? `● ${(project?.timeline ?? []).length} 条事件` : '○ 未抽取', dim: project === null, go: () => { openDrawer('timeline') } },
     { key: 'knowledge', group: 'tools', name: '知识库', di: '跨书沉淀', go: () => { openDrawer('knowledge') } },
     { key: 'breakdown', group: 'tools', name: '拆书分析', di: '对标拆解', go: () => { openDrawer('breakdown') } },
+    { key: 'nameForge', group: 'tools', name: '取名', di: (project?.nameBank ?? []).length > 0 ? `● ${(project?.nameBank ?? []).length} 个已定名` : '○ 未取名', dim: project === null, go: () => { openDrawer('nameForge') } },
   ]
 
   /**
@@ -5060,6 +5071,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
           )}
           {rightDrawer === 'style' && <StyleView api={api} />}
           {rightDrawer === 'promptSlots' && <PromptSlotsView api={api} />}
+          {rightDrawer === 'nameForge' && <NameForgeView api={api} />}
           {rightDrawer === 'run' && (
           <RunPanel
             api={api}

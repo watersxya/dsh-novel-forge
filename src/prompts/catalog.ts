@@ -34,6 +34,7 @@ import { entries as digestEntries } from './digest.ts'
 import { entries as factsEntries } from './facts.ts'
 import { entries as foreshadowEntries } from './foreshadow.ts'
 import { entries as marketEntries } from './market.ts'
+import { entries as nameforgeEntries } from './nameforge.ts'
 import { entries as outlineEntries } from './outline.ts'
 import { entries as planEntries } from './plan.ts'
 import { entries as plotlinesEntries } from './plotlines.ts'
@@ -60,6 +61,7 @@ export const PROMPT_CATALOG: readonly PromptEntry[] = [
   ...factsEntries,
   ...foreshadowEntries,
   ...marketEntries,
+  ...nameforgeEntries,
   ...outlineEntries,
   ...planEntries,
   ...plotlinesEntries,

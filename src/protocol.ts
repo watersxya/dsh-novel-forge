@@ -37,6 +37,8 @@ export const NOVEL_API = {
   styleHistory: '/api/dsh-novel-forge/style-history',
   /** 提示词槽位（GET 列表 / POST 写入）。 */
   promptSlots: '/api/dsh-novel-forge/prompt-slots',
+  /** 取名器：POST {action:'generate'} 生成候选；GET 名字库；POST {action:'adopt'|'discard'|'clear'} 维护。 */
+  nameForge: '/api/dsh-novel-forge/name-forge',
   /** 故事时间线（GET 列表 / POST 操作）。 */
   timeline: '/api/dsh-novel-forge/timeline',
   marketRadar: '/api/dsh-novel-forge/market-radar',
@@ -711,6 +713,65 @@ export interface PromptSlotsRequest {
   value: string
 }
 
+/** 取名类别。 */
+export type NameCategory = 'person' | 'place' | 'technique' | 'faction' | 'artifact'
+
+/** 名字库里的一条（采纳后才注入写作提示词）。 */
+export interface NameForgeEntry {
+  /** 稳定 id（`类别:名字`）。 */
+  id: string
+  category: NameCategory
+  name: string
+  /** 命名理由/意象（20 字内为宜）。 */
+  note: string
+  /** 是否生效（false = 已弃用，不注入）。 */
+  adopted: boolean
+  createdAt: string
+}
+
+/** 一次取名生成的候选（未落盘，作者采纳后才入库）。 */
+export interface NameForgeCandidate {
+  name: string
+  note: string
+}
+
+/** POST /name-forge {action:'generate'} 请求。 */
+export interface NameForgeGenerateRequest {
+  action: 'generate'
+  category: NameCategory
+  /** 生成条数（1-20，默认 10）。 */
+  count?: number
+  /** 作者补充要求（可空）。 */
+  hint?: string
+  bookId?: string
+}
+
+/** POST /name-forge 库维护请求。 */
+export interface NameForgeMutateRequest {
+  action: 'adopt' | 'discard' | 'clear'
+  category?: NameCategory
+  /** adopt 时的候选列表。 */
+  candidates?: NameForgeCandidate[]
+  /** discard 时的条目 id。 */
+  id?: string
+  bookId?: string
+}
+
+/** POST /name-forge {action:'generate'} 响应。 */
+export interface NameForgeGenerateResponse {
+  candidates: NameForgeCandidate[]
+}
+
+/** GET /name-forge 响应：本书名字库（按类别分组由面板做）。 */
+export interface NameForgeBankResponse {
+  entries: NameForgeEntry[]
+}
+
+/** POST /name-forge 库维护响应。 */
+export interface NameForgeMutateResponse {
+  entries: NameForgeEntry[]
+}
+
 /**
  * 故事时间线事件：从章节正文抽取的「故事内时间点 + 地点 + 参与角色 + 事件」。
  * 用途：后续章节的时间连续性与地点衔接（比编年录更强调"顺序"）。
@@ -1247,6 +1308,8 @@ export interface ProjectState {
   tensionCurve?: TensionCurveConfig
   /** 作者自定义的提示词槽位（白名单见 prompt-slots.ts）。 */
   promptSlots?: Partial<Record<PromptSlotId, string>>
+  /** 取名器名字库（按类别收录的已采纳专有名字，注入写作提示词）。 */
+  nameBank?: NameForgeEntry[]
   /** 本书参数（写作/审稿/推理/模型快切；未设字段回退全局 config）。 */
   bookSettings?: BookSettings
   /** ISO timestamps. */
