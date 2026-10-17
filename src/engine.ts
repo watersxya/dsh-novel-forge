@@ -4,24 +4,10 @@
  * auto-review + rewrite, polish (de-AI-ify), narrative summaries, foreshadow
  * tracking, project persistence, and whole-book export. Pure Node (no
  * web-server dependencies), so routes stay thin and logic is testable.
+ *
+ * 系统提示词全部住在 src/prompts/（按域拆分 + catalog 注册表），本文件只做
+ * 组装与调用——提示词文案的修改去对应域文件，不要在这里新起一段。
  */
-
-/**
- * 内容合规红线（平台硬性要求）：所有书籍、所有章节无条件生效，
- * 优先级高于单书大纲/道藏中的任何设定与作者自定义红线。
- * 注入点：章节生成系统提示 + 审稿系统提示（命中即 high）。
- */
-export const COMPLIANCE_REDLINES: ReadonlyArray<string> = [
-  '1. 不得出现反对宪法所确定的基本原则的内容。',
-  '2. 不得出现危害国家安全、泄露国家秘密、颠覆国家政权、破坏国家统一的内容。',
-  '3. 不得出现危害国家荣誉和利益的内容。',
-  '4. 不得出现煽动民族仇恨、民族歧视、破坏民族团结的内容。',
-  '5. 不得出现破坏国家宗教政策、宣扬邪教和愚昧迷信的内容（不得以真实宗教、邪教或迷信活动为背景进行宣扬）。',
-  '6. 不得出现散布谣言、扰乱社会秩序、破坏社会稳定的内容。',
-  '7. 不得出现淫秽色情、赌博、暴力、凶杀、恐怖或教唆犯罪的内容（网文语境：禁止露骨性描写、血腥暴力渲染、赌博教唆、犯罪手法详细教学）。',
-  '8. 不得出现侮辱或者诽谤他人、侵害他人合法权益的内容（不得以真实人物、组织为原型进行侮辱或影射攻击）。',
-  '9. 不得出现法律法规禁止的其他内容。',
-]
 
 /** 审稿维度取值：归一化模型输出的 dimension 字段。维度清单以 reviewSystemPrompt 的九条为准。 */
 const REVIEW_DIMENSION_IDS = new Set(['character', 'setting', 'redline', 'writing', 'pacing', 'logic', 'anti-ai', 'presentation', 'compliance'])
@@ -33,7 +19,7 @@ import { join, basename, extname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createUserMessage, BlockAssembler, ReasoningEffortId, type GenerateOptions, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
-import { BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, effectiveAntiAiRules, emptyProjectAssets, recommendStylePreset, renderAllAssets, styleEngineSystemPrompt, styleFormulaSystemPrompt } from './assets.ts'
+import { BUILTIN_GENRE_LIBRARY, BUILTIN_PROGRESSION_MODES, effectiveAntiAiRules, emptyProjectAssets, recommendStylePreset, styleEngineSystemPrompt, styleFormulaSystemPrompt } from './assets.ts'
 import { scanAiFlavor } from './ai-scan.ts'
 import { compareStyleFingerprint, extractStyleFingerprint, mergeFingerprints, renderFingerprintComparison, type StyleFingerprint } from './style-fingerprint.ts'
 import { beginLiveCall, endLiveCall, markFirstToken } from './llm-live.ts'
@@ -42,15 +28,27 @@ import { streamWithFallback } from './stream-fallback.ts'
 import { convergeRequestParams, fullTextBudget } from './model-capability.ts'
 import { applyModelCapability } from './model-request.ts'
 import { mapTimelineItem, parseFactLines, parseTimelineItems } from './digest-parse.ts'
-import { renderLengthContract, resolveOutputBudget, STRUCTURED_FIELD_LIMITS } from './output-budget.ts'
-import { renderTensionBlock } from './tension.ts'
-import { renderPromptSlots } from './prompt-slots.ts'
-import { assemblePromptBlocks, type PromptBlock } from './prompt-cache.ts'
-import { normalizeTimelineEvent, renderTimelineBlock, sortTimeline } from './timeline.ts'
+import { resolveOutputBudget, STRUCTURED_FIELD_LIMITS } from './output-budget.ts'
+import { normalizeTimelineEvent, sortTimeline } from './timeline.ts'
 import { createSnapshot } from './snapshots.ts'
-import { renderChapterWriterSkeleton } from './prompting.ts'
 import { NovelActionError } from './action-guard.ts'
 import { buildChapterContext, renderContextBlocks } from './novel-context.ts'
+// 系统提示词：按域拆分 + 注册表（src/prompts/catalog.ts）。文案修改去域文件。
+import { bibleSystemPrompt } from './prompts/bible.ts'
+import { volumeSystemPrompt, planSystemPrompt, planContinuationSuffix, directorSystemPrompt } from './prompts/plan.ts'
+import { writeSystemPrompt, rewriteSystemPrompt, bodyContinuationSuffix } from './prompts/writing.ts'
+import { reviewSystemPrompt, verifySystemPrompt, authorReviewSystemPrompt } from './prompts/review.ts'
+import { polishSystemPrompt, localRevisionSystemPrompt } from './prompts/polish.ts'
+import { extractRolesSystemPrompt, roleCatchUpSuffix, roleStatusSystemPrompt } from './prompts/characters.ts'
+import { suggestPlotlinesSystemPrompt, refreshPlotlinesSystemPrompt, plotlineHealthSystemPrompt, plotlinePlanSystemPrompt } from './prompts/plotlines.ts'
+import { foreshadowSystemPrompt } from './prompts/foreshadow.ts'
+import { ideaInspirationSystemPrompt, outlineCandidatesSystemPrompt, reverseOutlineBatchSystemPrompt, reverseOutlineSystemPrompt, reverseOutlineFromAdaptationSystemPrompt } from './prompts/outline.ts'
+import { breakdownNoteSystemPrompt, breakdownSections, chapterSummarySystemPrompt, bookAnalysisSystemPrompt } from './prompts/digest.ts'
+import { summaryFactsSystemPrompt, summaryFactsTimelineSystemPrompt, extractFactsSystemPrompt, timelineExtractSystemPrompt, timelineReviewSystemPrompt } from './prompts/facts.ts'
+import { auditBatchSystemPrompt, impactAnalysisSystemPrompt } from './prompts/audit.ts'
+import { adaptationAnalyzeSystemPrompt, adaptationAnalyzeUser, adaptationProposeSystemPrompt, adaptationProposeUser, adaptationRewriteSystemPrompt } from './prompts/adapt.ts'
+import { marketRadarSystemPrompt, marketIdeaInspirationSystemPrompt, blurbSystemPrompt } from './prompts/market.ts'
+import { renderWorld, extractWorldSystemPrompt } from './prompts/world.ts'
 import type {
   AdaptationDimension,
   AdaptAnalyzeResponse,
@@ -668,25 +666,6 @@ function parseJsonObject<T>(text: string): T {
 
 // ------------------------------------------------------------------ bible
 
-/** System prompt for story-bible extraction. */
-function bibleSystemPrompt(): string {
-  return [
-    '你是一位资深网文编辑兼设定架构师。你会收到一份小说大纲，请把它提炼成结构化的「道藏」，供后续写作时严格引用。',
-    '要求：',
-    '1. 忠于大纲，不自行发明大纲之外的设定。',
-    '2. 角色卡覆盖大纲明确出现的角色（主角必含），每个角色给出性格标签、目标、关键关系。',
-    '3. 世界规则覆盖力量体系、金手指机制、势力、地理等所有硬性规则，逐条列出。',
-    '4. 红线列出大纲中明确禁止的内容（如无后宫、不圣母、无无脑碾压等）。',
-    '5. 风格列出叙事基调、节奏、POV 等写作风格要点。',
-    '6. 角色名必须用正文/编年录中的真实姓名；若大纲只写「主角」未点名，而已写章节或编年录中有名字，则用该真实姓名；禁止输出「主角（描述）」这类把身份塞进名字的占位名。',
-    '输出必须是合法 JSON 对象，不要输出任何其他文字或 Markdown 代码块标记。',
-    '重要：所有字符串值内部不得包含换行符（不要用多行字符串），JSON 必须在一段内完整结束。',
-    '重要：直接输出 JSON 结果本身，不要把思考过程或推理内容写在输出里。',
-    'JSON 结构：',
-    '{"genre": "题材与基调一句话", "worldRules": ["规则1", "规则2", ...], "characters": [{"name": "角色名", "role": "protagonist|supporting|antagonist|other", "traits": ["标签1", ...], "goals": "目标与动机", "relations": "关键关系"}], "redLines": ["红线1", ...], "style": ["风格1", ...]}',
-  ].join('\n')
-}
-
 /** Extract the story bible from an outline. */
 export async function extractBible(ctx: Context, config: NovelConfig, outline: string, project?: ProjectState): Promise<StoryBible> {
   // 已写章节/编年录只在「确认真实姓名与已确立设定」时参考，仍忠于大纲、不新增大纲外设定。
@@ -762,26 +741,6 @@ export async function extractBible(ctx: Context, config: NovelConfig, outline: s
 
 // ------------------------------------------------------------------ volumes
 
-/** System prompt for volume planning. */
-function volumeSystemPrompt(): string {
-  return [
-    '你是一位资深网文总编。你会收到一份小说大纲，请把全书划分为若干「卷」（分卷），每卷有明确的剧情定位与起止章节。',
-    '要求：',
-    '1. 大纲已有分卷时，严格遵循大纲的分卷结构；没有时按剧情弧线合理划分（3-8 卷）。',
-    '2. 卷定位一句话说明该卷的剧情重心。',
-    '3. chapterStart/chapterEnd 给出该卷覆盖的章节区间（从 1 开始连续编号）。',
-    '输出必须是合法 JSON 数组，不要输出任何其他文字：',
-    '[{"no": 1, "title": "卷名", "summary": "卷定位与剧情重心", "chapterStart": 1, "chapterEnd": 80}]',
-    '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
-    '重要：直接输出 JSON 结果本身，不要把思考过程或推理内容写在输出里。',
-    // 长度合同与 resolve 端的截断口径共用一份声明，避免 prompt 与解析漂移。
-    renderLengthContract([
-      ['卷名', STRUCTURED_FIELD_LIMITS.chapterTitle],
-      ['每卷定位', STRUCTURED_FIELD_LIMITS.chapterSummary],
-    ]),
-  ].join('\n')
-}
-
 /** Plan volumes from an outline. */
 export async function planVolumes(ctx: Context, config: NovelConfig, outline: string): Promise<Volume[]> {
   const user = `请为下面这部小说划分卷：\n\n${outline}`
@@ -821,158 +780,6 @@ function volumeOf(chapterNo: number, volumes: Volume[] | undefined): number {
 }
 
 // ------------------------------------------------------------------- plan
-
-/** The chapter-planning prompt template. */
-function planSystemPrompt(volumes: Volume[] | undefined): string {
-  const volumeBlock = volumes !== undefined && volumes.length > 0
-    ? ['\n全书分卷结构（规划章节时需落在对应卷内）：']
-      .concat(volumes.map(v => `第${v.no}卷《${v.title}》：${v.summary}（章节 ${v.chapterStart}-${v.chapterEnd}）` +
-        (v.strategy !== undefined && v.strategy !== '' ? `\n  卷战略：${v.strategy}` : '') +
-        (v.pacing !== undefined && v.pacing !== '' ? `\n  卷节奏板：${v.pacing}` : '')))
-      .join('\n')
-    : ''
-  return [
-    '你是一位资深中文网文策划编辑，擅长把小说大纲拆解为可执行的章节计划。',
-    '你会收到一份小说大纲。请根据大纲的设定、主线与节奏，规划出一份章节计划。',
-    '要求：',
-    '1. 每章必须有明确的核心剧情推进（不能只是过渡或凑字数）。',
-    '2. 章节之间要衔接自然，前章结尾为后章埋下钩子。',
-    '3. 严格遵循大纲的人设、金手指规则、战力体系与世界观设定，不得自行发明冲突设定。',
-    '4. 输出必须是合法的 JSON 数组，不要输出任何其他文字或 Markdown 代码块标记。',
-    '5. 数组每个元素格式：{"title": "章节标题（10字以内，有网文感）", "beats": "结构化剧情要点（150-250字，必须包含四段，段间用换行分隔）：\\n本章目标：本章要完成的核心推进；\\n剧情要点：主要情节的起承转合（2-4 句）；\\n爽点/钩子：本章的爽点兑现或情绪钩子；\\n结尾钩子：本章结尾为下一章埋下的悬念"}',
-    '6. 每个章节对象可额外包含以下可选字段（尽量给出，缺失则跳过）：tension（0-100 整数：本章张力目标，对抗/揭示/抉择/代价的强度；铺垫与日常章明显偏低，与相邻章节形成起伏）、mustAdvance（数组，本章必须推进的局面/关系/信息/风险/决策变化）；mustPreserve（数组，本章必须保持不破坏的项）；characterHardFacts（数组，本章不可违背的人物硬事实：身份/阵营/境界/当前位置/知情度）；endingHook（字符串，本章结尾钩子要求）；obligation（字符串，本章义务合约一句话）。',
-    '重要：beats 字段内部必须使用 \\n 转义表示换行（JSON 字符串内不得有真实换行符），其余字符串值也不得包含真实换行符，JSON 必须在一段内完整结束。',
-    '重要：直接输出 JSON 结果本身，不要把思考过程或推理内容写在输出里。',
-    volumeBlock,
-  ].join('\n')
-}
-
-/** Build the writing system prompt (bible + outline + active foreshadows).
- *  `targetChars` 来自每章计划（规划时快照，= 设置的每章目标字数）；无则退回默认 3500。
- *  字数区间按目标动态生成（±15%，取整到百位），避免系统提示词与设置互相冲突。
- *  `lengthRule` 可覆盖第 1 条字数要求（整章修订/改编时按原文长度为准）。 */
-function writeSystemPrompt(project: ProjectState, targetChars?: number, lengthRule?: string, beforeChapter?: number): string {
-  const bible = project.bible
-  // 分层组装（见 prompt-cache.ts）：固定规则排最前、本书资料居中、本章动态内容垫尾，
-  // 跨章调用时重复前缀才有机会命中厂商输入缓存。块内文案与原逐段组装完全一致，只调顺序。
-  const blocks: PromptBlock[] = []
-
-  // ---- 固定层：永不变，排最前 ----
-  const target = targetChars !== undefined && targetChars > 0 ? targetChars : 3500
-  const lo = Math.max(1000, Math.round((target * 0.85) / 100) * 100)
-  const hi = Math.max(lo + 100, Math.round((target * 1.15) / 100) * 100)
-  const rules: string[] = ['写作硬性要求：']
-  rules.push(lengthRule ?? `1. 每章 ${lo}-${hi} 字（目标 ${target} 字，按中文字符计），只输出章节正文，不要输出标题、章回名、作者的话或任何 Markdown 标记。`)
-  rules.push('2. 以主角视角展开，动作、对话、心理描写交替推进，禁止大段设定说明。')
-  rules.push('3. 尊重大纲与道藏：人设不崩、金手指规则不自相矛盾、战力不随意膨胀。')
-  rules.push('4. 章末留一个钩子（悬念、反转或新线索），吸引读者读下一章。')
-  rules.push('5. 语言流畅自然，符合中文网文语感，避免翻译腔与病句。')
-  rules.push('6. 对话与冲突密度：每章至少 1 处实质对话或正面对抗/交锋场面；推理与心理活动必须用动作、环境细节、微表情、对话呈现，禁止整章纯内心独白铺陈（禁止"解说式"交代线索）。')
-  rules.push('7. 反派与对手的行动力：本章出现的反派/对手必须有其行动、反制或压迫感（布局、试探、追索、交锋至少占其一），不得作为纯背景板存在。')
-  rules.push('8. 配角辨识度：重要新登场配角应给姓名或可辨识的独有特征；禁止通篇用"瘦高个/灰衣人/戴面具者"等身形标签代称同一角色。')
-  rules.push('9. 信息呈现方式：关键线索、设定、局势通过对话、动作、发现物呈现，禁止主角内心"讲解"给读者听。')
-  blocks.push({ layer: 'fixed', text: rules.join('\n') })
-  blocks.push({
-    layer: 'fixed',
-    text: [
-      '==================== 内容合规红线（平台硬性要求，最高优先级，违反即失败） ====================',
-      COMPLIANCE_REDLINES.join('\n'),
-      '以上九条为硬性底线，任何情况下不得以任何形式出现或影射；若剧情确需涉及（如批判、反讽），只能以明确否定、揭露、批判的立场呈现，且不得展开细节。',
-    ].join('\n'),
-  })
-
-  // ---- 本书层：只随作者编辑变，一章一次生成里不变 ----
-  const book: string[] = []
-  if (bible !== undefined) {
-    book.push('==================== 道藏（写作时严格遵守） ====================')
-    if (bible.genre !== '') book.push(`题材基调：${bible.genre}`)
-    if (bible.worldRules.length > 0) book.push('世界规则：\n' + bible.worldRules.map(r => `- ${r}`).join('\n'))
-    // 角色上下文：角色库（主表）与道藏角色卡合并去重，避免两份重复注入、互相打架。
-    const roleLib = project.roles ?? []
-    const labelName = { protagonist: '主角', female_lead: '女主', female_support: '女配', support: '配角', antagonist: '反派', extra: '路人' }
-    const seenRole = new Set<string>()
-    const mergedRoles: string[] = []
-    for (const r of roleLib) {
-      seenRole.add(r.name)
-      const card = bible.characters.find(c => c.name === r.name)
-      const traits = card !== undefined ? card.traits : (Array.isArray(r.traits) ? r.traits : [])
-      const goals = card !== undefined && card.goals !== '' ? card.goals : r.goals
-      const relations = card !== undefined && card.relations !== '' ? card.relations : (Array.isArray(r.relations) && r.relations.length > 0 ? r.relations.join('、') : '')
-      mergedRoles.push(`- ${r.name}（${labelName[r.roleLabel]}）：${r.identity}${traits.length > 0 ? `；性格：${traits.join('、')}` : ''}${goals !== '' ? `；目标：${goals}` : ''}${relations !== '' ? `；关系：${relations}` : ''}`)
-      if (card !== undefined && Array.isArray(card.knowledge) && card.knowledge.length > 0) {
-        mergedRoles.push(`  已知信息（该角色知道的：${card.knowledge.join('；')}；未列出的信息该角色一律不知道，不得写其知晓或提及）`)
-      }
-    }
-    for (const card of bible.characters) {
-      if (seenRole.has(card.name)) continue
-      seenRole.add(card.name)
-      const roleName = { protagonist: '主角', supporting: '配角', antagonist: '反派', other: '其他' }[card.role]
-      mergedRoles.push(`- ${card.name}（${roleName}）：${card.traits.join('、')}${card.goals !== '' ? `；目标：${card.goals}` : ''}${card.relations !== '' ? `；关系：${card.relations}` : ''}`)
-      if (Array.isArray(card.knowledge) && card.knowledge.length > 0) {
-        mergedRoles.push(`  已知信息（该角色知道的：${card.knowledge.join('；')}；未列出的信息该角色一律不知道，不得写其知晓或提及）`)
-      }
-    }
-    if (mergedRoles.length > 0) {
-      book.push('角色卡（角色库与道藏已合并去重）：')
-      book.push(...mergedRoles)
-    }
-    if (bible.redLines.length > 0) book.push('写作红线（违反即失败）：\n' + bible.redLines.map(r => `- ${r}`).join('\n'))
-    if (bible.style.length > 0) book.push('风格要求：\n' + bible.style.map(r => `- ${r}`).join('\n'))
-  }
-  const worldBlock = renderWorld(project.world)
-  if (worldBlock !== '') book.push(worldBlock)
-  book.push('==================== 全书大纲 ====================')
-  // 超长大纲截断保护（防止上下文超限）；完整大纲在总纲页查看。
-  const outlineBlock = project.outline.length > 6000
-    ? project.outline.slice(0, 6000) + '\n…（大纲过长已节选，完整内容见总纲页）'
-    : project.outline
-  book.push(outlineBlock)
-  book.push('==================== 大纲结束 ====================')
-  const assetsBlock = renderAllAssets(project.assets)
-  if (assetsBlock !== '') book.push(assetsBlock)
-  // 作者自定义槽位（只影响表达方式，不覆盖道藏/红线/合规）。
-  const slotBlock = renderPromptSlots(project)
-  if (slotBlock !== '') book.push(slotBlock)
-  blocks.push({ layer: 'book', text: book.join('\n') })
-
-  // ---- 本章层：随创作进度逐章变，垫尾 ----
-  const chapter: string[] = []
-  const active = project.foreshadows.filter(f => f.status === 'planted' || f.status === 'progressing')
-  if (active.length > 0) {
-    chapter.push('==================== 活跃伏笔（近期需推进或回收的线索） ====================')
-    for (const f of active) {
-      chapter.push(`- [${f.status === 'planted' ? '已埋设' : '推进中'}] ${f.description}${f.targetChapter !== undefined ? `（预计 ${f.targetChapter} 章回收）` : ''}`)
-    }
-  }
-  const lines = (project.plotlines ?? []).filter(l => l.status === 'active' || l.status === 'paused')
-  if (lines.length > 0) {
-    const kindName = { main: '主线', branch: '支线', character: '人物线', mystery: '悬念线' }
-    chapter.push('==================== 剧情线（本章应推进至少一条活跃线） ====================')
-    for (const l of lines) {
-      chapter.push(`- [${kindName[l.kind]}${l.status === 'paused' ? '·暂停中' : ''}] ${l.name}：${l.goal}${l.progress !== '' ? `（当前进度：${l.progress}）` : ''}`)
-    }
-  }
-  chapter.push(renderChapterWriterSkeleton({
-    targetChars: target,
-    minChars: lo,
-    maxChars: hi,
-    pov: '第三人称有限视角，严格跟随主角所见所知。',
-    endingHookPreference: '章末留一个明确钩子（新信息、新风险或未闭合选择）。',
-    tonePreference: '动作、对话、心理交替推进；重大信息用对话/动作/发现呈现。',
-    antiAiRules: '严格遵循上方「反 AI 规则」与写法资产，避免套话与 AI 腔。',
-  }))
-  // 故事时间线锚点：只注入本章之前的事件（回写旧章时不被后续章节剧透）。
-  const timelineBlock = renderTimelineBlock(project, beforeChapter ?? Number.MAX_SAFE_INTEGER)
-  if (timelineBlock !== '') chapter.push(timelineBlock)
-  // 本章张力（目标值 + 参考曲线位置）：写作时把握松紧。
-  if (beforeChapter !== undefined) {
-    const tensionBlock = renderTensionBlock(project, beforeChapter)
-    if (tensionBlock !== '') chapter.push(tensionBlock)
-  }
-  blocks.push({ layer: 'chapter', text: chapter.join('\n') })
-
-  return assemblePromptBlocks(blocks)
-}
 
 /**
  * Plan chapters from an outline (optionally for one volume).
@@ -1104,9 +911,7 @@ export async function planChapters(
     '',
     `请规划 ${chapterCount} 章。输出 JSON 数组（不要输出其他文字）：`,
   ].join('\n')
-  const system = planSystemPrompt(project.volumes) + (continuation
-    ? '\n重要：本次是**续写规划**——已有章节的剧情不得重写或重复，新章节标题不得与已有章节标题相同，新章节的剧情必须从上一章结尾自然接续（人物状态、时间线、地点衔接一致）。'
-    : '')
+  const system = planSystemPrompt(project.volumes) + (continuation ? planContinuationSuffix() : '')
   const parsed = (await completeJsonArray(
     ctx, config,
     { system, user, temperature: 0.7, maxTokens: resolveOutputBudget('chapter-list', { chapters: chapterCount }), liveLabel: '章节规划' },
@@ -1190,58 +995,6 @@ function retrieveKnowledge(project: ProjectState, query: string, topN = 3): stri
 }
 
 // ------------------------------------------------------------------ writing
-
-/** The review system prompt. */
-function reviewSystemPrompt(project: ProjectState): string {
-  const bible = project.bible
-  // 分层组装（见 prompt-cache.ts）：审稿口径与合规红线永不变，排最前；道藏与资产
-  // 只随作者编辑变，排后面——审稿是逐章连打的动作，前缀稳定才有机会命中输入缓存。
-  const blocks: PromptBlock[] = []
-  const fixed: string[] = [
-    '你是一位严格的网文审稿编辑。你会收到一章正文以及本书的道藏与红线。',
-    '请从以下维度审查本章：',
-    '1. 人设一致性：角色行为是否符合下方角色卡的设定（性格/目标/知情度/说话方式）。',
-    '2. 设定一致性：金手指规则、战力体系、世界观是否与道藏冲突。',
-    '3. 红线检查：是否触犯下方「本书红线」与「内容合规红线」。',
-    '4. 文笔质量：语病、翻译腔、AI 套话（"不禁""仿佛""一时间"等高频词滥用）、流水账。',
-    '5. 节奏与爽点：本章是否有推进、有钩子，是否拖沓灌水。',
-    '6. 逻辑漏洞：前后矛盾、时间线错误、对话失真。',
-    '7. 反 AI 规则：下方「本地 AI 味扫描」里已给出**本轮确定性命中的规则与次数**，直接以它为事实依据判级（禁止类命中即列为问题；鼓励类只作低优先级建议、不阻塞通过）。未列出的规则说明本章无确定性命中，不必逐条复述，也不要凭印象补报。',
-    '8. 呈现方式：整章是否纯内心推理铺陈（无对话/无对抗，推理全靠解说）；反派是否纯背景板无行动；重要配角是否无名标签化（瘦高个/灰衣人全程代称）——命中即列为问题。',
-    '9. 内容合规（最高优先级）：逐条核对下方「内容合规红线」，任何一条命中（含影射、暗示、详细描写）必须列为 high，并给出改写建议。',
-    '输出必须是合法 JSON 对象，不要输出任何其他文字：',
-    '{"score": 0-100的整数, "riskScore": 0-100的整数(越高越需人工处理,可结合本地AI味指数), "tension": 0-100的整数(本章张力强度:对抗/揭示/抉择/代价;铺垫与日常章应明显偏低), "verdict": "一句话总评", "issues": [{"severity": "high|medium|low", "dimension": "character|setting|redline|writing|pacing|logic|anti-ai|presentation|compliance", "item": "问题描述", "suggestion": "修改建议", "ruleName": "命中的反AI规则名(见反AI规则清单)", "ruleType": "forbidden|risk|encourage", "category": "套话|句式|段落|心理|设定|节奏|对话|其他", "excerpt": "命中的原文摘录(不超过50字)", "reason": "判定理由", "canAutoRewrite": true|false}]}',
-    'tension 是本章张力强度评分（不是质量分）：对决/揭秘/生死抉择偏高，铺垫章、日常章、过渡章偏低；同一本书内保持同一尺度。',
-    '反 AI 类 issue 尽量给出 ruleName/ruleType/category/excerpt/reason/canAutoRewrite，便于统计与自动改写。',
-    '风格符合度：若下方给出「风格指纹比对」，以它为准判断本章是否偏离绑定写法——偏差显著时按 writing 维度、category 用「风格」上报；比对里说没有显著偏差时，不要报风格问题。',
-    'AI 套话高频模板词示例（集中出现必须整体降密度）：仿佛、似乎、极其、完美、深不见底、形成了、莫名、无法形容、难以言喻、精心雕琢、肤光胜雪、眉目如画、歌舞升平、觥筹交错、妙语连珠、不可名状、另一层真相、命运、真相。',
-    '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
-    '重要：直接输出 JSON 结果本身，不要把思考过程写在输出里。',
-    '==================== 内容合规红线（平台硬性要求，最高优先级） ====================',
-    COMPLIANCE_REDLINES.join('\n'),
-    '以上九条为硬性底线：正文中任何一条命中（含影射、暗示、详细展开）都必须列为 high，并给出改写建议；作者自定义红线不得豁免这九条。',
-  ]
-  blocks.push({ layer: 'fixed', text: fixed.join('\n') })
-  const book: string[] = []
-  const assetsBlock = renderAllAssets(project.assets)
-  if (assetsBlock !== '') book.push('\n' + assetsBlock)
-  if (bible !== undefined) {
-    book.push('\n==================== 道藏 ====================')
-    if (bible.worldRules.length > 0) book.push('世界规则：\n' + bible.worldRules.map(r => `- ${r}`).join('\n'))
-    if (bible.characters.length > 0) {
-      book.push('角色卡：')
-      for (const card of bible.characters) {
-        book.push(`- ${card.name}（${card.role}）：${card.traits.join('、')}`)
-        if (Array.isArray(card.knowledge) && card.knowledge.length > 0) {
-          book.push(`  该角色知道：${card.knowledge.join('；')}（未列出的信息该角色不知道）`)
-        }
-      }
-    }
-    if (bible.redLines.length > 0) book.push('红线：\n' + bible.redLines.map(r => `- ${r}`).join('\n'))
-  }
-  blocks.push({ layer: 'book', text: book.join('\n') })
-  return assemblePromptBlocks(blocks)
-}
 
 /**
  * 风格基线的取样上限与取法。
@@ -1500,85 +1253,6 @@ export async function reviewChapterText(
   }
 }
 
-/** 验证模式系统提示：修订后逐条核对原意见是否解决，只挑新增 high，不重复挑剔主观项。 */
-function verifySystemPrompt(project: ProjectState): string {
-  return [
-    '你是一位网文审稿验证员。作者已按上一轮审稿意见修订了本章，你需要验证修订效果。',
-    '你的任务（严格按此执行）：',
-    '1. 逐条核对「上一轮意见」中的每一条（按编号 1、2、3...）是否已在修订稿中解决。',
-    '2. 只挑修订【新引入】的 high 级问题（设定矛盾/逻辑硬伤/事实错误）——新引入的 medium/low 主观项（文笔/套话/节奏）不要列。',
-    '3. 禁止重复挑剔上一轮已指出且本次已解决的主观项（如"缓缓/微微"等套话、错别字）——即使换个说法再提也不行。',
-    '4. 严禁为了显得专业而新增"换一批毛病"式的意见。',
-    '输出必须是合法 JSON 对象，包含以下字段：',
-    '- resolvedIds：已解决的上一轮意见编号数组（如 [1, 3, 5]）。',
-    '- unresolvedIds：未解决或部分解决的上一轮意见编号数组（如 [2, 4]）。',
-    '- issues：未解决的原意见 + 新引入的 high 级问题列表（格式同审稿：severity/item/suggestion）。未解决的原意见 item 需注明"未解决(编号N)：原意见摘要"。',
-    '- score：按修订稿整体质量给 50-90 分（解决全部 high 且无新增 high 时给 70 以上）。',
-    '- verdict：一句话结论。',
-    '完整格式：{"resolvedIds": [1,3], "unresolvedIds": [2], "score": 75, "verdict": "一句话", "issues": [{"severity": "high", "dimension": "character|setting|redline|writing|pacing|logic|anti-ai|presentation|compliance", "item": "未解决(2)：xxx", "suggestion": "xxx"}]}',
-    '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
-    '重要：直接输出 JSON 结果本身，不要把思考过程写在输出里。',
-    renderBibleForVerify(project),
-  ].join('\n')
-}
-
-/**
- * 验证模式下注入道藏。
- *
- * 原实现是 `JSON.stringify(project.bible).slice(0, 3000)`——有两个问题：
- * 1. **腰斩的 JSON 不是 JSON**：`slice` 从中间切断，审稿员会看到语法残缺的
- *    对象（字符串没闭合、数组没结尾），既浪费 token 又可能误读设定。
- * 2. **静默截断设定**：世界规则/角色卡排在后面的字段最先被切掉，而那恰恰是
- *    核对设定冲突最需要的部分。
- *
- * 改为结构化渲染 + 按「世界规则/角色/红线」分配独立预算。
- */
-function renderBibleForVerify(project: ProjectState): string {
-  const bible = project.bible
-  if (bible === undefined) return '本书道藏（核对设定冲突用）：\n（无）'
-  const parts: string[] = []
-  if (bible.worldRules.length > 0) parts.push(`世界规则：\n${bible.worldRules.map(r => `- ${r}`).join('\n')}`)
-  if (bible.characters.length > 0) {
-    parts.push(`角色卡：\n${bible.characters.map(c => {
-      const goals = c.goals !== '' ? `；目标：${c.goals}` : ''
-      const rel = c.relations !== '' ? `；关系：${c.relations}` : ''
-      return `- ${c.name}：${c.traits.join('、')}${goals}${rel}`
-    }).join('\n')}`)
-  }
-  if (bible.redLines.length > 0) parts.push(`红线：\n${bible.redLines.map(r => `- ${r}`).join('\n')}`)
-  if (parts.length === 0) return '本书道藏（核对设定冲突用）：\n（无）'
-  // 总预算兜底：道藏极端庞大时仍要防止撑爆上下文，但截断显式化而非静默腰斩。
-  const block = parts.join('\n')
-  const limit = 6000
-  const body = block.length > limit
-    ? block.slice(0, limit) + `\n…（道藏过长已节选，但角色名/世界规则已尽量保留；如需完整设定请查总纲页）`
-    : block
-  return `本书道藏（核对设定冲突用）：\n${body}`
-}
-
-/** Build the author-review system prompt (narrative structure, not prose). */
-function authorReviewSystemPrompt(): string {
-  return [
-    '你是一位网文作者复盘助手。你会收到：本章正文、上一章结尾（钩子）、上一章作者复盘（如有）、活跃剧情线与编年录近期事实。',
-    '请从叙事结构层面复盘本章（不评文笔，那是审稿的事）：',
-    '1. hookHonored：上一章结尾的钩子/悬念是否在本章兑现或推进（true/false）。',
-    '2. hookNote：钩子兑现情况一句话；未兑现时说明并给出"建议在第几章补"的建议。',
-    '3. endingHook：本章结尾钩子强度，0-10 的整数（低于 6 说明结尾平淡，读者可能不想看下一章）。',
-    '4. plotlineProgress：本章推进了哪条剧情线（主线/支线名），或"无实质推进"（连续无推进要提醒）。',
-    '5. advancedLines：本章实际推进的剧情线名称数组——从「活跃剧情线」清单中选出推进了的线（名称必须与清单中的线名一字不差；没推进任何线则输出空数组）。',
-    '6. continuity：与上一章结尾的衔接检查（人物位置/时间/伤势/资源/对话状态），发现问题要指出。',
-    '7. trend：结合上一章复盘看近期节奏趋势（是否连续拖沓、爽点密度是否下降、是否需要调整）。',
-    '8. stateChanges：本章发生的关键状态变化数组（人物状态/世界局面/关系/资源，每条约 20 字，最多 6 条），供整本与事实库回灌。',
-    '9. newConflicts：本章新引入或明显升级的冲突数组（最多 4 条）。',
-    '10. clues：本章埋下或推进的新线索/伏笔数组（最多 4 条）。',
-    '11. absentRisks：本章缺席但按卷级职责应出场/该推进关系的重要角色，及其缺席带来的风险（最多 4 条）。',
-    '输出必须是合法 JSON 对象，不要输出任何其他文字：',
-    '{"hookHonored": true或false, "hookNote": "一句话", "endingHook": 0-10整数, "plotlineProgress": "一句话", "advancedLines": ["线名"], "continuity": "一句话", "trend": "一句话", "stateChanges": ["状态变化"], "newConflicts": ["新冲突"], "clues": ["新线索"], "absentRisks": ["本章缺席但值得注意的角色及风险（卷级职责/缺席风险，最多4条）"]}',
-    '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
-    '重要：直接输出 JSON 结果本身，不要把思考过程写在输出里。',
-  ].join('\n')
-}
-
 /** 作者复盘：对一章做叙事结构复盘（钩子兑现/结尾钩子/推进/连续性/趋势）。 */
 export async function authorReviewChapter(
   ctx: Context,
@@ -1661,14 +1335,7 @@ export function autoLinkPlotlines(project: ProjectState, chapterNo: number, adva
 
 /** 建议剧情线：基于大纲/卷计划/已写章节/编年录，提炼候选线。 */
 export async function suggestPlotlines(ctx: Context, config: NovelConfig, project: ProjectState): Promise<Plotline[]> {
-  const system = [
-    '你是一位网文剧情架构师。根据本书的大纲、卷计划、已写章节标题与编年录，为作者提炼建议的剧情线（主线/支线/人物线/悬念线）。',
-    '每条线要：名称简洁有力；目标写清楚这条线最终要完成什么；progress 写当前推进到哪（没有就空字符串）。',
-    '建议 4-8 条，覆盖：1 条主线、1-2 条人物线、1-2 条悬念线、1-3 条支线。避免与大纲明显重复的废话线。',
-    '输出必须是合法 JSON 数组，格式：[{"name": "线名", "kind": "main|branch|character|mystery", "goal": "目标", "progress": ""}]',
-    '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
-    '重要：直接输出 JSON 结果本身，不要把思考过程写在输出里。',
-  ].join('\n')
+  const system = suggestPlotlinesSystemPrompt()
   const written = project.chapters.filter(c => c.status !== 'pending')
   const user = [
     `书名：《${project.bookName}》`,
@@ -1763,16 +1430,7 @@ export async function refreshLinesFor(
   project: ProjectState,
   lines: Plotline[],
 ): Promise<RefreshResult[]> {
-  const system = [
-    lines.length === 1
-      ? '你是一位网文剧情线管理员。请根据「剧情线信息」与「本书已写章节摘要/编年录」，判断这条线目前推进到了哪一步。'
-      : `你是一位网文剧情线管理员。下面给了 ${lines.length} 条剧情线，请**逐条**判断各自推进到了哪一步。`,
-    '每条线输出一句话（30-60 字）：该线当前的状态、最近一次推进发生在第几章、下一步可能的方向。还没开始推进的线，明确说"尚未推进"。',
-    lines.length === 1
-      ? '输出必须是合法 JSON 对象：{"progress": "一句话"}'
-      : `输出必须是合法 JSON 对象：{"items": [{"name": "线名（与输入完全一致）", "progress": "一句话"}]}，items 的条数必须等于 ${lines.length}，name 必须与输入里的线名逐字相同（用于对齐）`,
-    '重要：不要输出任何其他文字。',
-  ].join('\n')
+  const system = refreshPlotlinesSystemPrompt(lines.length)
   const written = project.chapters.filter(c => c.status !== 'pending' && (c.summary !== undefined && c.summary !== ''))
   const sharedContext = [
     `章节摘要（最近 8 章）：\n${written.slice(-8).map(c => `第${c.no}章《${c.title}》：${c.summary!.slice(0, 120)}`).join('\n')}`,
@@ -1816,28 +1474,7 @@ export async function extractRoles(
   config: NovelConfig,
   project: ProjectState,
 ): Promise<RoleRecord[]> {
-  const system = [
-    '你是一位网文角色库管理员。请根据本书的大纲、设定、编年录与章节摘要，提炼完整的角色库。',
-    '覆盖原则：所有在编年录/章节中实际出场或有名有姓的角色都应收录；无名的功能性人物（如"矮胖姑娘"）用其身份简称收录并标注；反复出现且有剧情作用的身份型角色（站长、律师、警察、法官、店主等）必须收录。',
-    '数量控制：最多输出 20 个角色；覆盖优先——主角、主要反派、重要配角（女主/关键配角）必须全收，所有有名有姓者必收；只有真正一次性路人（无名字、无剧情作用）才可省略。',
-    '重要：正常一部完整故事应提炼 8-20 个角色；若少于 6 个通常说明漏提炼，必须重新核对正文摘录。',
-    '重要：正文中若有明确的主角与主要反派，必须分别以 protagonist / antagonist 收录，禁止遗漏；反派确实未出场时才可省略。',
-    '输出优先级：主角（protagonist）与主要反派（antagonist）必须优先输出并完整刻画，其次女主/重要配角；判断不出名字时用正文中的身份称呼。',
-    '每个角色输出：',
-    '1. name：角色名（或身份简称）。主角/有名配角必须用正文中实际出现的人名（如「沈放」），禁止用「主角（38岁超市理货员）」这类把身份塞进名字的占位名；正文确实没点名时才可用身份简称（如「富商」「灰衣老人」）。',
-    '2. roleLabel：定位——protagonist=主角；female_lead=女主（唯一知己/感情线核心，无后宫前提下只此一位）；female_support=重要女配；support=普通配角；antagonist=反派；extra=路人/背景。',
-    '3. identity：身份一句话（宗门/势力/血脉/职业）。',
-    '4. traits：3-6 个性格标签。',
-    '5. goals：目标与动机一句话。',
-    '6. relations：关系网数组，格式["角色名（关系）", ...]。',
-    '7. arc：成长线数组，格式["阶段：说明", ...]（如"出场：祭品身份"/"转折：祭祀被中断脱身"）。',
-    '8. knowledge：该角色已经知道的关键信息（3-8 条），不知道的信息不要写进去。',
-    '精简要求：identity 控制在 30 字内；traits 3-6 个短标签；goals 60 字内；relations 2-5 条；arc 2-4 条；knowledge 每条 40 字内。整体输出量要紧凑，避免冗长。',
-    '重要：用户消息里列出的「已收录角色」绝不要再次输出——这些角色已经在角色库里，跳过它们，只提炼未收录的。',
-    '输出必须是合法 JSON 数组，不要输出其他文字：[{"name":"...", "roleLabel":"...", "identity":"...", "traits":[...], "goals":"...", "relations":[...], "arc":[...], "knowledge":[...]}]',
-    '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
-    '重要：直接输出 JSON 结果本身，不要把思考过程写在输出里。',
-  ].join('\n')
+  const system = extractRolesSystemPrompt()
   const written = project.chapters.filter(c => c.status !== 'pending' && c.status !== 'generating')
   const existingRoles = project.roles ?? []
   // 正文摘录：均匀采样覆盖全书（开头/中间/结尾），避免只取前几章漏掉后期才出场的重要角色。
@@ -1938,7 +1575,7 @@ export async function extractRoles(
   // 完整性补漏：通用第二轮——检查是否遗漏「身份型/功能性角色」（站长/律师/警察等反复出现者），不依赖任何名单。
   if (roles.length > 0) {
     const names = roles.map(r => r.name).join('、')
-    const patchSystem = system + '\n上一次已提炼角色：' + names + '。\n现在只输出「遗漏的角色」JSON 数组：检查正文摘录中反复出现、有固定身份称呼（如站长、律师、警察、法官、店主、老师）且对剧情有作用的角色；一次性路人不要输出。没有遗漏就输出 []。字段与上面相同。'
+    const patchSystem = system + roleCatchUpSuffix(names)
     try {
       const patchText = await complete(ctx, config, { system: patchSystem, user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 12000), reasoning: config.analysisReasoning ?? 'low' })
       const patchRaw = parseJsonArray<Record<string, unknown>>(patchText)
@@ -2119,23 +1756,7 @@ export async function suggestOutlines(
   exclude: string[] = [],
 ): Promise<OutlineCandidate[]> {
   const n = Math.max(1, Math.min(3, Math.floor(count)))
-  const system = [
-    '你是一位资深网文策划。作者只给了一句「想法」，你需要把它扩展成 2-3 个【方向差异明显】的完整小说大纲方案，供作者挑选。',
-    '每个方案必须满足：',
-    '1. bookName：书名（6 字以内，抓眼球、点题）。',
-    '2. genre：题材（如 仙侠修真 / 都市异能 / 玄幻 / 悬疑）。',
-    '3. sellingPoint：核心卖点一句话（金手指/爽点/差异化，40 字内）。',
-    '4. outline：完整大纲文本（至少 800 字，可直接作为开书大纲），结构包含：书名与题材、金手指/核心设定、主角人设与动机、主线剧情走向（至少 5 个阶段）、关键配角与势力、卖点与爽点设计、预计分卷（3-5 卷）。',
-    '方向差异要求：',
-    '- 方案之间的金手指/剧情走向必须明显不同（如：苟道发育流 vs 随身老爷爷流 vs 群像争霸流），不能只是换书名。',
-    '- 忠实于作者想法的核心要素，但允许在不同方向上进行合理演绎。',
-    '- 不输出任何与已列「需避开的方向」雷同的方案。',
-    '输出必须是合法 JSON 数组，只输出数组本身：',
-    '[{"id": "唯一id", "bookName": "...", "genre": "...", "sellingPoint": "...", "outline": "..."}]',
-    `本次只输出 ${n} 个方案。`,
-    '重要：所有字符串值内部不得包含换行符（大纲内部分段请用「。\n」或「；」自然断句），JSON 必须在一段内完整结束。',
-    '重要：直接输出 JSON 结果本身，不要把思考过程写在输出里。',
-  ].join('\n')
+  const system = outlineCandidatesSystemPrompt(n)
   const user = [
     `作者的想法：${idea}`,
     idea.trim().length < 40
@@ -2212,13 +1833,7 @@ export async function breakdownBook(
   // 3. 阶段一：源片段笔记（每章一次 LLM，串行控制 token）。
   const notes: string[] = []
   let usedTokens = 0
-  const noteSystem = [
-    '你是中文网文拆书助手。把单章正文整理成结构化笔记，供后续章节级分析复用。',
-    '只输出 JSON 对象：',
-    '{"summary": "1-2句", "plotPoints": ["..."], "characters": ["..."], "worldbuilding": ["..."], "styleTechniques": ["..."], "marketHighlights": ["..."], "weaknessSignals": ["..."]}',
-    '硬规则：只提取正文明确出现的信息；每数组最多 4 项；不要补写原文外的动机/意图；evidence 不在此阶段输出。',
-    '重要：直接输出 JSON，不要输出其他文字；字符串内不含换行。',
-  ].join('\n')
+  const noteSystem = breakdownNoteSystemPrompt()
   for (const ch of chunks) {
     const noteUser = [`第${ch.no}章《${ch.title}》`, '正文：', ch.body.slice(0, 3000)].join('\n')
     try {
@@ -2242,65 +1857,7 @@ export async function breakdownBook(
   }
 
   // 4. 阶段二：分节分析。
-  const sectionsConfig: Array<{ key: string; title: string; focus: string; system: string }> = [
-    {
-      key: 'overview',
-      title: '拆书总览',
-      focus: '一句话定位、题材标签、整体优势与短板',
-      system: [
-        '你是资深中文网文拆书分析师，负责《拆书总览》小节。',
-        '基于给定章节笔记做低风险综合判断，输出 JSON：{"markdown": "可直接展示的分析稿（简体中文，先给结论再说明体现在哪、为何成立）", "structured": {"oneLinePositioning": "一句话定位", "genreTags": ["题材标签"], "sellingPointTags": ["卖点标签"], "strengths": ["整体优势"], "weaknesses": ["整体短板"]}}',
-        '硬规则：只基于笔记归纳；推断用「更偏向/可能」等谨慎措辞；证据不足写「材料不足」；不虚构原文细节。',
-        '重要：直接输出 JSON，字符串内不含换行。',
-      ].join('\n'),
-    },
-    {
-      key: 'plot',
-      title: '剧情结构',
-      focus: '主线梗概、阶段推进、冲突升级、节奏风险',
-      system: [
-        '你是资深中文网文拆书分析师，负责《剧情结构》小节。',
-        '基于给定章节笔记分析，输出 JSON：{"markdown": "分析稿（简体中文，先结论后依据）", "structured": {"mainlineSummary": "主线梗概", "phaseProgressions": ["阶段推进"], "escalationDesigns": ["冲突升级"], "paceRisks": ["节奏风险"], "reusablePatterns": ["可复用套路"]}}',
-        '硬规则：只基于笔记归纳；推断谨慎措辞；不虚构。',
-        '重要：直接输出 JSON，字符串内不含换行。',
-      ].join('\n'),
-    },
-    {
-      key: 'character',
-      title: '人物系统',
-      focus: '主角定位、配角功能、关系网络、成长弧线、辨识度风险',
-      system: [
-        '你是资深中文网文拆书分析师，负责《人物系统》小节。',
-        '基于给定章节笔记分析，输出 JSON：{"markdown": "分析稿（简体中文，先结论后依据）", "structured": {"protagonistPositioning": "主角定位", "supportingFunctions": ["配角功能"], "relationshipNetwork": ["关系网络"], "growthArcs": ["成长弧线"], "clarityRisks": ["辨识度风险"]}}',
-        '硬规则：只基于笔记归纳；推断谨慎措辞；不虚构。',
-        '重要：直接输出 JSON，字符串内不含换行。',
-      ].join('\n'),
-    },
-    {
-      key: 'style',
-      title: '文风与技法',
-      focus: '叙事视角、语言风格、描写方式、节奏控制、钩子设计、可复用写法',
-      system: [
-        '你是资深中文网文拆书分析师，负责《文风与技法》小节。',
-        '基于给定章节笔记分析，输出 JSON：{"markdown": "分析稿（简体中文，先结论后依据）", "structured": {"narrativePov": "叙事视角", "languageStyle": "语言风格", "dialoguePatterns": ["对话特征"], "rhythmControl": ["节奏控制"], "hookDesigns": ["钩子设计"], "reusableTechniques": ["可复用写法"]}}',
-        '硬规则：只基于笔记归纳；推断谨慎措辞；不虚构。',
-        '重要：直接输出 JSON，字符串内不含换行。',
-      ].join('\n'),
-    },
-  ]
-  if (preset === 'standard') {
-    sectionsConfig.push({
-      key: 'market',
-      title: '商业化卖点',
-      focus: '读者爽点、点击驱动、人物/题材卖点、商业化风险',
-      system: [
-        '你是资深中文网文拆书分析师，负责《商业化卖点》小节。',
-        '基于给定章节笔记分析，输出 JSON：{"markdown": "分析稿（简体中文，先结论后依据）", "structured": {"hookPoints": ["读者爽点"], "clickDrivers": ["点击驱动"], "characterSellingPoints": ["人物卖点"], "genreSellingPoints": ["题材卖点"], "commercialRisks": ["商业化风险"]}}',
-        '硬规则：只基于笔记归纳；推断谨慎措辞；不虚构。',
-        '重要：直接输出 JSON，字符串内不含换行。',
-      ].join('\n'),
-    })
-  }
+  const sectionsConfig = breakdownSections(preset)
 
   const notesText = notes.join('\n\n')
   const sections: BreakdownResponse['sections'] = []
@@ -2563,18 +2120,7 @@ export async function analyzePlotlineHealth(
   config: NovelConfig,
   project: ProjectState,
 ): Promise<PlotlineHealthReport> {
-  const system = [
-    '你是一位网文剧情架构师。请对本书的「剧情线体系」做健康检查，判断当前是否需要新增剧情线、应在多少章后添加。',
-    '评估维度：各线最近推进到第几章（已写章节与关联章节的差值越大越危险）、各线状态、已写章节总数、卷计划当前进度、编年录近期事实。',
-    '输出规则：',
-    '1. verdict：一句话结论——"需要新增线" / "暂不需要" / "再写 N 章后需要"（N 给出具体章数）。',
-    '2. timing：说明建议添加的时机（如：第 25 章前引入新支线，因为主线预计第 22 章告一段落）。',
-    '3. reasons：3-5 条依据（引用具体数据：哪条线多少章没推进、已写章节数、卷进度等）。',
-    '4. lines：对每条线给健康度——ok（近期推进过）/ warning（超过 5 章未推进）/ stale（超过 10 章未推进或悬置过久）。',
-    '输出必须是合法 JSON 对象：{"verdict": "...", "timing": "...", "reasons": ["..."], "lines": [{"name": "线名", "health": "ok|warning|stale", "note": "一句说明"}]}',
-    '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
-    '重要：直接输出 JSON 结果本身，不要把思考过程写在输出里。',
-  ].join('\n')
+  const system = plotlineHealthSystemPrompt()
   const written = project.chapters.filter(c => c.status !== 'pending' && c.status !== 'generating')
   const lines = (project.plotlines ?? []).filter(l => l.status === 'active' || l.status === 'paused')
   const user = [
@@ -2623,13 +2169,7 @@ export async function designPlotlinePlan(
   project: ProjectState,
   health?: PlotlineHealthReport,
 ): Promise<PlotlinePlan> {
-  const system = [
-    '你是一位网文剧情架构师。请为本书设计「下一阶段的剧情方案」：给出未来 5-10 章的剧情方向，并建议 2-3 条值得新增的剧情线。',
-    '要求：方向必须结合本书大纲/卷计划/现有线/编年录；新线要能落地（和当前主角处境、已有伏笔、下一阶段舞台相关），不得重复已有线。',
-    '输出必须是合法 JSON 对象：{"direction": "下一阶段方向 60-120 字", "suggestions": [{"name": "线名", "kind": "main|branch|character|mystery", "goal": "目标", "progress": "初始进度（可空）"}]}',
-    '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
-    '重要：直接输出 JSON 结果本身，不要把思考过程写在输出里。',
-  ].join('\n')
+  const system = plotlinePlanSystemPrompt()
   const written = project.chapters.filter(c => c.status !== 'pending' && c.status !== 'generating')
   const user = [
     `书名：《${project.bookName}》`,
@@ -2673,13 +2213,6 @@ export async function designPlotlinePlan(
     direction: typeof raw.direction === 'string' ? raw.direction.slice(0, 300) : '',
     suggestions,
   }
-}
-
-/** Build the rewrite system prompt (fix review issues / instructions). */
-function rewriteSystemPrompt(project: ProjectState, targetChars?: number, beforeChapter?: number): string {
-  // 整章修订以「与原文相当」为准，不套用目标字数区间（避免与原文长度冲突）。
-  const base = writeSystemPrompt(project, targetChars, '1. 输出完整的新正文（不要只输出修改片段、标题、章回名、作者的话或任何 Markdown 标记），字数与原章相当（允许 ±20%）。', beforeChapter)
-  return base + '\n\n额外要求：你正在【修订】一章已写好的正文。保留原文中好的部分，只修改需要修改的地方，输出完整的新正文（不要只输出修改片段），字数与原文相当。'
 }
 
 /**
@@ -2751,39 +2284,7 @@ export async function* rewriteChapterStream(
 
   const system = localTarget === undefined
     ? rewriteSystemPrompt(project, chapter.targetChars || config.chapterChars, chapter.no)
-    : (() => {
-        // 局部修订：补齐合规红线/本书红线/反AI规则/角色卡，加「只改表达不改情节」约束。
-        // 分层组装（见 prompt-cache.ts）：约束口径与合规红线排最前，本书设定排后面。
-        const bible = project.bible
-        const blocks: PromptBlock[] = []
-        blocks.push({
-          layer: 'fixed',
-          text: [
-            '你是一位中文网文润色师。你会收到一章中的一个段落，请按修改要求重写该段。',
-            '硬性约束：',
-            '1. 只改表达，不改情节走向、人物设定、已确立事实、对话核心内容。',
-            '2. 必须遵守下方「内容合规红线」，任何一条命中（含影射、暗示）都必须避免。',
-            '3. 必须遵守下方「本书红线」（如有）。',
-            '4. 避免 AI 套话：不禁、仿佛、一时间、不由得、顿时、然而、缓缓、轻轻、微微、默默、似乎、终于等滥用。',
-            '5. 保留角色口吻与性格，角色行为需符合下方角色卡（如有）。',
-            '6. 只输出修改后的【这一个段落】的完整新文本，不要输出任何说明、标题或 Markdown 标记。',
-            '内容合规红线（平台硬性要求，最高优先级）：',
-            COMPLIANCE_REDLINES.join('\n'),
-          ].join('\n'),
-        })
-        const book: string[] = []
-        if (bible !== undefined) {
-          if (bible.redLines.length > 0) book.push('本书红线：\n' + bible.redLines.map(r => '- ' + r).join('\n'))
-          if (bible.characters.length > 0) {
-            book.push('相关角色卡：')
-            for (const card of bible.characters) {
-              book.push('- ' + card.name + '（' + card.role + '）：' + card.traits.join('、'))
-            }
-          }
-        }
-        blocks.push({ layer: 'book', text: book.join('\n') })
-        return assemblePromptBlocks(blocks)
-      })()
+    : localRevisionSystemPrompt(project)
 
   const messages: Message[] = [createUserMessage({
     content: [{ type: 'text', text: user }],
@@ -2832,35 +2333,6 @@ export async function* rewriteChapterStream(
   project.updatedAt = new Date().toISOString()
   saveProject(outputDir, project)
   yield { frame: 'drafted', chars: newBody.length, draft: newBody }
-}
-
-/** The de-AI-ify polish system prompt (with project writing assets injected). */
-function polishSystemPrompt(project: ProjectState): string {
-  const assetsBlock = renderAllAssets(project.assets)
-  const bible = project.bible
-  // 分层组装（见 prompt-cache.ts）：润色口径与合规红线永不变，排最前；本书红线与
-  // 写法资产只随作者编辑变，排后面。
-  const blocks: PromptBlock[] = []
-  const fixed: string[] = [
-    '你是一位中文网文润色师。你会收到一章正文，请做「去 AI 味」润色：',
-    '1. 删除/替换 AI 高频套话与模式词：如"不禁""仿佛""一时间""不由得""顿时""然而""缓缓""轻轻""微微""默默""似乎""终于"等滥用。',
-    '2. 把书面翻译腔改成口语化的中文网文语感。',
-    '3. 拆分过长的排比句与堆砌的修饰语。',
-    '4. 保留全部情节、人物、对话内容、已确立事实不变，只改表达。',
-    '5. 输出完整的新正文，不要输出任何说明文字或 Markdown 标记。',
-    '6. 必须遵守下方「反 AI 规则」与「写法资产」的表达边界；写法资产要求保留的风格特征（句式、台词、节奏）不得在润色中丢失。',
-    '7. 必须遵守下方「内容合规红线」与「本书红线」（如有），任何一条命中（含影射、暗示）都必须避免。',
-    '内容合规红线（平台硬性要求，最高优先级）：',
-    COMPLIANCE_REDLINES.join('\n'),
-  ]
-  blocks.push({ layer: 'fixed', text: fixed.join('\n') })
-  const book: string[] = []
-  if (bible !== undefined && bible.redLines.length > 0) {
-    book.push('本书红线：\n' + bible.redLines.map(r => '- ' + r).join('\n'))
-  }
-  if (assetsBlock !== '') book.push(assetsBlock)
-  blocks.push({ layer: 'book', text: book.join('\n') })
-  return assemblePromptBlocks(blocks)
 }
 
 /** Stream a chapter polish (de-AI-ify). Draft-mode: the polished body lands
@@ -3065,7 +2537,7 @@ export async function* generateChapterStream(
       `请承接上文继续写约 ${need} 字，不要重复已有内容，不要重写开头，不要总结前文，直接续写新情节，结尾留一个章末钩子。只输出续写的正文，不要输出标题或任何说明。`,
     ].join('\n')
     const cont = await complete(ctx, config, {
-      system: writeSystemPrompt(project, target, undefined, chapter.no) + '\n\n【续写任务】严格承接已有正文往下写，不要重复已有内容、不要重写开头、不要总结前文，直接续写新情节，并在结尾留一个章末钩子。',
+      system: writeSystemPrompt(project, target, undefined, chapter.no) + bodyContinuationSuffix(),
       user: contUser,
       temperature: 0.85,
       maxTokens: Math.max(config.maxTokens, 12000),
@@ -3114,11 +2586,7 @@ export async function summarizeChapter(
   if (chapter === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 不在计划中`)
   const body = readChapterFile(outputDir, chapter)
   if (body === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 的正文文件不存在`)
-  const system = [
-    '你是一位网文编辑。请为下面一章写一段 120-200 字的摘要，供后续章节写作时保持连贯性。',
-    '摘要必须包含：本章发生的关键事件、主角状态变化（境界/资源/伤势/心境）、新增的伏笔或线索、角色关系变化。',
-    '用客观陈述句，不要评价，不要剧透式感叹。只输出摘要正文。',
-  ].join('\n')
+  const system = chapterSummarySystemPrompt()
   const user = stripChapterHeadings(body)
   const summary = await complete(ctx, config, { system, user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 4000) })
   chapter.summary = summary.slice(0, 500)
@@ -3154,7 +2622,7 @@ export async function reverseOutlineFromChapters(
       const body = readChapterFile(outputDir, c) ?? ''
       return '第' + c.no + '章《' + (c.title || '无题') + '》\n' + stripChapterHeadings(body).slice(0, 1000)
     }).join('\n\n---\n\n')
-    const system = '你是一位网文编辑。下面是一本书若干章正文的节选。请为每一章输出一行「事件摘要」，格式严格为：第N章《标题》：关键事件+主角状态变化+新增伏笔或线索。每章恰好一行，不要空行，不要评价，不要输出其他内容。'
+    const system = reverseOutlineBatchSystemPrompt()
     const note = await complete(ctx, config, { system, user: bodies, temperature: 0.2, maxTokens: Math.max(config.maxTokens, 3000), reasoning: config.analysisReasoning ?? 'low' , signal })
     notes.push(note.trim())
     onProgress?.(Math.min(i + BATCH, total), total, '章节摘要')
@@ -3162,14 +2630,7 @@ export async function reverseOutlineFromChapters(
 
   // 阶段 2：汇总反推总纲。
   onProgress?.(total, total, '生成大纲')
-  const system2 = [
-    '你是一位经验丰富的小说主编。根据下面全书各章事件摘要，反推出这本书的总纲（大纲），可直接作为后续写作依据。要求：',
-    '1. 第一行写《书名》（从摘要中的书名或内容推断，若无则用《未命名》）。',
-    '2. 按故事弧线划分卷/部分：每卷给出卷名与主旨（标注覆盖章节范围）。',
-    '3. 每一章列出：章节号 + 标题 + 一句话核心情节（若原章无标题可自拟）。',
-    '4. 最后给出：全书主线、主要人物弧线、已埋设待回收的伏笔清单。',
-    '5. 输出为纯文本 Markdown 结构（# 一级标题、## 二级标题、- 列表），不要多余寒暄。',
-  ].join('\n')
+  const system2 = reverseOutlineSystemPrompt()
   const outline = await complete(ctx, config, { system: system2, user: notes.join('\n\n'), temperature: 0.4, maxTokens: Math.max(config.maxTokens, 6000), reasoning: config.analysisReasoning ?? 'low' , signal })
   onProgress?.(total, total, '完成')
   return outline.trim()
@@ -3199,19 +2660,11 @@ export async function analyzeAdaptation(
   if (n > 3) { pick(Math.floor(n / 3)); pick(Math.floor((2 * n) / 3)) }
   if (n > 1) pick(n - 1)
 
-  const system = '你是改编策划分析助手。'
-  const user = [
-    '你是一位资深网文编辑兼改编策划。下面给你一部已完结/连载小说的若干章正文节选。请通读并输出该书的「原文设定卡片」与「可改范围矩阵」。',
-    '输出合法 JSON 对象：',
-    '{"bookName": "书名", "outline": "一句话主线梗概（100字内）", "dimensions": [{"key":"realm","title":"大世界","mutability":"big|small|free|locked|visual","current":"当前值","evidence":"证据（出现章节/频次）","candidates":[{"name":"候选体系名","desc":"该体系一句话说明"}],"impact":"改了会影响什么","risk":"high|medium|low"}]}',
-    'dimensions 至少覆盖以下维度（key/title）：realm 大世界、cultivation 修为体系、protagonist 主角、goldenFinger 金手指、supporting 配角与势力人物名、faction 势力/组织、style 文风与叙事、ending 结局走向、timeline 时间线/编年、foreshadow 伏笔/暗线。',
-    'mutability 取值：locked=建议保留、big=可改影响大、small=可改影响小、free=可自由改、visual=仅视觉包装。',
-    '每个 dimension.current 必须忠于文本，能引用原文就用原文（尤其角色名/境界名/势力名/金手指名）。',
-    '重要：所有字符串值内部不得包含换行符；JSON 必须在一段内完整结束；直接输出 JSON，不要 Markdown 代码块。',
-  ].join('\n')
+  const system = adaptationAnalyzeSystemPrompt()
+  const user = adaptationAnalyzeUser(sampleBodies)
   const textOut = await complete(ctx, config, {
     system,
-    user: user + '\n\n' + sampleBodies.join('\n\n---\n\n'),
+    user,
     temperature: 0.3,
     maxTokens: Math.max(config.maxTokens, 6000),
     reasoning: config.analysisReasoning ?? 'low',
@@ -3290,15 +2743,7 @@ async function reverseOutlineFromAdaptationText(
     if (c === undefined) continue
     sample.push('第' + c.no + '章《' + (c.title || '无题') + '》\n' + c.body.slice(0, 600))
   }
-  const system = [
-    '你是一位经验丰富的小说主编。根据下面若干章节的正文节选，反推出这本书的总纲（可作为后续改编与章节续写的骨架）。',
-    '要求：',
-    '1. 第一行写《书名》（可从正文推断，否则《未命名》）。',
-    '2. 按故事弧线划分卷/部分：每卷给卷名与主旨（标注覆盖章节范围）。',
-    '3. 对每章列出：章节号 + 标题 + 一句话核心情节。',
-    '4. 最后给出：全书主线、主要人物弧线、已埋设待回收的伏笔清单。',
-    '5. 输出纯文本 Markdown 结构（# 一级标题、## 二级标题、- 列表），不要寒暄，不要其他输出。',
-  ].join('\n')
+  const system = reverseOutlineFromAdaptationSystemPrompt()
   const user = sample.join('\n\n---\n\n')
   const text = await complete(ctx, config, { system, user, temperature: 0.4, maxTokens: Math.max(config.maxTokens, 6000), reasoning: config.analysisReasoning ?? 'low' })
   return text.trim()
@@ -3314,22 +2759,8 @@ export async function proposeAdaptation(
 ): Promise<AdaptProposeResponse> {
   const selLines = selections.map(s => '- ' + s.title + '（' + s.key + '）：' + s.current + ' → ' + s.target).join('\n')
   const dimLines = (dimensions ?? []).map(d => '- ' + d.title + '：' + d.current + '（可改度：' + d.mutability + '，风险：' + d.risk + '）').join('\n')
-  const system = '你是改编策划。'
-  const user = [
-    '下面给出改编决策：用户想改哪些维度、改成什么值。请生成一份可执行的「改编方案」。',
-    '要求输出合法 JSON 对象：',
-    '{"mappings": [{"source":"原值","target":"新值","scope":"name|realm|faction|term|other","note":"说明"}], "rules": {"preserve":["必须保留的要素"],"change":["允许改变的要素"],"constraints":["改编红线/一致性要求"]}, "impacts": [{"item":"受影响项","detail":"说明","risk":"high|medium|low","chapters":[章号]}]}',
-    'mappings 需把用户确认的新值展开为「原→新」条目（如主角名/境界名/势力名/术语），并补充用户未填但关联的必改项（如改了修为体系名，相关的境界名一并列映射）。',
-    'rules.preserve 至少包含：故事骨架、人物动机、伏笔逻辑、爽点结构。',
-    'impacts 列出每个改动会影响的内容（术语/角色/章节/伏笔），能定位章号尽量定位；无法定位则给章节区间提示。',
-    '重要：所有字符串值内部不得包含换行符；JSON 必须在一段内完整结束；直接输出 JSON，不要 Markdown 代码块。',
-    '',
-    '用户要改：',
-    selLines,
-    '',
-    '原文可改矩阵（已分析）：',
-    dimLines,
-  ].join('\n')
+  const system = adaptationProposeSystemPrompt()
+  const user = adaptationProposeUser(selLines, dimLines)
   const out = await complete(ctx, config, { system, user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 6000), reasoning: config.analysisReasoning ?? 'low' })
   const raw = parseJsonObject<{ mappings?: unknown; rules?: unknown; impacts?: unknown }>(out)
   const mappings = Array.isArray(raw.mappings)
@@ -3431,16 +2862,7 @@ export async function rewriteAdaptationBook(
         rules.constraints.length > 0 ? '改编红线/一致性要求：\n' + rules.constraints.map(x => `- ${x}`).join('\n') : '',
       ].filter(s => s !== '').join('\n')
     : ''
-  const system = [
-    '你是一位资深网文改编编剧。你会收到某一章的正文，以及本书的改编映射表与改编规则。',
-    '任务：把这一章按改编方案**重写**成新版本（结构性改编，不只是换词）。',
-    '要求：',
-    '1. 严格遵守映射表（原值→新值），正文中所有源值都要替换为新值；涉及改名/改体系/改势力时，相关表述一起调整，使上下文自洽。',
-    '2. 改编规则：必须保留的内容不得破坏（故事骨架/人物动机/伏笔逻辑/爽点结构）；允许改变的内容可以放开调整；红线/一致性要求必须遵守。',
-    '3. 若某个改动牵动叙事（如结局走向/时间线/世界观），要把这章的叙述顺势改得通顺、可信。',
-    '4. 输出**只包含这一章重写后的正文**，不要重复标题，不要任何解释、开头或结尾。',
-    '5. 字数与原章基本相当（允许 ±20%）。',
-  ].join('\n')
+  const system = adaptationRewriteSystemPrompt()
   const adaptedParts: string[] = []
   const rewritten: Array<{ no: number; title: string; chars: number }> = []
   const skipped: number[] = []
@@ -3665,12 +3087,7 @@ export async function summarizeAndExtractFacts(
   if (chapter === undefined) return { summary: '', factCount: 0 }
   const body = readChapterFile(outputDir, chapter)
   if (body === undefined) return { summary: '', factCount: 0 }
-  const system = [
-    '你是一位网文编辑。请为下面一章做两件事，输出合法 JSON 对象：',
-    '{"summary": "120-200字摘要，含关键事件/主角状态变化（境界资源伤势心境）/新增伏笔线索/角色关系变化，客观陈述不评价", "facts": ["已确立事实1", "…3-6条"]}',
-    'facts 指：本章明确写出的、对后续有约束力的事实——人物当前状态、重要关系变化、地点与时间线、已落地或新增的伏笔线索、关键道具去向。',
-    '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
-  ].join('\n')
+  const system = summaryFactsSystemPrompt()
   const user = stripChapterHeadings(body)
   const text = await complete(ctx, config, { system, user, temperature: 0.2, maxTokens: Math.max(config.maxTokens, 5000) })
   const raw = parseJsonObject<{ summary?: unknown; facts?: unknown }>(text)
@@ -3722,24 +3139,7 @@ export async function summarizeFactsAndTimeline(
   const wantTimeline = options.timeline !== false
 
   const NL = String.fromCharCode(10)
-  const system = [
-    '你是一位网文编辑。请为下面一章做三件事，输出**一个**合法 JSON 对象：',
-    '{"summary": "120-200字摘要，含关键事件/主角状态变化（境界资源伤势心境）/新增伏笔线索/角色关系变化，客观陈述不评价",',
-    ' "facts": ["已确立事实1", "…3-6条"],',
-    ...(wantTimeline
-      ? [' "timeline": [{"time":"第三日黄昏","order":1,"place":"青云宗外门","characters":["沈青"],"event":"不超过40字"}]']
-      : []),
-    '',
-    'facts 指：本章明确写出的、对后续有约束力的事实——人物当前状态、重要关系变化、地点与时间线、已落地或新增的伏笔线索、关键道具去向。',
-    ...(wantTimeline
-      ? [
-          'timeline 指：只抽取正文里真实发生的场景节点（3-8 条），不要抽预告、回忆性泛泛陈述；纯粹的回忆/插叙请在 event 里注明「（回忆）」并给出其故事内时间。',
-          'time 用正文里的说法（如「第三日黄昏」「入宗三个月后」「同日夜」）；正文没写时间就填相对说法（如「紧接上一场景」）。',
-          'order 是本章内的先后序号，从 1 递增；place 是一处一个词；characters 只列在场的角色名（用正文里的名字，不要写「主角」）。',
-        ]
-      : []),
-    '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束，不要输出 Markdown 代码块标记。',
-  ].join(NL)
+  const system = summaryFactsTimelineSystemPrompt(wantTimeline)
   const text = await complete(ctx, config, {
     system,
     user: `第 ${chapterNo} 章《${chapter.title}》正文：${NL}${NL}${stripChapterHeadings(body).slice(0, 24000)}`,
@@ -3832,14 +3232,7 @@ export async function extractFacts(
   if (chapter === undefined) return 0
   const body = readChapterFile(outputDir, chapter)
   if (body === undefined) return 0
-  const system = [
-    '你是一位网文编辑。请从本章正文中抽取「已确立事实」，供后续章节保持一致。',
-    '事实指：人物当前状态（境界/修为/伤势/资源/心境）、重要关系变化、地点与时间线、已落地或新增的伏笔线索、关键道具去向。',
-    '要求：',
-    '1. 只抽取本章明确写出的、对后续有约束力的内容；纯心理活动与无关细节不要。',
-    '2. 每行一条事实，用客观陈述句，不含主观评价。',
-    '3. 输出 3-6 条，每行一条，不要编号、不要前缀、不要解释。',
-  ].join('\n')
+  const system = extractFactsSystemPrompt()
   const user = stripChapterHeadings(body)
   // v4-flash 推理模型：reasoning channel 也占 maxTokens，预算给足避免截断。
   const text = await complete(ctx, config, { system, user, temperature: 0.2, maxTokens: Math.max(config.maxTokens, 4000) })
@@ -3868,19 +3261,7 @@ async function auditBatch(
   outputDir: string,
   batch: ChapterPlan[],
 ): Promise<AuditIssue[]> {
-  const system = [
-    '你是一位严谨的网文连续性审校编辑。你会收到一本小说的道藏、事实库和一批章节正文节选。',
-    '请找出这批章节中的一致性矛盾，例如：',
-    '- 人物状态冲突：境界/修为/伤势/资源在同一章内或跨章前后矛盾。',
-    '- 设定违背：正文与世界观规则、金手指规则、写作红线冲突。',
-    '- 时间线错乱：事件顺序、时间跨度、地点移动不合逻辑。',
-    '- 细节穿帮：人名/地名/物品/数字前后不一致。',
-    '要求：',
-    '1. 只报告有实质证据的矛盾，不要泛泛而谈写作质量问题。',
-    '2. 每条必须定位到具体章节号。',
-    '3. 输出必须是合法 JSON 数组，格式：[{"chapterNo": 章节号, "severity": "high|medium|low", "item": "矛盾描述", "suggestion": "修改建议"}]',
-    '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
-  ].join('\n')
+  const system = auditBatchSystemPrompt()
   const factsBlock = (project.facts ?? []).slice(-60).map(f => `[第${f.chapterNo}章] ${f.text}`).join('\n')
   const chapterBlocks = batch.map(c => {
     const body = readChapterFile(outputDir, c)
@@ -3952,13 +3333,7 @@ export async function generateBlurb(
   project: ProjectState,
   partial = '',
 ): Promise<string> {
-  const system = [
-    '你是一位网文平台编辑，擅长写抓人的作品简介。',
-    '要求：',
-    '1. 120-250 字，突出核心卖点（金手指/题材/爽点/人设反差），用一两句抛出开局钩子。',
-    '2. 不剧透结局与关键反转；语气贴合题材（热血/悬疑/轻松/虐心）。',
-    '3. 中文，直接输出简介正文，不要 Markdown、不要引号包裹、不要「简介：」前缀。',
-  ].join('\n')
+  const system = blurbSystemPrompt()
   const genreBlock = project.bible?.genre !== undefined ? `题材：${project.bible.genre}` : ''
   const volumeBlock = (project.volumes ?? []).slice(0, 3).map(v => v.title).join('、')
   const user = [
@@ -4067,12 +3442,7 @@ export async function analyzeImpact(
   outputDir: string,
   change: string,
 ): Promise<ImpactItem[]> {
-  const system = [
-    '你是一位网文一致性审校。作者要做一处修改，请找出这次改动会波及的所有位置（设定、大纲、已写章节正文、事实库、简介中可能因此过时或矛盾的内容）。',
-    '输出必须是合法 JSON 数组，格式：[{"location": "位置（第N章/大纲/道藏-世界规则/大世界-境界/事实库/简介）", "quote": "原文片段（20-60字）", "suggestion": "修改建议", "kind": "must|optional|note"}]',
-    'kind 含义：must=必须同步改否则矛盾；optional=建议改（影响观感）；note=备注（如旧称保留为古称、或无需改但需知晓）。',
-    '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
-  ].join('\n')
+  const system = impactAnalysisSystemPrompt()
   const written = project.chapters.filter(c => c.status !== 'pending' && c.status !== 'generating')
   // 轻量 base：大纲节选 + 道藏要点 + 编年录最近 40 条（替代全量 bookOverview，
   // 定位主要靠各批章节节选原文）。
@@ -4115,47 +3485,13 @@ export async function analyzeImpact(
   return items.slice(0, 30)
 }
 
-/** 把大世界结构化数据渲染成提示词块（境界体系按顺序强约束）。 */
-export function renderWorld(world: WorldState | undefined): string {
-  if (world === undefined) return ''
-  const sections: string[] = ['==================== 大世界（结构化设定，写作时严格遵守） ====================']
-  if (world.realms.length > 0) {
-    sections.push('境界体系（由低到高，不得随意跳级或自创境界）：')
-    world.realms.forEach((realm, i) => {
-      sections.push(`${i + 1}. ${realm.name}${realm.description !== '' ? ` — ${realm.description}` : ''}`)
-    })
-  }
-  if (world.regions.length > 0) {
-    sections.push('地理区域：')
-    for (const region of world.regions) {
-      sections.push(`- ${region.name}${region.description !== '' ? `：${region.description}` : ''}${region.faction !== undefined && region.faction !== '' ? `（势力：${region.faction}）` : ''}`)
-    }
-  }
-  if (world.factions.length > 0) {
-    sections.push('势力分布：')
-    for (const faction of world.factions) {
-      sections.push(`- ${faction.name}（${faction.kind}）${faction.description !== '' ? `：${faction.description}` : ''}${faction.region !== undefined && faction.region !== '' ? `（驻地：${faction.region}）` : ''}`)
-    }
-  }
-  return sections.join('\n')
-}
-
 /** 提炼大世界：从大纲 + 道藏生成结构化境界体系/区域/势力。 */
 export async function extractWorld(
   ctx: Context,
   config: NovelConfig,
   project: ProjectState,
 ): Promise<WorldState> {
-  const system = [
-    '你是一位网文世界观架构师。请根据小说大纲与道藏，提炼结构化「大世界」数据。',
-    '输出必须是合法 JSON 对象：',
-    '{"realms": [{"name": "境界名", "description": "突破条件/寿命/标志等"}], "regions": [{"name": "区域名", "description": "描述", "faction": "关联势力名或空"}], "factions": [{"name": "势力名", "kind": "宗门/家族/王朝/组织等", "description": "描述", "region": "驻地区域或空"}]}',
-    '要求：',
-    '1. realms 按由低到高顺序排列（修仙题材必须含完整境界链；无境界设定的题材可输出空数组）。',
-    '2. 数量贴合大纲：realms 3-12 个，regions 2-10 个，factions 2-10 个。',
-    '3. 内容严格来自大纲与道藏，不要凭空发明与大纲冲突的设定。',
-    '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
-  ].join('\n')
+  const system = extractWorldSystemPrompt()
   const bibleBlock = project.bible !== undefined
     ? [
         project.bible.genre !== '' ? `题材：${project.bible.genre}` : '',
@@ -4258,11 +3594,7 @@ export async function refreshCharacters(
   // LLM 只聚合状态：名单（含 traits）+ 事实库 → [{name, status}]
   let statuses = new Map<string, string>()
   if (facts.length > 0) {
-    const system = [
-      '你是一位网文角色档案管理员。请根据「角色名单」与「已确立事实库」，为每个角色输出「当前状态」一句话（境界/修为/伤势/资源/心境）。',
-      '输出必须是合法 JSON 数组，格式：[{"name": "角色名", "status": "当前状态一句话"}]',
-      '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
-    ].join('\n')
+    const system = roleStatusSystemPrompt()
     const rosterBlock = roster.map(ch => `- ${ch.name}（${ch.traits.join('、')}）`).join('\n')
     const factsBlock = facts.map(f => `[第${f.chapterNo}章] ${f.text}`).join('\n')
   const user = [
@@ -4308,20 +3640,6 @@ export async function refreshCharacters(
 }
 
 // ------------------------------------------------------------- foreshadows
-
-/** System prompt for foreshadow suggestions. */
-function foreshadowSystemPrompt(): string {
-  return [
-    '你是一位网文伏笔设计师。你会收到大纲和已写的章节信息，请为小说建议 3-8 条值得埋设的伏笔。',
-    '要求：',
-    '1. 伏笔必须有明确的回收价值（推动主线、人物弧光、世界观揭秘）。',
-    '2. 描述要具体，指出埋设章节与预计回收章节（可空缺）。',
-    '3. 优先从大纲的暗线（如记忆代价、残片收集、身世谜团）中提炼。',
-    '输出必须是合法 JSON 数组：',
-    '[{"description": "伏笔描述", "plantedChapter": 章节号或null, "targetChapter": 章节号或null}]',
-    '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
-  ].join('\n')
-}
 
 /** Suggest foreshadows from the outline + plan. */
 export async function suggestForeshadows(
@@ -4419,19 +3737,6 @@ export async function extractStyleFormula(
     formula,
     applyGuidance: typeof raw.applyGuidance === 'string' ? raw.applyGuidance.trim().slice(0, 300) : '',
   }
-}
-
-/** 市场雷达系统提示（对齐上游 marketRadar 分析师角色）。 */
-function marketRadarSystemPrompt(): string {
-  return [
-    '你是中文网络文学市场分析师。只分析输入中的公开榜单元数据或用户给出的市场线索，不补写作品正文，不假装知道未提供的信息。',
-    '只根据输入归纳热门题材和市场信号；对未提供的信息不要臆测。',
-    '重点分析：热门题材组合、主角身份、金手指机制、开篇危机、关系卖点、标题句式、拥挤套路和差异化机会。',
-    'kind 只能使用 genre、protagonist、advantage、opening、relationship、title_pattern、opportunity、crowding，不得创造近义枚举值。',
-    '榜单高频不等于适合照搬。机会建议必须说明读者满足点，同时避开直接复制具体作品。',
-    'productionFoundation 的题材/推进模式优先引用「资源库」中已有的 existingId（名称一字不差）；只有确无合适资产时才给出新资产（existingId 为 null）。',
-    'creativeBrief 严禁复用榜单作品的人名、专有设定、简介句子和完整书名；只能提炼读者需求、爽点机制和结构机会，不得输出任何具体人名/作品名，一律使用身份或通用场景称谓。',
-  ].join('\n')
 }
 
 /** 题材雷达：输入平台/题材/榜单文本 → 信号 + 生产底座 + 开书创意。 */
@@ -4545,10 +3850,7 @@ export async function runMarketCreativeBrief(ctx: Context, config: NovelConfig, 
 
 /** 书分析/拆书：输入一本书/章节文本 → 卖点/结构/可借鉴点/风险。 */
 export async function runBookAnalysis(ctx: Context, config: NovelConfig, req: BookAnalysisRequest): Promise<BookAnalysisResult> {
-  const system = [
-    '你是资深中文网文拆书编辑。分析输入的一本书或章节文本，提炼可复用的创作思路。',
-    '严禁照搬具体作品的人名/专有设定/简介句子；只能提炼读者需求、结构手法和风险。',
-  ].join('\n')
+  const system = bookAnalysisSystemPrompt()
   const user = [
     '请分析下面文本：\n' + (req.text ?? '').slice(0, 8000),
     '输出必须是合法 JSON 对象。',
@@ -4568,10 +3870,7 @@ export async function runBookAnalysis(ctx: Context, config: NovelConfig, req: Bo
 /** 创意灵感：一句话/题材 → 多方向开书灵感。 */
 export async function runIdeaInspiration(ctx: Context, config: NovelConfig, req: IdeaInspirationRequest): Promise<IdeaInspirationResult> {
   const count = Math.max(1, Math.min(10, req.count ?? 5))
-  const system = [
-    '你是中文网文开书灵感策划。根据用户一句话/题材方向，给出多个可开书的差异化创意。',
-    '严禁输出具体人名/作品名；用身份/通用称谓。每个创意都要有明确钩子、题材、视角、长期兑现。',
-  ].join('\n')
+  const system = ideaInspirationSystemPrompt()
   const user = [
     `我的方向：${req.idea ?? ''}`,
     `请给 ${count} 个开书创意。`,
@@ -4594,10 +3893,7 @@ export async function runMarketIdeaInspiration(
   req: { signals?: MarketRadarSignal[]; foundation?: ProductionFoundation; brief?: MarketCreativeBrief; count?: number },
 ): Promise<IdeaInspirationResult> {
   const count = Math.max(1, Math.min(10, req.count ?? 5))
-  const system = [
-    '你是中文网文开书灵感策划，擅长从市场榜单分析中提炼可开书方向。',
-    '严禁输出具体人名/作品名；用身份/通用称谓。每个创意都要有明确钩子、题材、视角、长期兑现，且要与市场分析呼应但做差异化。',
-  ].join('\n')
+  const system = marketIdeaInspirationSystemPrompt()
   const signalBlock = (req.signals ?? []).map(s => `- [${s.kind}] ${s.title}：${s.detail}`).join('\n') || '（无）'
   const f = req.foundation
   const foundationBlock = f !== undefined
@@ -4647,7 +3943,7 @@ export async function runDirectorAdvice(ctx: Context, config: NovelConfig, proje
     '输出必须是合法 JSON 对象。',
     'JSON 结构：{"summary":"总体判断一句话","nextArc":["下一阶段关键剧情节点(每条约一句话)"],"pacing":"节奏板(起承转合/爽点密度/章节节奏)","risks":["风险/跑偏提示"],"fixes":["需要修复/再平衡的点"]}',
   ].filter(s => s !== '').join('\n\n')
-  const text = await complete(ctx, config, { system: '你是一位长篇网文自动导演，负责整本编排、节奏、风险与再平衡。只给出可执行建议，不输出正文。', user, temperature: 0.4, maxTokens: Math.max(config.maxTokens, 4000), liveLabel: '自动导演' })
+  const text = await complete(ctx, config, { system: directorSystemPrompt(), user, temperature: 0.4, maxTokens: Math.max(config.maxTokens, 4000), liveLabel: '自动导演' })
   const raw = parseJsonObject<Record<string, unknown>>(text)
   const arr = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map(x => x.slice(0, 200)) : []
   return {
@@ -4686,18 +3982,7 @@ export async function extractTimelineForChapter(
   const body = readChapterFile(outputDir, chapter)
   if (body === undefined) throw new NovelActionError('contract', `章节 ${chapterNo} 的正文文件不存在`)
   const NL = String.fromCharCode(10)
-  const system = [
-    '你是小说连续性编辑。任务：把一章正文压缩成「故事时间线」事件，供后续章节保持时间与地点的连续性。',
-    '要求：',
-    '1. 只抽取**正文里真实发生**的场景节点（3-8 条），不要抽取预告、回忆性的泛泛陈述；纯粹的回忆/插叙请在 event 里注明「（回忆）」并给出其故事内时间。',
-    '2. time 用正文里的说法（如「第三日黄昏」「入宗三个月后」「同日夜」）；正文没写时间就填相对说法（如「紧接上一场景」）。',
-    '3. order 是本章内的先后序号，从 1 递增；跨章我会用章号排序，你只需要保证章内顺序正确。',
-    '4. place 是场景地点（一处一个词，如「青云宗外门」）；characters 只列**在场**的角色名（用正文里的名字，不要写「主角」）。',
-    '5. event 一句话说清发生了什么（不超过 40 字）。',
-    '输出必须是合法 JSON 数组，不要输出任何其他文字或 Markdown 代码块标记：',
-    '[{"time":"第三日黄昏","order":1,"place":"青云宗外门","characters":["沈青"],"event":"沈青被外门弟子当众羞辱"}]',
-    '重要：字符串值内部不得包含换行符；JSON 必须在一段内完整结束。',
-  ].join('@NL@').replace('@NL@', NL)
+  const system = timelineExtractSystemPrompt()
   const text = await complete(ctx, config, {
     system,
     user: `第 ${chapterNo} 章《${chapter.title}》正文：@NL@@NL@${stripChapterHeadings(body).slice(0, 24000)}`.replace('@NL@', NL),
@@ -4751,15 +4036,7 @@ export async function reviewTimeline(
     parts.push(e.event)
     return '- ' + parts.join(' ')
   })
-  const system = [
-    '你是小说连续性编辑，只做一件事：找**时间线**上的矛盾。',
-    '检查项：1) 时间倒流（后一章早于前一章且没有明确插叙标注）；2) 地点瞬移（同一人物无移动交代就换场景）；',
-    '3) 时间跨度与事件量明显不匹配（如「一日之内」发生跨越数月的剧情）；4) 季节/年龄/节日前后矛盾；5) 回忆与现实混淆。',
-    '只报**能在给定事件表里指认**的问题，不要臆测；没有问题就返回空数组。',
-    '输出必须是合法 JSON 数组，不要任何其他文字：',
-    '[{"severity":"high|medium|low","chapters":[3,7],"item":"问题一句话","suggestion":"怎么修"}]',
-    '重要：字符串值内部不得包含换行符。',
-  ].join(NL)
+  const system = timelineReviewSystemPrompt()
   const text = await complete(ctx, config, {
     system,
     user: `故事时间线（按章节顺序）：@NL@${lines.join(NL)}`.replace('@NL@', NL),

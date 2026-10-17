@@ -275,7 +275,7 @@ node scripts/check-third-party.mjs     # 来源卫生：不得出现外部项目
 
 ```
 src/                  插件源码（宿主半）
-  engine.ts           写作 / 审稿 / 润色 / 提炼 / 导出等全部 LLM 管线与提示词
+  engine.ts           写作 / 审稿 / 润色 / 提炼 / 导出等全部 LLM 管线（提示词已迁出，见 prompts/）
   routes.ts           Web 路由（/api/dsh-novel-forge/*）
   run.ts              生产单（批量章节生产的标准执行器）
   revision.ts         修订仲裁：三类建议合并成一份指令 + 多源验证基准
@@ -288,11 +288,12 @@ src/                  插件源码（宿主半）
   llm-live.ts         实况帧 + 用量账本 + Prompt 环形留存
   prompt-slots.ts     提示词槽位
   prompt-cache.ts     提示词分层组装（固定/本书/本章三层，服务输入缓存前缀）
+  prompts/            系统提示词按域拆分 + catalog 注册表（改文案去域文件，不在 engine.ts 新起一段）
   assistant.ts        AI 编辑 Agent
   assets.ts           内置写作资产（自研表述）
   client/             浏览器半（React + CSS Modules：面板 / 工作台 / 阅读器）
 lib/                  构建产物（lib/index.js 宿主 / lib/client.js 浏览器）
-tests/                14 个 vitest 测试文件（152 个用例）
+tests/                38 个 vitest 测试文件（456 个用例）
 scripts/              构建与门禁脚本（含 check-third-party.mjs 来源卫生门禁、release.mjs）
 docs/                 设计文档（design-direction.md = 面板样式现行基准）+ archive/ 历史归档
 package.json          包定义（dsh.bundle.patch + dsh.client 声明）
