@@ -6,7 +6,7 @@
   "author": "waterwx",
   "repository": {
     "type": "git",
-    "url": "https://github.com/watersxya/dsh-novel-forge.git"
+    "url": "git+https://github.com/watersxya/dsh-novel-forge.git"
   },
   "homepage": "https://github.com/watersxya/dsh-novel-forge",
   "bugs": {
