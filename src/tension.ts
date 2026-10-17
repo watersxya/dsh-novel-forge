@@ -244,7 +244,12 @@ export function buildCurveData(project: ProjectState): {
       const a = actualTension(c)
       if (t !== undefined) point.target = t
       if (a !== undefined) point.actual = a
-      if (reference[i] !== undefined) point.reference = reference[i]
+      // custom 按**章号**取（custom[no-1]），不按数组下标 i：章号稀疏/有缺章时
+      // 两套下标会错位。没有自定义值的章回落到本章目标，保证参考线不断。
+      const refValue = preset === 'custom'
+        ? (custom.length > 0 ? custom[c.no - 1] : t)
+        : reference[i]
+      if (refValue !== undefined) point.reference = refValue
       return point
     }),
   }

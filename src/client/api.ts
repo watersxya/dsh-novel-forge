@@ -100,6 +100,66 @@ async function postJson<T>(path: string, payload: unknown): Promise<T> {
   return readJson<T>(response)
 }
 
+/**
+ * 统一的 NDJSON 流读取（任务流 / 助手 / 改编重写三处共用）。
+ *
+ * 收掉两个旧坑：
+ *  1. 流结束时 `buffer` 里最后一行若没有换行符会被丢掉——丢的恰好常是 done/error 帧；
+ *  2. 旧的 streamJob / adaptRewriteStream 不带 bookId，切书并发时会打到全局 active 书。
+ *
+ * @param path 路由。
+ * @param payload 请求体（自动注入当前书 bookId）。
+ * @param onFrame 每帧回调。
+ * @param errorLabel 无响应体时的错误前缀。
+ */
+async function streamNdjson<T extends { type?: string }>(
+  path: string,
+  payload: unknown,
+  onFrame: (frame: T) => void,
+  errorLabel: string,
+): Promise<void> {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(withBookIdBody(payload)),
+  })
+  if (!response.ok) {
+    // readJson 会抛出路由里的 error；成功分支不会走到这里。
+    await readJson<{ error?: string }>(response)
+    return
+  }
+  if (response.body === null) throw new NovelApiError(`${errorLabel}: no response body`)
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  const emit = (line: string): void => {
+    const trimmed = line.trim()
+    if (trimmed === '') return
+    let frame: T
+    try {
+      frame = JSON.parse(trimmed) as T
+    } catch {
+      return
+    }
+    onFrame(frame)
+    const message = (frame as { message?: unknown }).message
+    if (frame.type === 'error' && typeof message === 'string') {
+      throw new NovelApiError(message)
+    }
+  }
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) emit(line)
+  }
+  // 流已结束：把 decoder 的尾巴与最后一帧（可能没有换行符）也消费掉。
+  buffer += decoder.decode()
+  if (buffer.trim() !== '') emit(buffer)
+}
+
 /** The browser half's only data entry point. */
 export class NovelApi {
   async status(): Promise<StatusResponse> {
@@ -497,39 +557,7 @@ export class NovelApi {
    * @param onFrame - receives every frame as it lands.
    */
   private async streamJob(path: string, payload: unknown, onFrame: (frame: JobFrame) => void): Promise<void> {
-    const response = await fetch(path, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    if (!response.ok) {
-      await readJson<{ error?: string }>(response)
-      return
-    }
-    if (response.body === null) throw new NovelApiError('job: no response body')
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const line of lines) {
-        if (line.trim() === '') continue
-        let frame: JobFrame
-        try {
-          frame = JSON.parse(line) as JobFrame
-        } catch {
-          continue
-        }
-        onFrame(frame)
-        if (frame.type === 'error') {
-          throw new NovelApiError(frame.message)
-        }
-      }
-    }
+    await streamNdjson<JobFrame>(path, payload, onFrame, 'job')
   }
 
   /** Generate one chapter. */
@@ -560,38 +588,7 @@ export class NovelApi {
 
   /** Run one assistant turn (NDJSON stream). */
   async assistant(message: string, onFrame: (frame: import('../protocol.ts').AssistantFrame) => void): Promise<void> {
-    const response = await fetch(NOVEL_API.assistant, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      // 与其它书级请求一致：显式带 bookId，避免切书后被宿主的全局 active 串书。
-      body: JSON.stringify(withBookIdBody({ message })),
-    })
-    if (!response.ok) {
-      await readJson<{ error?: string }>(response)
-      return
-    }
-    if (response.body === null) throw new NovelApiError('assistant: no response body')
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const line of lines) {
-        if (line.trim() === '') continue
-        let frame: import('../protocol.ts').AssistantFrame
-        try {
-          frame = JSON.parse(line) as import('../protocol.ts').AssistantFrame
-        } catch {
-          continue
-        }
-        onFrame(frame)
-        if (frame.type === 'error') throw new NovelApiError(frame.message)
-      }
-    }
+    await streamNdjson<import('../protocol.ts').AssistantFrame>(NOVEL_API.assistant, { message }, onFrame, 'assistant')
   }
 
   /** 张力曲线：数据 + 规则核对。 */
@@ -783,37 +780,7 @@ export class NovelApi {
 
   /** 改编模式：rewrite 逐章重写（NDJSON 流式进度，支持分段 startNo/endNo）。 */
   async adaptRewriteStream(req: AdaptExecuteRequest, onFrame: (frame: AdaptRewriteFrame) => void): Promise<void> {
-    const response = await fetch(NOVEL_API.adaptRewriteStream, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(req),
-    })
-    if (!response.ok) {
-      await readJson<{ error?: string }>(response)
-      return
-    }
-    if (response.body === null) throw new NovelApiError('adapt rewrite: no response body')
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const line of lines) {
-        if (line.trim() === '') continue
-        let frame: AdaptRewriteFrame
-        try {
-          frame = JSON.parse(line) as AdaptRewriteFrame
-        } catch {
-          continue
-        }
-        onFrame(frame)
-        if (frame.type === 'error') throw new NovelApiError(frame.message)
-      }
-    }
+    await streamNdjson<AdaptRewriteFrame>(NOVEL_API.adaptRewriteStream, req, onFrame, 'adapt rewrite')
   }
 
   /** 主题自定义背景：上传图片，服务端存盘并返回可访问 URL。 */

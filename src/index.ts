@@ -13,7 +13,7 @@ import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import type { ConfigPatch, NovelConfig, ConfigResponse } from './protocol.ts'
+import type { ConfigPatch, NovelConfig, ConfigResponse, SavedModel } from './protocol.ts'
 import { makeRoutes } from './routes.ts'
 import { ProductionRunner } from './run.ts'
 import { activeBookOutputDir } from './bookshelf.ts'
@@ -63,6 +63,8 @@ export interface Config {
   auditModel?: string
   /** 备用模型：主模型失败时自动切换重试一次（留空 = 不切换）。 */
   fallbackModel?: string
+  /** 备用模型的输出 token 上限（仅在设了 fallbackModel 时有意义；0/空 = 沿用主模型预算）。 */
+  fallbackMaxTokens?: number
   /** 出章后自动抽取故事时间线（默认开）。 */
   autoTimeline?: boolean
   /** LLM reasoning effort (off/low/high/max). */
@@ -89,6 +91,8 @@ export interface Config {
   themeOpacity?: number
   /** 是否启用改编模式（默认关闭）。 */
   enableAdaptMode?: boolean
+  /** 手动添加的模型库（「我的模型」条目；只存插件内）。 */
+  savedModels?: SavedModel[]
 }
 
 /**
@@ -136,6 +140,7 @@ export const Config: z<Config> = z.object({
   reviewModel: live(z.string().default('')),
   auditModel: live(z.string().default('')),
   fallbackModel: live(z.string().default('')),
+  fallbackMaxTokens: live(z.number().default(0)),
   autoTimeline: live(z.boolean().default(true)),
   reasoningEffort: live(z.union(['off', 'low', 'high', 'max']).default('off')),
   analysisReasoning: live(z.union(['off', 'low', 'high', 'max']).default('low')),
@@ -149,6 +154,12 @@ export const Config: z<Config> = z.object({
   themeBackgroundBlur: live(z.number().default(0)),
   themeOpacity: live(z.number().default(100)),
   enableAdaptMode: live(z.boolean().default(true)),
+  savedModels: live(z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    provider: z.string(),
+    model: z.string(),
+  })).default([])),
 })
 
 /** Schema defaults, re-read for hand-built test contexts. */
@@ -185,6 +196,7 @@ export function resolveConfig(value: Partial<Config> | undefined): NovelConfig {
     reviewModel: value?.reviewModel,
     auditModel: value?.auditModel,
     fallbackModel: value?.fallbackModel ?? DEFAULT_FALLBACK_MODEL,
+    fallbackMaxTokens: value?.fallbackMaxTokens,
     autoTimeline: value?.autoTimeline ?? DEFAULT_AUTO_TIMELINE,
     reasoningEffort: value?.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
     analysisReasoning: value?.analysisReasoning ?? DEFAULT_ANALYSIS_REASONING,
@@ -198,6 +210,7 @@ export function resolveConfig(value: Partial<Config> | undefined): NovelConfig {
     themeBackgroundBlur: value?.themeBackgroundBlur ?? 0,
     themeOpacity: value?.themeOpacity ?? 100,
     enableAdaptMode: value?.enableAdaptMode ?? true,
+    savedModels: value?.savedModels ?? [],
   }
 }
 
@@ -264,6 +277,7 @@ export function apply(ctx: Context, config?: Config): void {
     if (patch.reviewModel !== undefined) next.reviewModel = patch.reviewModel
     if (patch.auditModel !== undefined) next.auditModel = patch.auditModel
     if (patch.fallbackModel !== undefined) next.fallbackModel = patch.fallbackModel
+    if (patch.fallbackMaxTokens !== undefined) next.fallbackMaxTokens = patch.fallbackMaxTokens
     if (patch.autoTimeline !== undefined) next.autoTimeline = patch.autoTimeline
     if (patch.reasoningEffort !== undefined) next.reasoningEffort = patch.reasoningEffort
     if (patch.analysisReasoning !== undefined) next.analysisReasoning = patch.analysisReasoning
@@ -277,6 +291,7 @@ export function apply(ctx: Context, config?: Config): void {
     if (patch.themeBackgroundBlur !== undefined) next.themeBackgroundBlur = patch.themeBackgroundBlur
     if (patch.themeOpacity !== undefined) next.themeOpacity = patch.themeOpacity
     if (patch.enableAdaptMode !== undefined) next.enableAdaptMode = patch.enableAdaptMode
+    if (patch.savedModels !== undefined) next.savedModels = patch.savedModels
     // Apply + persist via the shared helper: the host section is addressed by the
     // entry id the Loader assigned, never by a guessed constant. (ctx.get is the
     // non-strict service access — same pattern the 0.1.x wiring used.)
@@ -364,58 +379,6 @@ export function apply(ctx: Context, config?: Config): void {
     })
   }
 
-  // 运行时 skill：章节批量生产与值守处理（只在本插件环境可用）。
-  // 通过 ctx.get('skills') 获取注册表（服务存在时注册，缺失则跳过，不影响其他能力）。
-  const skillsService = ctx.get('skills') as { register?: (skill: { name: string; provider: string; description: string; content: string }) => () => void } | undefined
-  // [disabled 2026-09-05] 运行时 skill 注册按用户要求暂时关闭（排查 .length 报错）。
-  const enableRuntimeSkill: boolean = false
-  if (enableRuntimeSkill && skillsService !== undefined && skillsService.register !== undefined) {
-    const disposeSkill = skillsService.register({
-      name: 'novel-forge-chapter-batch',
-      provider: 'dsh-novel-forge',
-      description: '批量生成小说章节并值守处理审稿未过的章节（豁免/按意见修订/验证模式/重新生成），依赖 dsh-novel-forge 的 /api/dsh-novel-forge/* 路由。',
-      content: [
-        '# 小说章节批量生产与值守处理',
-        '',
-        '## 0. 值守纪律（最高优先级，违反即空转）',
-        '1. 启动后台任务后立即停下，不轮询、不连续 wait、不做无意义动作——后台任务完成时运行时自动通知。',
-        '2. 只有收到「任务完成」通知或用户新消息时，才继续下一步（读结果→处理未过→汇报）。',
-        '3. 等待期间可做与当前任务无关的其他有用工作，但不得为等任务而空转。',
-        '4. 任务因 web 重启中断时：待 3080 恢复后，复位卡死章节（generating/error → reset）再续跑，并向用户说明中断原因。',
-        '',
-        '## 1. 前置检查',
-        '1. `GET /api/dsh-novel-forge/status` 确认服务在跑，读项目章节数。',
-        '2. 列出目标区间 pending 章节号，避免重复生成已处理章节。',
-        '3. **串行执行，禁止并行写 project.json**（并发会互相覆盖状态，实测教训）。',
-        '',
-        '## 2. 批量生成',
-        '逐章串行调用 `POST /generate` `{ chapterNo, skipReview: false }`（走完整质量门：生成→摘要+编年录→审稿→复盘）。',
-        '响应为 NDJSON，找 review 帧取 score/passed。每章 2-5 分钟；失败重试 1 次；后台跑并告知预计时长。',
-        '用 Node 脚本（fetch 逐章循环），避免 PowerShell 转义坑，用完删除。',
-        '',
-        '## 3. 未过章节分级处理',
-        '### A. 无 high → 豁免通过：`POST /chapter/approve`（主观项不磨）',
-        '### B. 有 high 且明确 → 按意见修订 + 验证模式：',
-        '1. 拼指令 `按审稿意见修订（优先处理）：\n[severity] item → suggestion`（high 优先，无 high 取前 3 medium）',
-        '2. `POST /rewrite` 产草稿；3. `POST /chapter/check` 带 `previousReport` 走验证模式（只核对原意见解决+只挑新增 high）',
-        '4. 判定 `passed || 无 high` 可接受；5. `POST /draft/apply` 带 passed 报告落盘 approved',
-        '6. 不可接受 → 第二轮修订（指令更精确）→ 再验证；每章最多修 2 轮，仍不过保留草稿待人工',
-        '### C. 结构性 high（修订改不好）→ `POST /draft/discard` 后 `POST /generate` 重写，剩主观项再走 A',
-        '### D. error 状态 → `POST /chapter/reset` 后 `POST /generate`',
-        '注意：approved 但 review 有 high 的保留不动；修订指令越精确越有效（具体数字/行为一次就过）。',
-        '',
-        '## 4. 收尾',
-        '`GET /status` 验证目标区间全 approved；可选刷新剧情线（`POST /plotlines` op=refresh，注意只读最近 8 章摘要）；汇报通过/未过/失败与遗留项。',
-        '',
-        '## 5. 已知陷阱',
-        '- 并发写 project.json 互相覆盖 → 必须串行',
-        '- rewrite 草稿可能偶发不落盘 → 应用前检查 pendingDraft，不存在则重跑',
-        '- PowerShell 调 API 引号/中文转义是坑 → 用 Node 脚本',
-        '- 验证模式 500 偶发 → 重试一次',
-      ].join('\n'),
-    })
-    ctx.effect(() => disposeSkill, 'dsh-novel-forge: skill')
-  }
 
   // Initial registration from the composition entry.
   sync()

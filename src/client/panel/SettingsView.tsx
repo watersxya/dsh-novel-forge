@@ -110,8 +110,10 @@ export function SettingsView({ api, variant = 'page', onSettingsTab, onEditorFon
         reviewModel: configDraft.reviewModel,
         auditModel: configDraft.auditModel,
         fallbackModel: configDraft.fallbackModel ?? '',
+        fallbackMaxTokens: configDraft.fallbackMaxTokens ?? 0,
         autoTimeline: configDraft.autoTimeline ?? true,
         reasoningEffort: configDraft.reasoningEffort ?? 'off',
+        analysisReasoning: configDraft.analysisReasoning ?? 'low',
         chapterChars: configDraft.chapterChars,
         maxTokens: configDraft.maxTokens,
         reviewPassScore: configDraft.reviewPassScore,
@@ -219,6 +221,20 @@ export function SettingsView({ api, variant = 'page', onSettingsTab, onEditorFon
                   .filter(m => m !== '')
                   .map(m => <option key={m} value={m}>{m}</option>)}
               </select>
+            </div>
+            <div className={css.field}>
+              <label className={css.fieldLabel}>备用模型的输出上限（tokens，0 = 沿用主模型预算）</label>
+              <input
+                className={css.input}
+                type="number"
+                min={0}
+                step={1000}
+                value={configDraft.fallbackMaxTokens ?? 0}
+                onChange={e => setConfigDraft({ ...configDraft, fallbackMaxTokens: Number(e.target.value) || 0 })}
+              />
+              <span className={css.meta}>
+                只影响换到备用模型之后的长文调用（正文 / 改写 / 润色）。模型能力表不含上下文窗口数据，所以这里不猜、按备用模型的实际输出上限填；0 表示沿用主模型预算。
+              </span>
             </div>
             <span className={css.meta}>
               只对可重试的失败生效：用户取消、参数错误不会切换；正文生成只在「一个字都没产出」时才换模型重试，避免重复生成。

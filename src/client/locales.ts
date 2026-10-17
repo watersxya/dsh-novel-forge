@@ -35,7 +35,6 @@ export const zh = {
   'plan.pending': '待生成',
   'plan.generating': '生成中',
   'plan.written': '待审稿',
-  'plan.reviewing': '审稿中',
   'plan.approved': '已通过',
   'plan.rejected': '待修订',
   'plan.error': '失败',

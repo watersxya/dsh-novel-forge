@@ -99,7 +99,7 @@ export function computeBookStage(project: ProjectState | undefined): BookStage {
       reason: `第 ${rejected.map(c => c.no).join('、')} 章审稿未过，需要按意见修订`,
     }
   }
-  const awaitingReview = chapters.filter(c => c.status === 'written' || c.status === 'reviewing')
+  const awaitingReview = chapters.filter(c => c.status === 'written')
   if (awaitingReview.length > 0) {
     return {
       id: 'review',

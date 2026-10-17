@@ -273,7 +273,6 @@ export type ChapterStatus =
   | 'pending'      // planned, not started
   | 'generating'   // LLM writing right now
   | 'written'      // body on disk, awaiting review
-  | 'reviewing'    // review in progress
   | 'approved'     // passed review (or user-approved)
   | 'rejected'     // review found problems
   | 'error'        // generation failed
@@ -1947,6 +1946,8 @@ export interface ExportResponse {
   file: string
   chars: number
   chapters: number
+  /** 全本导出时因文件缺失/为空被跳过的章号；无跳过项时缺省。 */
+  skipped?: number[]
   scope: ExportScope
   format: 'txt' | 'md' | 'json'
 }
@@ -1962,6 +1963,8 @@ export interface ConfigPatch {
   auditModel?: string
   /** 备用模型（主模型失败时自动切换重试一次；空串 = 关闭）。 */
   fallbackModel?: string
+  /** 备用模型的输出 token 上限（0/空 = 沿用主模型预算）。 */
+  fallbackMaxTokens?: number
   /** 出章后自动抽取故事时间线（默认开）。 */
   autoTimeline?: boolean
   reasoningEffort?: 'off' | 'low' | 'high' | 'max'

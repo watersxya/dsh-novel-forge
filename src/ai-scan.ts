@@ -221,12 +221,29 @@ export function scanAiFlavor(text: string, rules?: readonly AiScanRuleInput[]): 
   const totalChars = text.length
 
   // 1. 模式统计（按语料稀有度加权；模式并集见 PATTERN_COVERAGE）
+  //    长模式优先并占用字符区间：有包含关系的模式（「心中」/「心中暗道」）不再对
+  //    同一段文字重复计权——否则短词会把长词的证据再算一遍，分数凭重复虚高。
   const clicheHits: Array<{ word: string; count: number; weight: number }> = []
   let weightedTotal = 0
-  for (const word of Object.keys(PATTERN_COVERAGE)) {
-    const count = countOccurrences(text, word)
-    if (count === 0) continue
+  const occupied = new Uint8Array(text.length)
+  const patterns = Object.keys(PATTERN_COVERAGE).sort((a, b) => b.length - a.length)
+  for (const word of patterns) {
+    if (word.length === 0) continue
     const weight = patternWeight(PATTERN_COVERAGE[word] ?? 0)
+    let count = 0
+    let at = text.indexOf(word)
+    while (at !== -1) {
+      let free = true
+      for (let i = at; i < at + word.length; i++) {
+        if (occupied[i] === 1) { free = false; break }
+      }
+      if (free) {
+        count += 1
+        for (let i = at; i < at + word.length; i++) occupied[i] = 1
+      }
+      at = text.indexOf(word, at + word.length)
+    }
+    if (count === 0) continue
     clicheHits.push({ word, count, weight })
     weightedTotal += count * weight
   }

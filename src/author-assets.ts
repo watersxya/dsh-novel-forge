@@ -64,7 +64,12 @@ export function upsertAuthorAsset(input: AuthorStyleAsset): AuthorAssetLibrary {
       }
     }
   } else {
-    library.items.push({ ...input, createdAt: input.createdAt !== '' ? input.createdAt : now, updatedAt: now })
+    // 前端「新增」传的是空 id（编辑态才带 id）：必须在这里补一个唯一 id，
+    // 否则每条新资产都以 '' 入库，第二次新增就会被 findIndex 命中、覆盖第一条。
+    const id = input.id !== ''
+      ? input.id
+      : 'aa-' + Date.now().toString(36) + '-' + randomBytes(4).toString('hex')
+    library.items.push({ ...input, id, createdAt: input.createdAt !== '' ? input.createdAt : now, updatedAt: now })
   }
   saveAuthorAssets(library)
   return library

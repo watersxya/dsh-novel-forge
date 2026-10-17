@@ -412,6 +412,24 @@ export interface NovelRoutesDeps {
 const DEFAULT_PLAN_COUNT = 30
 
 /**
+ * 复盘结果回灌编年录（与生产单 run.ts 同口径：stateChanges + clues）。
+ *
+ * 为什么必须回灌：作者复盘是**当前状态**的事实来源（谁伤了、谁拿到了什么、哪条线落地）；
+ * 只写 chapter.authorReview、不回灌 facts，会让面板单独补跑复盘的章节在后续生成里
+ * 「失忆」——编年录缺了这段，下一章就可能写飞。
+ *
+ * @param project 项目状态（就地修改）。
+ * @param chapterNo 章节号。
+ * @param review 复盘结果。
+ */
+function backfillReviewFacts(project: ProjectState, chapterNo: number, review: AuthorReview): void {
+  const facts = [...(review.stateChanges ?? []), ...(review.clues ?? [])]
+  if (facts.length === 0) return
+  project.facts ??= []
+  for (const text of facts) project.facts.push({ chapterNo, text })
+}
+
+/**
  * The profile this host booted (`--profile <name>` on the dsh CLI invocation).
  * Profile-scoped paths must not assume a name: the shipped template is `web`,
  * but a custom profile (`web-alpha`) is the one actually running.
@@ -859,8 +877,10 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
               if (review.advancedLines !== undefined) {
                 autoLinkPlotlines(project, no, review.advancedLines)
               }
-              // 保留本块刚写的 plotlines（autoLinkPlotlines），否则会被磁盘旧值覆盖。
-              mergeVolatileFromDisk(config.outputDir, project, ['plotlines'])
+              // 复盘产出的状态变化/线索回灌编年录（与生产单同口径）。
+              backfillReviewFacts(project, no, review)
+              // 保留本块刚写的 plotlines / facts，否则会被磁盘旧值覆盖。
+              mergeVolatileFromDisk(config.outputDir, project, ['plotlines', 'facts'])
               saveProject(config.outputDir, project)
               send({ type: 'author-review', no, review })
             }
@@ -1027,9 +1047,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<DraftDecisionRequest>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       if (!Number.isInteger(body?.chapterNo)) {
         writeJson(res, 400, { error: 'chapterNo 须为正整数' })
         return
@@ -1078,9 +1098,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<DraftDecisionRequest>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       if (!Number.isInteger(body?.chapterNo)) {
         writeJson(res, 400, { error: 'chapterNo 须为正整数' })
         return
@@ -1106,9 +1126,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<SummaryRequest>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       if (!Number.isInteger(body?.chapterNo)) {
         writeJson(res, 400, { error: 'chapterNo 须为正整数' })
         return
@@ -1254,9 +1274,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<ChapterTextRequest>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       const text = body?.text?.trim() ?? ''
       if (text.length < 50) {
         writeJson(res, 400, { error: '正文过短（<50 字），请先编辑内容' })
@@ -1279,9 +1299,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<ChapterTextRequest>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       if (!Number.isInteger(body?.chapterNo)) {
         writeJson(res, 400, { error: 'chapterNo 须为正整数' })
         return
@@ -2658,7 +2678,8 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
+      const body = await readJsonBody<{ bookId?: string }>(req)
+      const project = requireProjectAt(req, res, body)
       if (project === undefined) return
       try {
         const cards = await refreshCharacters(ctx, config, project, config.outputDir)
@@ -2681,7 +2702,8 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
+      const body = await readJsonBody<{ bookId?: string }>(req)
+      const project = requireProjectAt(req, res, body)
       if (project === undefined) return
       try {
         const filled = await backfillFacts(ctx, config, project, config.outputDir)
@@ -2700,14 +2722,13 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
+      const body = await readJsonBody<BiblePatchRequest>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
       if (project === undefined) return
       if (project.bible === undefined) {
         writeJson(res, 400, { error: '尚未生成道藏，请先生成' })
         return
-      }
-      const body = await readJsonBody<BiblePatchRequest>(req)
-      if (Array.isArray(body?.worldRules)) project.bible.worldRules = body.worldRules.filter(r => r.trim() !== '')
+      }      if (Array.isArray(body?.worldRules)) project.bible.worldRules = body.worldRules.filter(r => r.trim() !== '')
       if (Array.isArray(body?.redLines)) project.bible.redLines = body.redLines.filter(r => r.trim() !== '')
       if (Array.isArray(body?.style)) project.bible.style = body.style.filter(r => r.trim() !== '')
       if (Array.isArray(body?.characters)) {
@@ -2740,9 +2761,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<BlurbRequest>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       try {
         if (body?.action === 'save') {
           const text = body.text?.trim() ?? ''
@@ -2806,9 +2827,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
       }
       if (req.method === 'POST') {
         if (!guard(req, res, 'POST')) return
-        const project = requireProjectAt(req, res)
-        if (project === undefined) return
         const body = await readJsonBody<CoverRequest>(req)
+        const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+        if (project === undefined) return
         try {
           if (body?.action === 'remove') {
             if (project.coverPath !== undefined && project.coverPath !== '') {
@@ -2859,9 +2880,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<WorldRequest>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       try {
         if (body?.action === 'save' && body.world !== undefined) {
           project.world = {
@@ -2893,9 +2914,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<RenameRequest>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       const bookName = body?.bookName?.trim()
       if (bookName === undefined || bookName === '') {
         writeJson(res, 400, { error: '书名不能为空' })
@@ -2918,9 +2939,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<PlotlinesRequest>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       if (project.plotlines === undefined) project.plotlines = []
       const op = body?.op
       if (op === 'add' && body?.line !== undefined) {
@@ -3048,9 +3069,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<SensitiveCheckRequest>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       const hits: SensitiveHit[] = []
       let scanned = 0
       if (body?.text !== undefined) {
@@ -3095,9 +3116,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<RolesRequest>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       if (project.roles === undefined) project.roles = []
       const op = body?.op
       if (op === 'extract') {
@@ -3135,9 +3156,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<{ chapterNo?: number }>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       const no = body?.chapterNo
       if (!Number.isInteger(no) || no === undefined || no < 1) {
         writeJson(res, 400, { error: 'chapterNo 须为正整数' })
@@ -3165,9 +3186,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<{ chapterNo?: number }>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       const no = body?.chapterNo
       if (!Number.isInteger(no) || no === undefined || no < 1) {
         writeJson(res, 400, { error: 'chapterNo 须为正整数' })
@@ -3199,9 +3220,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<ChapterPlanPatchRequest>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       const no = body?.chapterNo
       if (!Number.isInteger(no) || no === undefined || no < 1) {
         writeJson(res, 400, { error: 'chapterNo 须为正整数' })
@@ -3259,9 +3280,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<{ chapterNo?: number }>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       const abort = abortOnClientClose(req, res)
 
       /** 对一章执行作者复盘（读取已落盘正文，不改变章节状态/正文）。 */
@@ -3296,6 +3317,8 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           if (review.advancedLines !== undefined) {
             autoLinkPlotlines(project, chapter.no, review.advancedLines)
           }
+          // 与生产单同口径：复盘产出的状态变化/线索回灌编年录。
+          backfillReviewFacts(project, chapter.no, review)
           project.updatedAt = new Date().toISOString()
           saveProject(config.outputDir, project)
           writeJson(res, 200, { no: chapter.no, review } satisfies { no: number; review: AuthorReview })
@@ -3328,6 +3351,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
           if (review.advancedLines !== undefined) {
             autoLinkPlotlines(project, chapter.no, review.advancedLines)
           }
+          backfillReviewFacts(project, chapter.no, review)
           done++
           saveProject(config.outputDir, project)
           send({ type: 'author-review', no: chapter.no, review })
@@ -3443,7 +3467,8 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
+      const body = await readJsonBody<{ bookId?: string }>(req)
+      const project = requireProjectAt(req, res, body)
       if (project === undefined) return
       res.writeHead(200, {
         'content-type': 'application/x-ndjson; charset=utf-8',
@@ -3593,9 +3618,9 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     handler: async (req, res) => {
       if (!guard(req, res, 'POST')) return
       const config = getConfig()
-      const project = requireProjectAt(req, res)
-      if (project === undefined) return
       const body = await readJsonBody<BreakdownRequest>(req)
+      const project = requireProjectAt(req, res, body as { bookId?: string } | undefined)
+      if (project === undefined) return
       try {
         const result = await breakdownBook(
           ctx,
@@ -3859,8 +3884,14 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
       const config = getConfig()
       let text = body?.text?.trim() ?? ''
       if (text === '' && body?.filePath !== undefined && body.filePath !== '') {
+        // 与 import-text 同一道白名单：改编只接纯文本小说，不能把 filePath 当任意文件读取器。
+        const sourcePath = body.filePath.trim()
+        if (!IMPORTABLE_EXTENSIONS.includes(extname(sourcePath).toLowerCase())) {
+          writeJson(res, 400, { error: '只支持 txt / md / markdown 文件' })
+          return
+        }
         try {
-          text = readFileSync(body.filePath, 'utf8')
+          text = readFileSync(sourcePath, 'utf8')
         } catch (err) {
           writeJson(res, 400, { error: '读取文件失败：' + (err as Error).message })
           return

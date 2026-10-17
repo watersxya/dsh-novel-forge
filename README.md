@@ -1,7 +1,7 @@
 # dsh-novel-forge — AI 编译小说工作台 / AI Novel Writing Workbench
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.3.0--alpha-blue" />
+  <img alt="version" src="https://img.shields.io/badge/version-2.5.1-blue" />
   <img alt="DSH peer" src="https://img.shields.io/badge/DSH%20peer-0.1.2--alpha.3-blue" />
   <img alt="License" src="https://img.shields.io/badge/license-AGPL_3.0_only-blue" />
   <a href="https://github.com/watersxya/dsh-novel-forge/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/watersxya/dsh-novel-forge/actions/workflows/ci.yml/badge.svg?branch=main" /></a>
@@ -20,7 +20,7 @@
 
 你的专属 AI 小说写作插件：把一份大纲"编译"成一本完整的小说。
 
-**版本：`2.1.11`** · 定位：**纯文本小说创作**。所有环节（开书、设定、规划、写作、审校、质检、导出）都在侧边栏「小说工坊」面板内完成；不涉及图片 / 视频 / 分镜生成。
+**版本：`2.5.1`** · 定位：**纯文本小说创作**。所有环节（开书、设定、规划、写作、审校、质检、导出）都在侧边栏「小说工坊」面板内完成；不涉及图片 / 视频 / 分镜生成。
 
 > **安装标签**：2.0.0 起本项目已转正式版，`latest` 是默认标签，`npm i @waterwx/dsh-novel-forge` 即可。
 > 只有在测试预发布版本时才需要显式带 `@alpha`。
@@ -326,7 +326,7 @@ vitest.config.ts      测试范围（tests/**/*.test.ts）
 
 An AI novel-writing plugin for DeepSeek Harness (DSH). Feed it an outline (docx / pasted text / a full txt split into chapters) and it compiles it into a complete novel: open a book → build the setting → plan chapters → compile chapter by chapter → revise → audit & finalize → export.
 
-**Version `2.1.0` · Scope: pure-text novel writing.** Everything happens inside the "Novel Forge" sidebar panel; no comic / storyboard / image / video generation.
+**Version `2.5.1` · Scope: pure-text novel writing.** Everything happens inside the "Novel Forge" sidebar panel; no comic / storyboard / image / video generation.
 
 **UI language: Simplified Chinese only.** The panel ships a single Chinese UI (no language switch); the English section below is documentation for this repository, not an in-app language option.
 

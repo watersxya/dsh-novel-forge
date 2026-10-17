@@ -2,8 +2,8 @@
  * Writing assets — 题材基底库 / 推进模式库 / 反 AI 规则 / 写法引擎.
  *
  * 内置种子数据（本项目自研表述；结构参考了同类工具的功能划分）：
- * - 8 套预置叙事风格模板
- * - 12 条带命中模式的反 AI 规则
+ * - 预置叙事风格模板（数量以 {@link BUILTIN_STYLE_TEMPLATES} 数组为准）
+ * - 带命中模式的反 AI 规则（数量以 ANTI_AI_RULES 数组为准）
  * - 题材树 + 推进模式种子
  * Assets persist with the project (novel-project.json) and are injected into
  * generation / planning / review prompts, and available to the AI assistant.

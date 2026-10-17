@@ -148,9 +148,19 @@ describe('buildCurveData', () => {
     expect(typeof curve.points[0]?.reference).toBe('number')
   })
 
-  it('custom 预设不产生参考值', () => {
+  it('custom 预设：没有自定义值时回落到本章目标，参考线不断', () => {
     const curve = buildCurveData(project([chapter(1, { tension: 30 })], { preset: 'custom', custom: [] }))
-    expect(curve.points[0]?.reference).toBeUndefined()
+    expect(curve.points[0]?.reference).toBe(30)
+  })
+
+  it('custom 预设：有值时按章号取（缺章/稀疏章号不错位）', () => {
+    const p = project([
+      chapter(1, { tension: 30 }),
+      chapter(3, { tension: 70 }),
+    ], { preset: 'custom', custom: [10, 20, 90] })
+    const curve = buildCurveData(p)
+    expect(curve.points[0]?.reference).toBe(10) // 第 1 章 → custom[0]
+    expect(curve.points[1]?.reference).toBe(90) // 第 3 章 → custom[2]（不是数组下标 1 的 20）
   })
 })
 

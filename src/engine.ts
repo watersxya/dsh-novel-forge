@@ -1344,7 +1344,15 @@ export async function authorReviewChapter(
     clues?: unknown
     absentRisks?: unknown
   }>(
-    await complete(ctx, config, { system: authorReviewSystemPrompt(), user, temperature: 0.3, maxTokens: Math.max(config.maxTokens, 4000) }),
+    await complete(ctx, config, {
+      system: authorReviewSystemPrompt(),
+      user,
+      temperature: 0.3,
+      maxTokens: Math.max(config.maxTokens, 4000),
+      // 复盘与审稿同属「质量判读」，走审稿模型；此前回落到主模型，同一次生产里两把尺子。
+      model: config.reviewModel,
+      liveLabel: '作者复盘',
+    }),
   )
   // 解析推进的线名（与项目线名精确匹配；过滤不存在的名字）。
   const knownLineNames = new Set((project.plotlines ?? []).map(l => l.name))
@@ -1665,19 +1673,22 @@ export async function extractRoles(
 /**  AI 从全书提炼场景库：正文/编年录 → 高频重要场景的结构化视觉锚点。 */
 export function splitBookText(raw: string): Array<{ no: number; title: string; body: string }> {
   const lines = raw.split(/\r?\n/)
-  // 拆章：中文「第X章/回/节/卷」、中文数字章节（一、二、三…）、特殊章节（序章/楔子/尾声/番外…）、英文 Chapter N（均可带 # 前缀）。
-  const chapterHead = /^\s*(?:#\s*)?第\s*(\d+|[一二三四五六七八九十百千]+)\s*[章回节卷]\s*(.*?)\s*$/
+  // 拆章：中文「第X章/回/节」、中文数字章节（一、二、三…）、特殊章节（序章/楔子/尾声/番外…）、英文 Chapter N（均可带 # 前缀）。
+  // 「第X卷」不算章：卷标题只做正文行，否则拆章会把卷头也当成一章。
+  const chapterHead = /^\s*(?:#\s*)?第\s*(\d+|[一二三四五六七八九十百千万零〇]+)\s*[章回节]\s*(.*?)\s*$/
   const cnOnlyHead = /^\s*(?:#\s*)?([一二三四五六七八九十百千万零〇]{1,6})(?:[、.．:：]\s*(.*?)\s*)?$/
   const specialHead = /^\s*(?:#\s*)?(序章|序言|楔子|引子|前言|开篇|尾声|终章|大结局|番外(?:篇|章)?|后记|完结感言|上架感言|作者的话)\s*[：:、.\s]*(.*?)\s*$/
   const enHead = /^\s*(?:#\s*)?chapter\s+(\d+)\s*[.:：、\-\s]*(.*?)\s*$/i
-  const cnNum: Record<string, number> = { 一:1,二:2,三:3,四:4,五:5,六:6,七:7,八:8,九:9,十:10,百:100,千:1000 }
+  const cnNum: Record<string, number> = { 零:0, 〇:0, 一:1,二:2,三:3,四:4,五:5,六:6,七:7,八:8,九:9,十:10,百:100,千:1000,万:10000 }
   const parseCn = (s: string): number => {
     if (/^\d+$/.test(s)) return Number(s)
+    // 段位进位：「一万零一」= 10001，「一千零二十」= 1020；零/〇 只占位不计值。
     let total = 0; let section = 0
     for (const ch of s) {
       const v = cnNum[ch]
       if (v === undefined) return 0
-      if (v >= 10) { total += (section > 0 ? section : 1) * v; section = 0 } else section = v
+      if (v === 0) continue
+      if (v >= 10000) { section = (section + total) * v; total = 0 } else if (v >= 10) { total += (section > 0 ? section : 1) * v; section = 0 } else section = v
     }
     return total + section
   }
@@ -3139,10 +3150,10 @@ export async function summarizeAndExtractFacts(
   const summary = typeof raw.summary === 'string' ? raw.summary.trim().slice(0, 500) : ''
   const factLines = parseFactLines(raw.facts)
   if (summary !== '') chapter.summary = summary
-  dedupAndAddFacts(project, chapterNo, factLines)
+  const added = dedupAndAddFacts(project, chapterNo, factLines)
   project.updatedAt = new Date().toISOString()
   saveProject(outputDir, project)
-  return { summary, factCount: factLines.length }
+  return { summary, factCount: added }
 }
 
 
@@ -3204,7 +3215,7 @@ export async function summarizeFactsAndTimeline(
     .filter(e => e.event !== '')
 
   if (summary !== '') chapter.summary = summary
-  dedupAndAddFacts(project, chapterNo, factLines)
+  const added = dedupAndAddFacts(project, chapterNo, factLines)
   if (extracted.length > 0) {
     // 保留模型给出的叙述顺序（不按 order 重排）：时间线检查要靠这个顺序发现
     // 「自报 order 与叙述顺序打架」；渲染/注入时再用 sortTimeline 按 order 排。
@@ -3213,7 +3224,7 @@ export async function summarizeFactsAndTimeline(
   }
   project.updatedAt = now
   saveProject(outputDir, project)
-  return { summary, factCount: factLines.length, timelineCount: extracted.length }
+  return { summary, factCount: added, timelineCount: extracted.length }
 }
 
 /**
@@ -4097,61 +4108,104 @@ export async function reviewTimeline(
   const events = sortTimeline(project.timeline ?? [])
   if (events.length === 0) return []
   const NL = String.fromCharCode(10)
-  const lines = events.map(e => {
-    const parts = [`第${e.chapterNo}章`]
-    if (e.order !== undefined) parts.push(`#${e.order}`)
-    if (e.time !== '') parts.push(e.time)
-    if (e.place !== '') parts.push(`@${e.place}`)
-    if (e.characters.length > 0) parts.push(`(${e.characters.join('、')})`)
-    parts.push(e.event)
-    return '- ' + parts.join(' ')
-  })
   const system = timelineReviewSystemPrompt()
-  const text = await complete(ctx, config, {
-    system,
-    user: `故事时间线（按章节顺序）：@NL@${lines.join(NL)}`.replace('@NL@', NL),
-    temperature: 0.2,
-    maxTokens: Math.max(config.maxTokens, 4000),
-    model: config.auditModel || config.model,
-    liveLabel: '时间线复核',
-  })
-  let parsed: unknown = []
-  try {
-    parsed = parseJson<unknown>(text, true)
-  } catch {
-    parsed = []
-  }
-  if (!Array.isArray(parsed)) return []
-  return parsed
-    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-    .map(item => {
-      const severity = item.severity === 'high' || item.severity === 'low' ? item.severity : 'medium'
-      const chapters = Array.isArray(item.chapters)
-        ? item.chapters.filter((c): c is number => typeof c === 'number' && Number.isFinite(c))
-        : []
-      return {
-        severity,
-        chapters,
-        item: typeof item.item === 'string' ? item.item.slice(0, 300) : '',
-        suggestion: typeof item.suggestion === 'string' ? item.suggestion.slice(0, 300) : '',
-      } satisfies TimelineIssue
+  const issues: TimelineIssue[] = []
+  // 长篇一次把全部事件送模型会超上下文：按 150 条一批复核，批内保持叙述顺序。
+  // 跨批的「时间倒流」由规则初筛 detectTimelineIssues 兜底，这里只补规则抓不到的
+  // 季节/年龄/回忆混淆类问题。
+  const BATCH = 150
+  const totalBatches = Math.ceil(events.length / BATCH)
+  for (let start = 0; start < events.length; start += BATCH) {
+    const batch = events.slice(start, start + BATCH)
+    const batchNo = Math.floor(start / BATCH) + 1
+    const lines = batch.map(e => {
+      const parts = [`第${e.chapterNo}章`]
+      if (e.order !== undefined) parts.push(`#${e.order}`)
+      if (e.time !== '') parts.push(e.time)
+      if (e.place !== '') parts.push(`@${e.place}`)
+      if (e.characters.length > 0) parts.push(`(${e.characters.join('、')})`)
+      parts.push(e.event)
+      return '- ' + parts.join(' ')
     })
-    .filter(issue => issue.item !== '')
+    const text = await complete(ctx, config, {
+      system,
+      user: `故事时间线（按章节顺序；第 ${batchNo}/${totalBatches} 批）：@NL@${lines.join(NL)}`.replace('@NL@', NL),
+      temperature: 0.2,
+      maxTokens: Math.max(config.maxTokens, 4000),
+      model: config.auditModel || config.model,
+      liveLabel: `时间线复核 · 第${batchNo}/${totalBatches}批`,
+    })
+    let parsed: unknown = []
+    try {
+      parsed = parseJson<unknown>(text, true)
+    } catch {
+      parsed = []
+    }
+    if (!Array.isArray(parsed)) continue
+    issues.push(...parsed
+      .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+      .map(item => {
+        const severity = item.severity === 'high' || item.severity === 'low' ? item.severity : 'medium'
+        const chapters = Array.isArray(item.chapters)
+          ? item.chapters.filter((c): c is number => typeof c === 'number' && Number.isFinite(c))
+          : []
+        return {
+          severity,
+          chapters,
+          item: typeof item.item === 'string' ? item.item.slice(0, 300) : '',
+          suggestion: typeof item.suggestion === 'string' ? item.suggestion.slice(0, 300) : '',
+        } satisfies TimelineIssue
+      })
+      .filter(issue => issue.item !== ''))
+  }
+  return issues
 }
 
 // ------------------------------------------------------------------ export
 
-/** Export the whole book as one txt/md file. */
-export function exportBook(outputDir: string, project: ProjectState, format: 'txt' | 'md'): { file: string; chars: number; chapters: number } {
+/**
+ * 选一个不覆盖已有文件的导出名：同名已存在时依次加 ` (2)`、` (3)`…
+ *
+ * 为什么不再固定文件名覆盖：作者往往「导出 → 看 → 改 → 再导出」，
+ * 固定名会把上一版直接擦掉；导出件是成品，不该只有一份。
+ * @param outputDir 书目录。
+ * @param base 不含扩展名的文件名主体。
+ * @param ext 扩展名（不带点）。
+ */
+function uniqueExportFile(outputDir: string, base: string, ext: string): string {
+  let file = `${base}.${ext}`
+  let n = 2
+  while (existsSync(join(outputDir, file))) {
+    file = `${base} (${n}).${ext}`
+    n++
+  }
+  return file
+}
+
+/**
+ * Export the whole book as one txt/md file.
+ *
+ * 只收真实存在且非空的章节文件：`chapter.file` 有值不等于文件没被手删/清空，
+ * 旧实现会把它们当空串拼进去，导出件看起来完整、实际缺章。跳过的章号随
+ * `skipped` 一起返回，由面板如实提示。
+ */
+export function exportBook(outputDir: string, project: ProjectState, format: 'txt' | 'md'): { file: string; chars: number; chapters: number; skipped?: number[] } {
   const parts: string[] = []
   if (format === 'md') {
     parts.push(`# ${project.bookName}\n`)
   } else {
     parts.push(project.bookName, '')
   }
-  const done = project.chapters.filter(c => c.file !== undefined)
-  for (const chapter of done) {
-    const body = readChapterFile(outputDir, chapter) ?? ''
+  const written: ChapterPlan[] = []
+  const skipped: number[] = []
+  for (const chapter of project.chapters) {
+    if (chapter.file === undefined || chapter.file === '') continue
+    const body = readChapterFile(outputDir, chapter)
+    if (body === undefined || body.trim() === '') {
+      skipped.push(chapter.no)
+      continue
+    }
+    written.push(chapter)
     if (format === 'md') {
       parts.push(`\n## 第${chapter.no}章 ${chapter.title}\n`, body.trim(), '')
     } else {
@@ -4160,9 +4214,9 @@ export function exportBook(outputDir: string, project: ProjectState, format: 'tx
   }
   const content = parts.join('\n')
   const ext = format === 'md' ? 'md' : 'txt'
-  const file = `《${safeFileName(project.bookName)}》全本.${ext}`
+  const file = uniqueExportFile(outputDir, `《${safeFileName(project.bookName)}》全本`, ext)
   writeFileSync(join(outputDir, file), content, 'utf8')
-  return { file, chars: content.length, chapters: done.length }
+  return { file, chars: content.length, chapters: written.length, ...(skipped.length > 0 ? { skipped } : {}) }
 }
 
 /** 逐行渲染「- 名称：值」清单，跳过空值。 */
@@ -4349,12 +4403,12 @@ export function exportScope(
   project: ProjectState,
   scope: ExportScope,
   format: 'txt' | 'md' | 'json',
-): { file: string; chars: number; chapters: number } {
+): { file: string; chars: number; chapters: number; skipped?: number[] } {
   if (scope === 'book') return exportBook(outputDir, project, format === 'json' ? 'md' : format)
   if (scope === 'project') {
     const payload = { schema: 'dsh-novel-forge/project@1', exportedAt: new Date().toISOString(), project }
     const content = JSON.stringify(payload, null, 2)
-    const file = `《${safeFileName(project.bookName)}》项目备份.json`
+    const file = uniqueExportFile(outputDir, `《${safeFileName(project.bookName)}》项目备份`, 'json')
     writeFileSync(join(outputDir, file), content, 'utf8')
     return { file, chars: content.length, chapters: project.chapters.length }
   }
@@ -4364,7 +4418,7 @@ export function exportScope(
         : renderReview(project)
   const ext = format === 'json' ? 'md' : format
   const label = scope === 'settings' ? '项目设定' : scope === 'plan' ? '规划' : scope === 'characters' ? '角色' : '质检记录'
-  const file = `《${safeFileName(project.bookName)}》${label}.${ext}`
+  const file = uniqueExportFile(outputDir, `《${safeFileName(project.bookName)}》${label}`, ext)
   writeFileSync(join(outputDir, file), body, 'utf8')
   return { file, chars: body.length, chapters: 0 }
 }

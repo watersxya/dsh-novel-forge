@@ -1,5 +1,48 @@
 # Changelog
 
+## [2.5.1] - 2026-10-17
+
+修复批次：20+ 处静默缺陷（配置 / 路由 / 导出 / 资产 / 张力 / 时间线 / AI 味）+ 三块重构
+
+**本版没有新功能，全部是「会静默坏掉」的修复与内部收口。** 两轮改动都走完 tsc、全量 vitest 与真机重启验证；行为变化集中在错误路径与边缘数据。
+
+### 一、配置与路由
+
+- **`fallbackMaxTokens` 全链路接通**：此前协议声明、`model-capability` 读取，但 Config schema / `resolveConfig` / `patchConfig` 三处白名单都不认，设置页也没有入口——永远 undefined。现补 schema、resolve、patch 与设置页输入框。
+- **`savedModels` 接通**：「我的模型」条目此前同样在协议声明后被三处白名单静默丢弃。
+- **设置页补传 `analysisReasoning`**：分析推理档位此前改完保存即丢。
+- **21 处路由统一收 body 的 `bookId`**：`requireProjectAt(req,res)` 全部改为先读 body 再取项目；三个无 body 的路由（人物志刷新 / 事实回填 / 反推大纲）也补读。多书切换后 POST 不再落到激活书目录。
+- **`adapt/analyze` 的 `filePath` 加扩展名白名单**（txt / md / markdown），不再能当任意文件读取器。
+
+### 二、数据与资产
+
+- **导出防覆盖**：同名文件依次追加 ` (2)`、` (3)`；全本导出跳过「文件缺失 / 为空」的章并回传 `skipped`，面板如实提示跳过章号。
+- **作者资产新增补唯一 id**：前端新增传空 id，此前每条都以 `''` 入库——第二条会覆盖第一条。服务端现在补 `aa-…-随机`。
+- **`global-assets` 缓存按 mtime 失效**：外部进程 / 手改文件立即可见，不再永不刷新。
+- **复盘回灌统一**：`/generate` 与 `/review/backfill`（单章 + 全书流）都把 `stateChanges` / `clues` 写进编年录，与生产单同口径；此前单独补跑复盘的章节在后续生成里「失忆」。
+- **`factCount` 改为实际入库条数**（去重后），不再报模型原始条数。
+
+### 三、生成质量与判定
+
+- **作者复盘改用 `reviewModel`**：与审稿同模型同档位；此前回落主模型，同一次生产里两把尺子。
+- **张力 custom 按章号取**（`custom[no-1]`，不再按下标错位）；无自定义值时回落到本章目标，参考线不断。
+- **时间线 AI 复核分批**（150 条 / 批），长篇不再一次全量送模型超上下文；跨批倒流由规则初筛兜底。
+- **AI 味扫描去重权**：长模式优先占用字符区间，包含关系（「心中」/「心中暗道」）不再对同一段文字重复计权。
+- **删除 `reviewing` 死状态**（协议 / 阶段契约 / 面板 / 文案）。
+- **拆章修复**：中文数字补 `零 / 〇 / 万` 并改为段位进位（「一万零一」=10001）；`第X卷` 不再被当章切。
+- **移除运行时 skill 死代码**（`enableRuntimeSkill=false` 整段 + 过时文案）。
+
+### 四、重构与界面
+
+- **`ChapterWorkbench` 抽成独立文件**；**`WorkspaceView`**（编辑器全页）抽成受控组件；总编台纯计算层抽成 `home-model.ts`（`computeChapterStats` / `computeJourneyStages`，新增 8 条单测）。`NovelPanel` 从 6345 行降到约 5440 行。
+- **NDJSON 三份解析合并**为 `streamNdjson`：统一注入 bookId、流结束时消费无换行符的最后一帧（不再丢 done / error）。
+- 清理死 setter（`setCharCards` / `setNpmLatest` 及其 npm 检测请求）、`assets.ts` 过期注释、README 三处过期版本号。
+
+### 验证
+
+- `tsc --noEmit` 0 错；`vitest` **41 个文件 / 524 用例全过**；`pnpm build` 成功（`lib/index.js` 733 KB、`lib/client.js` 1.95 MB）。
+- 重启后实测：`/status` 200 且新配置字段生效；作者资产连加两条 id 非空且不再覆盖；张力设目标 50 时参考值回落到 50、清除后归空；面板各视图正常渲染，服务端日志无 novel-forge 报错。
+
 ## [2.5.0] - 2026-10-17
 
 取名器 + 风格目标卡：两块「资产/学习型」能力落地（对标社区头部竞品后的填空）
