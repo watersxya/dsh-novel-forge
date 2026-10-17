@@ -9,12 +9,16 @@
  *    若各画各的，作者会看到两个不一致的结论。
  * 2. **数值即时算、不落盘** —— 数据源就是章节文件本身，存一份快照只会带来陈旧问题。
  *
+ * 页面分两截，各管一把尺子：
+ * - **风格目标卡**（上）：生成端的锚点，作者显式蒸馏后落盘；审稿不读它；
+ * - **漂移曲线**（下）：审稿端的自适应尺子，实时算。两者刻意分开，见 style-profile.ts 文件头。
+ *
  * 只画四项长度/比率指标：句长起伏与意象密度是诊断用的，画成曲线反而难读。
  */
 
 import { useCallback, useEffect, useState } from 'react'
 import type { NovelApi } from '../api.ts'
-import type { StyleHistoryPoint, StyleHistoryResponse } from '../../protocol.ts'
+import type { StyleHistoryPoint, StyleHistoryResponse, StyleProfile, StyleProfileResponse } from '../../protocol.ts'
 import { NoticeBar } from './NoticeBar.tsx'
 import css from './panel.module.css'
 
@@ -90,6 +94,134 @@ export interface StyleViewProps {
   api: NovelApi
 }
 
+/** 风格卡的六项指标展示（比率型转百分比）。 */
+const CARD_METRICS: Array<{ key: keyof StyleProfile['fingerprint']; label: string; percent: boolean }> = [
+  { key: 'avgSentenceLength', label: '句均长', percent: false },
+  { key: 'sentenceLengthCv', label: '句长起伏', percent: false },
+  { key: 'shortSentenceRatio', label: '短句占比', percent: true },
+  { key: 'dialogueRatio', label: '对话占比', percent: true },
+  { key: 'avgParagraphLength', label: '段落均长', percent: false },
+  { key: 'imageryPer1000', label: '意象密度', percent: false },
+]
+
+function fmtCardValue(value: number, percent: boolean): string {
+  return percent ? (value * 100).toFixed(1) + '%' : value.toFixed(2)
+}
+
+/** 风格目标卡（生成端锚点）：展示 + 蒸馏 + 清除。 */
+function StyleProfileCard({ api, onChanged }: { api: NovelApi; onChanged: () => void }): JSX.Element {
+  const [data, setData] = useState<StyleProfileResponse | null>(null)
+  const [sampleText, setSampleText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  const refresh = useCallback(async (showError = true): Promise<void> => {
+    try {
+      setData(await api.styleProfile())
+    } catch (err) {
+      if (showError) setError((err as Error).message)
+    }
+  }, [api])
+
+  useEffect(() => { void refresh(false) }, [refresh])
+
+  const run = useCallback(async (action: 'distill-archived' | 'distill-sample' | 'clear'): Promise<void> => {
+    setBusy(true); setError(''); setNotice('')
+    try {
+      if (action === 'clear') {
+        await api.styleProfileClear()
+        setNotice('已恢复默认（回落绑定资产的样本文本）')
+      } else {
+        const r = await api.styleProfileDistill(action, action === 'distill-sample' ? sampleText : undefined)
+        setNotice(r.profile === null ? '蒸馏失败' : `已蒸馏：${r.profile.label}——下一次生成/审稿生效`)
+      }
+      await refresh()
+      onChanged()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }, [api, sampleText, refresh, onChanged])
+
+  const profile = data?.profile ?? null
+  const approved = data?.approvedChapters ?? 0
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-8)' }}>
+      <div className={`${css.row} ${css.rowBetween} ${css.rowBetweenWrap}`} style={{ gap: 'var(--nf-space-8)' }}>
+        <span className={css.cardTitle}>风格目标卡（生成端）</span>
+        <span className={css.meta}>当前生效：{data?.effectiveLabel ?? '—'}</span>
+      </div>
+      <span className={css.meta}>
+        把「这本书的写法」固化成确定性指标区间，注入每一次正文生成。与下方漂移曲线（审稿尺子）**刻意分开**：
+        尺子跟着书自适应，卡只在作者蒸馏时变——否则生成目标会跟着漂移一起走，越写越偏且互相认证。
+      </span>
+
+      {notice !== '' && <NoticeBar kind="ok">{notice}</NoticeBar>}
+      {error !== '' && (
+        <NoticeBar kind="error" detail="蒸馏失败时原卡不变，生成目标不受影响。重试会重新提交当前操作。" onRetry={() => { void refresh() }}>
+          {error}
+        </NoticeBar>
+      )}
+
+      {profile !== null && (
+        <div style={{ border: '1px solid var(--nf-border)', borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div className={`${css.row} ${css.rowBetweenWrap}`} style={{ gap: 'var(--nf-space-8)' }}>
+            <b style={{ fontSize: 'var(--nf-fs-12)' }}>{profile.label}</b>
+            <span className={css.meta}>
+              {profile.source === 'archived' ? '本书已归档章节蒸馏' : '参考样本蒸馏'}
+              {profile.sampleChapters !== undefined ? ` · 采样 ${profile.sampleChapters} 章` : ''}
+            </span>
+          </div>
+          <div className={`${css.row} ${css.rowBetweenWrap}`} style={{ gap: 'var(--nf-space-8)' }}>
+            {CARD_METRICS.map(m => (
+              <span key={m.key} className={css.meta}>
+                {m.label} <b style={{ color: 'var(--nf-text-1)' }}>{fmtCardValue(profile.fingerprint[m.key], m.percent)}</b>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className={`${css.row} ${css.rowBetweenWrap}`} style={{ gap: 'var(--nf-space-8)' }}>
+        <button
+          type="button"
+          className={css.button + ' ' + css.buttonPrimary}
+          disabled={busy || approved < 3}
+          title={approved < 3 ? '至少需要 3 章已过审章节' : `用本书已过审的 ${approved} 章（等距抽样）蒸馏中位数风格`}
+          onClick={() => { void run('distill-archived') }}
+        >
+          用已归档章节蒸馏（{approved} 章）
+        </button>
+        {profile !== null && (
+          <button type="button" className={css.button} disabled={busy} onClick={() => { void run('clear') }}>
+            恢复默认
+          </button>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <span className={css.meta}>或粘贴一段参考样文本（≥200 字，取你想让全书靠近的写法）：</span>
+        <textarea
+          className={css.textarea}
+          rows={3}
+          value={sampleText}
+          placeholder="粘贴参考正文（自己的旧作或对标作品的片段）……"
+          onChange={e => setSampleText(e.target.value)}
+          disabled={busy}
+        />
+        <div className={`${css.row} ${css.rowEnd}`}>
+          <button type="button" className={css.button} disabled={busy || sampleText.trim().length < 200} onClick={() => { void run('distill-sample') }}>
+            按样本蒸馏
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function StyleView({ api }: StyleViewProps): JSX.Element {
   const [data, setData] = useState<StyleHistoryResponse | null>(null)
   const [error, setError] = useState('')
@@ -121,6 +253,9 @@ export default function StyleView({ api }: StyleViewProps): JSX.Element {
         </span>
       </div>
 
+      <StyleProfileCard api={api} onChanged={refresh} />
+
+      <div style={{ borderTop: '1px solid var(--nf-border)', paddingTop: 'var(--nf-space-8)', display: 'flex', flexDirection: 'column', gap: 'var(--nf-space-8)' }}>
       <div className={css.row}>
         <select className={css.input} value={metric} onChange={e => setMetric(e.target.value as MetricKey)}>
           {METRICS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
@@ -128,7 +263,6 @@ export default function StyleView({ api }: StyleViewProps): JSX.Element {
         <span className={css.meta}>虚线＝本书风格基线；红点＝该指标超出容忍度。基线与审稿同源。</span>
         <button type="button" className={css.button + ' ' + css.buttonSmall} onClick={() => { void refresh() }}>刷新</button>
       </div>
-
       {error !== '' && (
         <NoticeBar
           kind="error"
@@ -160,6 +294,7 @@ export default function StyleView({ api }: StyleViewProps): JSX.Element {
             )}
           </div>
         )}
+      </div>
     </div>
   )
 }

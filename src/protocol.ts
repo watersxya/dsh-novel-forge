@@ -35,6 +35,8 @@ export const NOVEL_API = {
   /** 张力曲线（GET 数据 / POST 设置）。 */
   tension: '/api/dsh-novel-forge/tension',
   styleHistory: '/api/dsh-novel-forge/style-history',
+  /** 风格目标卡：GET 当前卡；POST {action:'distill-archived'|'distill-sample'|'clear'}。 */
+  styleProfile: '/api/dsh-novel-forge/style-profile',
   /** 提示词槽位（GET 列表 / POST 写入）。 */
   promptSlots: '/api/dsh-novel-forge/prompt-slots',
   /** 取名器：POST {action:'generate'} 生成候选；GET 名字库；POST {action:'adopt'|'discard'|'clear'} 维护。 */
@@ -1310,6 +1312,8 @@ export interface ProjectState {
   promptSlots?: Partial<Record<PromptSlotId, string>>
   /** 取名器名字库（按类别收录的已采纳专有名字，注入写作提示词）。 */
   nameBank?: NameForgeEntry[]
+  /** 风格目标卡（显式蒸馏的生成端锚点；审稿尺子不读它，实时算）。 */
+  styleProfile?: StyleProfile
   /** 本书参数（写作/审稿/推理/模型快切；未设字段回退全局 config）。 */
   bookSettings?: BookSettings
   /** ISO timestamps. */
@@ -2231,6 +2235,60 @@ export interface StyleHistoryPoint {
 }
 
 /** 风格漂移曲线：逐章指标 + 参照基线。 */
+/**
+ * 风格指纹数据（字段与 style-fingerprint.ts 的 StyleFingerprint 结构一致，
+ * 这里复述一份是为了让协议文件不依赖宿主模块——shared vocabulary 自包含）。
+ */
+export interface StyleFingerprintData {
+  chars: number
+  sentences: number
+  avgSentenceLength: number
+  sentenceLengthCv: number
+  shortSentenceRatio: number
+  dialogueRatio: number
+  avgParagraphLength: number
+  imageryPer1000: number
+}
+
+/** 风格目标卡的蒸馏来源。 */
+export type StyleProfileSource = 'archived' | 'sample'
+
+/**
+ * 风格目标卡：作者**显式蒸馏**的产物（不是派生视图，所以落盘）。
+ *
+ * 与审稿端尺子的分工：审稿用「本书已过审章节中位数」实时算（自适应尺子）；
+ * 生成端的目标由本卡提供（外部锚点）——两把尺子刻意分开，否则生成目标会跟着
+ * 本书漂移一起走，越写越偏而且互相认证（棘轮效应）。本卡只在作者点「蒸馏」时变。
+ */
+export interface StyleProfile {
+  /** 蒸馏来源。 */
+  source: StyleProfileSource
+  /** 人类可读来源说明，如「本书已过审 12 章的中位数」。 */
+  label: string
+  fingerprint: StyleFingerprintData
+  /** archived 来源的采样章数。 */
+  sampleChapters?: number
+  updatedAt: string
+}
+
+/** GET /style-profile 响应。 */
+export interface StyleProfileResponse {
+  /** 当前生效的目标卡；从未蒸馏过为 null（回落资产样本文本）。 */
+  profile: StyleProfile | null
+  /** 可供蒸馏的已过审章数（<3 时不可用 archived 蒸馏）。 */
+  approvedChapters: number
+  /** 当前实际生效的目标说明（卡优先，否则回落样本文本或「无」）。 */
+  effectiveLabel: string
+}
+
+/** POST /style-profile 请求。 */
+export interface StyleProfileRequest {
+  action: 'distill-archived' | 'distill-sample' | 'clear'
+  /** distill-sample 时的样本文本（≥200 字）。 */
+  text?: string
+  bookId?: string
+}
+
 export interface StyleHistoryResponse {
   /** 基线说明，如「本书已过审 12 章的中位数」 */
   baselineLabel: string

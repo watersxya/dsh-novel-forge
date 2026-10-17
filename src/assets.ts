@@ -9,7 +9,7 @@
  * generation / planning / review prompts, and available to the AI assistant.
  */
 
-import type { AntiAiRule, GenreNode, PlotBeatTemplate, ProgressionMode, ProjectAssets, StarterStyleProfile, StyleAsset, StyleTemplate } from './protocol.ts'
+import type { AntiAiRule, GenreNode, PlotBeatTemplate, ProgressionMode, ProjectAssets, StarterStyleProfile, StyleAsset, StyleProfile, StyleTemplate } from './protocol.ts'
 import { extractStyleFingerprint, renderFingerprintTargets } from './style-fingerprint.ts'
 
 // ------------------------------------------------------ built-in style templates
@@ -1686,7 +1686,7 @@ export function renderGenreAndProgression(assets: ProjectAssets | undefined): st
 }
 
 /** 渲染写法资产提示词块（规则去重，省 token）。 */
-export function renderStyleAssets(assets: ProjectAssets | undefined): string {
+export function renderStyleAssets(assets: ProjectAssets | undefined, profile?: StyleProfile): string {
   const styles = assets?.styleAssets ?? []
   if (styles.length === 0) return ''
   const sections: string[] = ['==================== 写法资产（本书的叙事风格约束） ====================']
@@ -1697,9 +1697,12 @@ export function renderStyleAssets(assets: ProjectAssets | undefined): string {
     if (style.dialogueRules.length > 0) sections.push('台词风格：\n' + unique(style.dialogueRules).map(r => `- ${r}`).join('\n'))
     if (style.descriptionRules.length > 0) sections.push('描写与情绪：\n' + unique(style.descriptionRules).map(r => `- ${r}`).join('\n'))
     if (style.boundaries.length > 0) sections.push('表达边界：\n' + unique(style.boundaries).map(r => `- ${r}`).join('\n'))
-    // 风格指纹目标：文字规则是定性的，模型每次理解都可能不同；
-    // 从**同一份样本**算出的指标是确定的，可以直接当数字区间用。
-    if (style.sourceText !== undefined && style.sourceText !== '') {
+    // 风格目标：文字规则是定性的，模型每次理解都可能不同；确定性指标可以直接当数字区间用。
+    // 优先级：作者显式蒸馏的卡 > 本资产自带样文本（卡是「决定」，样本只是「参考」）。
+    if (profile !== undefined) {
+      const targets = renderFingerprintTargets(profile.fingerprint, profile.label)
+      if (targets !== '') sections.push(targets)
+    } else if (style.sourceText !== undefined && style.sourceText !== '') {
       const targets = renderFingerprintTargets(extractStyleFingerprint(style.sourceText))
       if (targets !== '') sections.push(targets)
     }
@@ -1708,10 +1711,10 @@ export function renderStyleAssets(assets: ProjectAssets | undefined): string {
 }
 
 /** 渲染全部写作资产提示词（供生成/规划/审稿注入）。 */
-export function renderAllAssets(assets: ProjectAssets | undefined): string {
+export function renderAllAssets(assets: ProjectAssets | undefined, profile?: StyleProfile): string {
   const parts = [
     renderGenreAndProgression(assets),
-    renderStyleAssets(assets),
+    renderStyleAssets(assets, profile),
     renderAntiAiRules(assets),
   ].filter(part => part !== '')
   return parts.join('\n\n')

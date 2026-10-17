@@ -293,10 +293,11 @@ function formatMetric(metric: StyleMetricKey, value: number): string {
 
 /**
  * 渲染**生成端**的风格目标（区间形式）。
- * @param reference - 写法样本的指纹。
+ * @param reference - 参照指纹（写法样本或蒸馏卡）。
+ * @param sourceLabel - 参照物的人类可读说明（缺省「绑定的写法样本」）。
  * @returns 可注入写作 prompt 的文本；样本过短时返回空串。
  */
-export function renderFingerprintTargets(reference: StyleFingerprint): string {
+export function renderFingerprintTargets(reference: StyleFingerprint, sourceLabel?: string): string {
   if (reference.chars < MIN_CHARS) return ''
   const items: string[] = []
   const add = (metric: StyleMetricKey, suffix: string): void => {
@@ -322,7 +323,7 @@ export function renderFingerprintTargets(reference: StyleFingerprint): string {
   add('imageryPer1000', ' 次/千字')
   if (items.length === 0) return ''
   return [
-    '==================== 风格目标（确定性指标，取自绑定的写法样本） ====================',
+    '==================== 风格目标（确定性指标，取自' + (sourceLabel ?? '绑定的写法样本') + '） ====================',
     '本章正文应落在这几个区间内。不是硬性红线，但明显越界会被审稿判为偏离绑定写法：',
     ...items,
   ].join('\n')

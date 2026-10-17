@@ -104,7 +104,7 @@ export function writeSystemPrompt(project: ProjectState, targetChars?: number, l
     : project.outline
   book.push(outlineBlock)
   book.push('==================== 大纲结束 ====================')
-  const assetsBlock = renderAllAssets(project.assets)
+  const assetsBlock = renderAllAssets(project.assets, project.styleProfile)
   if (assetsBlock !== '') book.push(assetsBlock)
   // 作者自定义槽位（只影响表达方式，不覆盖道藏/红线/合规）。
   const slotBlock = renderPromptSlots(project)

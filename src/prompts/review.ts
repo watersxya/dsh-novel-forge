@@ -45,7 +45,7 @@ export function reviewSystemPrompt(project: ProjectState): string {
   ]
   blocks.push({ layer: 'fixed', text: fixed.join('\n') })
   const book: string[] = []
-  const assetsBlock = renderAllAssets(project.assets)
+  const assetsBlock = renderAllAssets(project.assets, project.styleProfile)
   if (assetsBlock !== '') book.push('\n' + assetsBlock)
   if (bible !== undefined) {
     book.push('\n==================== 道藏 ====================')

@@ -15,7 +15,7 @@ import type { PromptEntry } from './catalog.ts'
 
 /** The de-AI-ify polish system prompt (with project writing assets injected). */
 export function polishSystemPrompt(project: ProjectState): string {
-  const assetsBlock = renderAllAssets(project.assets)
+  const assetsBlock = renderAllAssets(project.assets, project.styleProfile)
   const bible = project.bible
   // 分层组装（见 prompt-cache.ts）：润色口径与合规红线永不变，排最前；本书红线与
   // 写法资产只随作者编辑变，排后面。

@@ -661,6 +661,22 @@ export class NovelApi {
     return readJson<import('../protocol.ts').TimelineResponse>(response)
   }
 
+  /** 风格目标卡：当前卡 + 生效说明 + 可蒸馏章数。 */
+  async styleProfile(): Promise<import('../protocol.ts').StyleProfileResponse> {
+    const response = await fetch(withBookId(NOVEL_API.styleProfile))
+    return readJson<import('../protocol.ts').StyleProfileResponse>(response)
+  }
+
+  /** 蒸馏风格目标卡（archived = 本书已过审章节中位数；sample = 参考样文本）。 */
+  async styleProfileDistill(action: 'distill-archived' | 'distill-sample', text?: string): Promise<{ profile: import('../protocol.ts').StyleProfile | null }> {
+    return postJson<{ profile: import('../protocol.ts').StyleProfile | null }>(NOVEL_API.styleProfile, { action, text })
+  }
+
+  /** 清除风格目标卡（回落绑定资产的样本文本）。 */
+  async styleProfileClear(): Promise<{ profile: null }> {
+    return postJson<{ profile: null }>(NOVEL_API.styleProfile, { action: 'clear' })
+  }
+
   /** 抽取某一章的时间线事件。 */
   async timelineExtract(chapterNo: number): Promise<{ events: import('../protocol.ts').TimelineEvent[] }> {
     return postJson<{ events: import('../protocol.ts').TimelineEvent[] }>(NOVEL_API.timeline, { op: 'extract', chapterNo })

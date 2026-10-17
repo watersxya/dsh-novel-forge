@@ -215,7 +215,7 @@ const DRAWER_META: Record<string, { icon: ReactNode; label: string }> = {
   breakdown: { icon: <Search size={14} />, label: '拆书分析' },
   timeline: { icon: <ScrollText size={14} />, label: '故事时间线' },
   tension: { icon: <BarChart3 size={14} />, label: '张力曲线' },
-  style: { icon: <Sparkles size={14} />, label: '风格漂移' },
+  style: { icon: <Sparkles size={14} />, label: '风格 · 目标卡/漂移' },
   promptSlots: { icon: <ListTree size={14} />, label: '提示词槽位' },
   nameForge: { icon: <Tag size={14} />, label: '取名' },
   fallback: { icon: <FileText size={14} />, label: '详情' },
@@ -3585,7 +3585,7 @@ export function NovelPanel({ controller, api }: NovelPanelProps) {
     // —— 工具与设置 ——
     { key: 'run', group: 'tools', name: '生产单', di: '批次生产 · 流水线', go: () => { openDrawer('run') } },
     { key: 'tension', group: 'tools', name: '张力曲线', di: chapters.length > 0 ? `● ${chapters.length} 章曲线` : '○ 需先排章节', dim: project === null, go: () => { openDrawer('tension') } },
-    { key: 'style', group: 'tools', name: '风格漂移曲线', di: chapters.length > 0 ? `● ${chapters.length} 章可比对` : '○ 需先有正文', dim: project === null, go: () => { openDrawer('style') } },
+    { key: 'style', group: 'tools', name: '风格 · 目标卡/漂移', di: chapters.length > 0 ? `● ${chapters.length} 章可比对` : '○ 需先有正文', dim: project === null, go: () => { openDrawer('style') } },
     { key: 'promptSlots', group: 'tools', name: '提示词槽位', di: Object.keys(project?.promptSlots ?? {}).length > 0 ? `● 已设 ${Object.keys(project?.promptSlots ?? {}).length} 项` : '○ 未设置', dim: project === null, go: () => { openDrawer('promptSlots') } },
     { key: 'timeline', group: 'tools', name: '故事时间线', di: (project?.timeline ?? []).length > 0 ? `● ${(project?.timeline ?? []).length} 条事件` : '○ 未抽取', dim: project === null, go: () => { openDrawer('timeline') } },
     { key: 'knowledge', group: 'tools', name: '知识库', di: '跨书沉淀', go: () => { openDrawer('knowledge') } },

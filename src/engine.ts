@@ -31,6 +31,7 @@ import { mapTimelineItem, parseFactLines, parseTimelineItems } from './digest-pa
 import { resolveOutputBudget, STRUCTURED_FIELD_LIMITS } from './output-budget.ts'
 import { normalizeTimelineEvent, sortTimeline } from './timeline.ts'
 import { buildNameForgeUserPrompt, categorySpec, collectNameForgeContext, parseNameCandidates } from './name-forge.ts'
+import { makeStyleProfile, normalizeSampleText } from './style-profile.ts'
 import { createSnapshot } from './snapshots.ts'
 import { NovelActionError } from './action-guard.ts'
 import { buildChapterContext, renderContextBlocks } from './novel-context.ts'
@@ -104,6 +105,7 @@ import type {
   IdeaInspirationResult,
   NameCategory,
   NameForgeCandidate,
+  StyleProfile,
   DirectorRequest,
   DirectorAdvice,
 } from './protocol.ts'
@@ -1036,23 +1038,9 @@ export interface StyleBaseline {
  * @returns 基线；既无已过审章节也无带样本文本的写法资产时返回 undefined。
  */
 export function styleBaseline(outputDir: string | undefined, project: ProjectState): StyleBaseline | undefined {
-  if (outputDir !== undefined) {
-    const approved = project.chapters.filter(c => c.status === 'approved' && c.file !== '')
-    if (approved.length >= STYLE_BASELINE_MIN_CHAPTERS) {
-      // 等距抽样覆盖整本（见 STYLE_BASELINE_CHAPTERS 的说明）。
-      const step = Math.max(1, Math.floor(approved.length / STYLE_BASELINE_CHAPTERS))
-      const picked = approved.filter((_, index) => index % step === 0).slice(0, STYLE_BASELINE_CHAPTERS)
-      const samples: StyleFingerprint[] = []
-      for (const chapter of picked) {
-        const raw = readChapterFile(outputDir, chapter)
-        if (raw === undefined) continue
-        const fp = extractStyleFingerprint(stripChapterHeadings(raw))
-        if (fp.sentences > 0) samples.push(fp)
-      }
-      if (samples.length >= STYLE_BASELINE_MIN_CHAPTERS) {
-        return { fingerprint: mergeFingerprints(samples), label: '本书已过审 ' + samples.length + ' 章的中位数' }
-      }
-    }
+  const archived = sampleArchivedFingerprint(outputDir, project)
+  if (archived !== undefined) {
+    return { fingerprint: archived.fingerprint, label: '本书已过审 ' + archived.count + ' 章的中位数' }
   }
   // 兜底：绑定写法资产的样本文本。
   for (const style of project.assets?.styleAssets ?? []) {
@@ -1063,6 +1051,59 @@ export function styleBaseline(outputDir: string | undefined, project: ProjectSta
     return { fingerprint, label: '绑定写法资产的样本文本' }
   }
   return undefined
+}
+
+/**
+ * 从本书**已过审章节**等距抽样算风格指纹（中位数）。
+ *
+ * 审稿尺子（styleBaseline）与蒸馏卡（distillStyleProfile）共用这一份采样——
+ * 两条路必须同源，否则「审稿说没偏离、生成目标却是另一个方向」。
+ * @returns 抽样指纹与参与章数；不足 {@link STYLE_BASELINE_MIN_CHAPTERS} 章时返回 undefined。
+ */
+export function sampleArchivedFingerprint(outputDir: string | undefined, project: ProjectState): { fingerprint: StyleFingerprint; count: number } | undefined {
+  if (outputDir === undefined) return undefined
+  const approved = project.chapters.filter(c => c.status === 'approved' && c.file !== '')
+  if (approved.length < STYLE_BASELINE_MIN_CHAPTERS) return undefined
+  // 等距抽样覆盖整本（见 STYLE_BASELINE_CHAPTERS 的说明）。
+  const step = Math.max(1, Math.floor(approved.length / STYLE_BASELINE_CHAPTERS))
+  const picked = approved.filter((_, index) => index % step === 0).slice(0, STYLE_BASELINE_CHAPTERS)
+  const samples: StyleFingerprint[] = []
+  for (const chapter of picked) {
+    const raw = readChapterFile(outputDir, chapter)
+    if (raw === undefined) continue
+    const fp = extractStyleFingerprint(stripChapterHeadings(raw))
+    if (fp.sentences > 0) samples.push(fp)
+  }
+  if (samples.length < STYLE_BASELINE_MIN_CHAPTERS) return undefined
+  return { fingerprint: mergeFingerprints(samples), count: samples.length }
+}
+
+/**
+ * 蒸馏一张风格目标卡（作者显式动作，落 project.styleProfile）。
+ *
+ * archived：本书已过审章节的中位数（把「我现在实际写出来的样子」固化成目标）；
+ * sample：作者粘贴的参考样文本（开书定调）。
+ *
+ * 与审稿尺子刻意分工：见 style-profile.ts 文件头「棘轮效应」说明。
+ * @throws 数据不足时抛错（路由转 400）。
+ */
+export function distillStyleProfile(
+  outputDir: string | undefined,
+  project: ProjectState,
+  source: 'archived' | 'sample',
+  sampleText?: string,
+): StyleProfile {
+  if (source === 'archived') {
+    const archived = sampleArchivedFingerprint(outputDir, project)
+    if (archived === undefined) {
+      throw new Error(`已过审章节不足 ${STYLE_BASELINE_MIN_CHAPTERS} 章，不够蒸馏（先写几章并过审）`)
+    }
+    return makeStyleProfile('archived', `本书已过审 ${archived.count} 章的中位数`, archived.fingerprint, archived.count)
+  }
+  const text = normalizeSampleText(sampleText)
+  const fingerprint = extractStyleFingerprint(text)
+  if (fingerprint.sentences === 0) throw new Error('样本文本无法抽取指标，请换一份更完整的正文')
+  return makeStyleProfile('sample', `参考样本蒸馏（${fingerprint.chars} 字）`, fingerprint)
 }
 
 function styleFidelityBlock(project: ProjectState, bodyText: string, outputDir?: string): string {

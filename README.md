@@ -41,6 +41,7 @@
 | **道藏提炼**：从大纲与已写章节提炼人设 / 世界观 / 金手指规则 / 写作红线，注入生成与审稿 | **Story bible**: extract personas / world rules / golden-finger rules / red lines from outline & written chapters, injected into generation and review |
 | **大世界**：境界体系 / 区域 / 势力结构化编辑 + AI 提炼，注入每章生成与审稿 | **World**: realms / regions / factions structured editing + AI extraction, injected per chapter |
 | **写作资产**：题材基底 / 推进模式 / 笔法帖（叙事风格）/ 文戒（反 AI 规则）/ 心法（自定义文风），一键绑定本书 | **Writing assets**: genre base / progression modes / style templates / anti-AI rules / custom style, one-click binding |
+| **风格目标卡（文风蒸馏）**：把本书写法固化成确定性指标区间（句均长 / 句长起伏 / 短句占比 / 对话占比 / 段落均长 / 意象密度），注入每一次正文生成。两种蒸馏：**已过审章节中位数**（≥3 章，把「我现在实际写出来的样子」固化成目标）或**粘贴参考样文本**（开书定调）；卡只在作者点蒸馏时变——与审稿用的自适应尺子（本书已过审章节实时中位数）刻意分开，防「越写越偏且互相认证」的棘轮效应 | **Style target card (distillation)**: freeze this book's style into deterministic metric ranges injected into every generation; distill from approved chapters' median (≥3) or a pasted reference sample; changes only on explicit distillation — deliberately separate from the adaptive review ruler (ratchet-proof) |
 | **取名器**：人名 / 地名 / 功法 / 势力 / 宝物五类批量生成，**书籍语境感知**（题材基调 + 世界观既有名避重 + 库内避重）；候选不落盘，作者逐条采纳才入本书名字库（每类上限 60 / 全书 200，超限明确报错）；已采纳名字注入写作提示词「已定名资产」块——新专有名优先从表中取，防跑偏也防撞名 | **Name forge**: batch-generate person / place / technique / faction / artifact names with book-aware context (genre + existing world names + bank dedup); candidates never touch disk until adopted per item; adopted names inject into the writing prompt as a "settled names" block |
 | **题材雷达 → 灵感**：扫榜（番茄 / 起点 / 晋江）→ 题材信号 / 生产底座 / 开书简报 → 一键生成贴合市场的开书灵感 | **Market radar → inspiration**: scan public leaderboards → signals / production foundation / creative brief → market-fit book ideas |
 | **创意灵感 / 书分析**：一句话或题材 → 多个差异化开书方向；粘贴任意文本 → 卖点 / 结构 / 可借鉴 / 风险 | **Inspiration / teardown**: one idea → several directions; paste any text → selling points / structure / lessons / risks |
@@ -174,7 +175,7 @@ flowchart TD
 | 顶栏 · 工具菜单 | 长线管理（剧情线与伏笔）· 知识库 · 拆书分析 · **取名（专有名字批量生成）** · 自动编辑 · 创作资产（题材 / 推进 / 笔法帖 / 文戒 / 心法）——辅助能力全保留，但不与核心创作流程争一级视觉权重；菜单可由点击外部或 Esc 关闭 |
 | 书架页 | **书架**（书卡网格 / 开书向导 / 导入）· **改编** · **资产库 / 全局资产库** · **设置 · 全局**（模型与推理 / 备用模型 / 故事时间线 / 路径与文件 / 外观与主题 / 自定义背景 / 输出目录迁移） |
 | 总编台 · 本书资料 | 道藏（设定·角色）· 作者复盘 · 简介·封面 |
-| 总编台 · 资料侧柜 | 与顶部导航共用同一数据源：总纲 / 大纲 · 道藏 · 作者复盘 · 剧情线·伏笔 · 简介·封面 · 生产单 · 张力曲线 · 风格漂移曲线 · 提示词槽位 · 故事时间线 · 知识库 · 拆书分析 · 取名（条目以 `● 已有数据 / ○ 待补` 显示体检结果） |
+| 总编台 · 资料侧柜 | 与顶部导航共用同一数据源：总纲 / 大纲 · 道藏 · 作者复盘 · 剧情线·伏笔 · 简介·封面 · 生产单 · 张力曲线 · 风格目标卡/漂移 · 提示词槽位 · 故事时间线 · 知识库 · 拆书分析 · 取名（条目以 `● 已有数据 / ○ 待补` 显示体检结果） |
 | 全页视图 | 章节工作台（审稿 / 对比·草稿 / 复盘 / 历史版本，内含正文编辑、局部改写与去 AI 味润色）· 小说阅读器 |
 | 悬浮窗（可拖动 / 缩放） | **AI 助手**（AI 编辑 Agent 对话，不占工作台）· **AI 进度**（当前任务进度 + 活动输出，可查看每次调用的 Prompt 与用量） |
 | 右上角状态芯片 | **小说工坊生成状态**：固定在窗口右上角，显示「**《书名》** + 生成中 / 已暂停 / 批完成 / 已停止 / 出错」（含当前章号与失败计数；书名过长省略号截断，全名与批次区间在悬停提示里），点击打开小说工坊面板；可拖拽并记忆位置。显示偏好为三态（总是 / 仅生成中·暂停时 / 关闭），在**书架页 → 设置 · 全局 → 外观与主题**里切换；选「关闭」会同时停掉状态轮询 |

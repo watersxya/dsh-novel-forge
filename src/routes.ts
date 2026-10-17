@@ -148,6 +148,8 @@ import {
   type DirectorTodo,
   type StyleHistoryPoint,
   type StyleHistoryResponse,
+  type StyleProfileResponse,
+  type StyleProfileRequest,
 } from './protocol.ts'
 import { readOutlineFromDocx } from './docx.ts'
 import { clearAssistantHistory, loadAssistantHistory, runAssistantTurn } from './assistant.ts'
@@ -193,6 +195,7 @@ import {
   polishChapterStream,
   readChapterFile,
   styleBaseline,
+  distillStyleProfile,
   refreshCharacters,
   refreshPlotlineProgress,
   refreshLinesFor,
@@ -235,6 +238,7 @@ import { detectTimelineIssues } from './timeline.ts'
 import { buildCurveData, detectTensionIssues, TENSION_MAX, TENSION_MIN, TENSION_PRESETS, clampTension } from './tension.ts'
 import { PROMPT_SLOTS, normalizeSlotValue, readPromptSlots } from './prompt-slots.ts'
 import { mutateNameBank, readNameBank } from './name-forge.ts'
+import { resolveStyleTarget } from './style-profile.ts'
 import { buildRevisionPlan, describeRevisionPlan, REVISION_ITEM_CAP } from './revision.ts'
 import { dshHomePath } from './home.ts'
 
@@ -1606,6 +1610,58 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
         points,
       }
       writeJson(res, 200, response)
+    },
+  }
+
+  // --------------------------------------------------------- style-profile
+  /**
+   * 风格目标卡：GET = 当前卡与生效说明；POST = 蒸馏 / 清空。
+   *
+   * 与 styleHistory 的分工：那条是**派生视图**（即时算、不落盘）；本卡是作者
+   * 显式决定的生成端锚点，落 project.styleProfile。详见 style-profile.ts 文件头。
+   */
+  const styleProfileRoute: WebRoute = {
+    kind: 'exact',
+    path: NOVEL_API.styleProfile,
+    handler: async (req, res) => {
+      const config = getConfig()
+      const qurl = new URL(req.url ?? '/', 'http://localhost')
+      if (req.method === 'GET') {
+        if (!isLoopbackRequest(req)) { writeJson(res, 403, { error: 'forbidden: loopback-only' }); return }
+        const outputDir = resolveOutputDir(config, qurl.searchParams.get('bookId') ?? undefined)
+        const project = loadProject(outputDir)
+        if (project === undefined) { writeJson(res, 400, { error: '输出目录中没有项目' }); return }
+        const target = resolveStyleTarget(project)
+        const response: StyleProfileResponse = {
+          profile: project.styleProfile ?? null,
+          approvedChapters: project.chapters.filter(c => c.status === 'approved' && c.file !== '').length,
+          effectiveLabel: target.kind === 'none' ? '无（未绑定带样本的写法资产）' : target.label,
+        }
+        writeJson(res, 200, response)
+        return
+      }
+      if (!guard(req, res, 'POST')) return
+      const body = await readJsonBody<StyleProfileRequest>(req)
+      if (body === undefined) { writeJson(res, 400, { error: '请求体缺失' }); return }
+      const outputDir = resolveOutputDir(config, body.bookId)
+      const project = loadProject(outputDir)
+      if (project === undefined) { writeJson(res, 400, { error: '输出目录中没有项目' }); return }
+      try {
+        if (body.action === 'clear') {
+          delete project.styleProfile
+          project.updatedAt = new Date().toISOString()
+          saveProject(outputDir, project)
+          writeJson(res, 200, { profile: null })
+          return
+        }
+        const profile = distillStyleProfile(outputDir, project, body.action === 'distill-archived' ? 'archived' : 'sample', body.text)
+        project.styleProfile = profile
+        project.updatedAt = new Date().toISOString()
+        saveProject(outputDir, project)
+        writeJson(res, 200, { profile })
+      } catch (error) {
+        writeJson(res, 400, { error: (error as Error).message })
+      }
     },
   }
 
@@ -4131,6 +4187,7 @@ export function makeRoutes(deps: NovelRoutesDeps): WebRoute[] {
     bookshelfImportTextRoute,
     bookshelfImportTextPreviewRoute,
     styleHistoryRoute,
+    styleProfileRoute,
     resetRoute,
     auditRoute,
     charactersRefreshRoute,
