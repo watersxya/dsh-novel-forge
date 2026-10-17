@@ -1,7 +1,7 @@
 {
   "name": "@waterwx/dsh-novel-forge",
   "description": "AI 编译纯文本小说工作台 for the dsh web GUI: import a novel outline (docx/text), plan volumes & chapters with LLM, generate chapter by chapter (3000-4000 chars each), auto AI review & book audit, and export the full book as Markdown/TXT into your chosen output folder.",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "type": "module",
   "author": "waterwx",
   "repository": {
@@ -103,7 +103,7 @@
     "cordis.patch.yml",
     "README.md"
   ],
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "scripts": {
     "postinstall": "node scripts/patch-schemastery.mjs",
     "build": "node scripts/clean-types.mjs && tsc -p tsconfig.build.json && tsdown",

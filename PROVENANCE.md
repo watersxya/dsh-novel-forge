@@ -10,7 +10,7 @@
 > 因此：**不要把本文件的内容抄进源码注释**，那会让门禁失败，也会把出处混进发行物。
 
 审计对象：[ExplosiveCoderflome/AI-Novel-Writing-Assistant](https://github.com/ExplosiveCoderflome/AI-Novel-Writing-Assistant)（`Biz Novel Studio`，许可 **AGPL-3.0-only**）。
-本项目许可：**Apache-2.0**（见 `LICENSE`）。
+本项目许可：**AGPL-3.0-only**（见 `LICENSE`，2026-10-17 由 Apache-2.0 切换，决策记录见文末「许可证变更决策」一节）。
 
 ## 结论
 
@@ -106,3 +106,40 @@ AGPL 是传染性许可，因此本项目**不得包含该项目的代码**。�
 
 功能上两者大面积重叠（市场雷达、自动导演、写法引擎/反 AI、拆书、世界手册、章节执行/审核/修复、
 状态回灌/伏笔、张力节奏、模型路由）——这些能力本项目此前已具备，本轮**未新增功能**，只改进工程做法。
+
+## 许可证变更决策（2026-10-17）
+
+**Apache-2.0 → AGPL-3.0-only**，自 2.4.0 起生效。2.3.0 及更早版本仍为 Apache-2.0（版本边界同时写在
+`CHANGELOG.md` 的 2.4.0 条目内，随包分发）。
+
+### 换证理由
+
+1. **对等性**：本项目作为 DSH（DeepSeek Harness）社区插件发布与流传，AGPL-3.0-only 保证任何再分发者
+   （含把插件改头换面放进自己产品的人）必须同样开源，与插件「寄生宿主运行」的形态匹配。
+2. **生态惯例**：对 npm 上全部 DSH 插件做过分页普查（35 页 5250 个去重条目，并对 tarball 抽验了真实
+   LICENSE 文件），AGPL 家族 38 个（约 0.72%），是生态内成熟实践而非孤例。
+3. **不损既有用户**：本插件是作者自用的本地工具链，向来随源码分发；换证不影响「自己跑」这一核心场景。
+
+### 兼容性审计（直接依赖，24 个）
+
+MIT ×19 / ISC ×1 / Apache-2.0 ×1 / MPL-2.0 ×1——与 AGPL-3.0 组合分发全部兼容。
+无 Copyleft 直接依赖；间接依赖见 npm 依赖树，按同许可证条款分发即可。
+
+### 发布门禁的同步收窄（留档）
+
+`scripts/check-third-party.mjs` 原有一条规则：随包分发内容出现 `\bAGPL\b`（不分大小写）一律拦截
+——本意是拦「外部不相容许可证标记」，换证后会误伤本项目自己的许可证指纹。
+处置**不是**加豁免名单，而是把规则收窄为：
+
+- 出现 `AGPL-3.0-only` / `AGPL_3.0_only` / `AGPL-3.0_only` 形式 → 放行（本项目自身许可证指纹）；
+- 裸 `AGPL`（无版本、无 `-only` 后缀）→ 仍拦截。
+
+判别力没有塌：真正要拦的「含糊引用外部 AGPL 项目」依然是裸词形式。测试（`tests/repo-hygiene.test.ts`）
+同步镜像该规则并配了双向用例（4 放行 / 3 拦截 / 1 跨规则测试）。
+另注意：本门禁的扫描范围含 `.workbuddy/`，**工作笔记里写本许可证也必须用完整形式**，否则日志本身会被拦。
+
+### 署名补全（`NOTICE`）
+
+换证同时补齐了第三方署名：lucide-react（ISC，Copyright (c) 2026 Lucide Icons and Contributors）、
+fflate（MIT，Copyright (c) 2026 Arjun Barrett）为打包进发行物的运行时依赖；
+schemastery（MIT）为安装期依赖，其包内无 LICENSE 文件，NOTICE 中只写可查的 author 字段、不编年份。

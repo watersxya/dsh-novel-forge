@@ -32,13 +32,22 @@ const ALLOWED = new Map([
 const TEXT_EXT = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs', '.json', '.yml', '.yaml', '.css', '.md', '.txt'])
 const SKIP_DIRS = new Set(['node_modules', '.git', 'lib', '.dsh', 'coverage'])
 
-/** 拦截特征：外部项目名 / 组织名 / 外部符号名 / 不相容许可证标记 / 来源标注措辞。 */
+/**
+ * 拦截特征：外部项目名 / 组织名 / 外部符号名 / 不相容许可证标记 / 来源标注措辞。
+ *
+ * 「不相容许可证标记」在 2026-10-17 收窄（本项目自身切换为 AGPL-3.0-only，
+ * 决策记录见 PROVENANCE.md）：AGPL-3.0-only 是本项目的许可证指纹，package.json
+ * 的 license 字段、README 徽章、CHANGELOG 条目都要写明它，一律拦会把自己人
+ * 挡死。放行仅限该精确字串（含徽章 URL 的下划线转义形式）；裸 AGPL 字样
+ * （把外部内容标注为 AGPL 的引入特征）仍然拦截——真正的来源走私另有
+ * 「来源标注措辞」两道规则兜底，两者不互相替代。
+ */
 const FORBIDDEN = [
   { pattern: /AI-Novel-Writing-Assistant/i, label: '外部项目名' },
   { pattern: /ExplosiveCoderflome/i, label: '外部组织名' },
   { pattern: /dsh-ai-novel-writer/i, label: '其它插件名' },
   { pattern: /DEFAULT_ANTI_AI_RULES|DEFAULT_STYLE_TEMPLATES|DEFAULT_STARTER_STYLE_PROFILES/, label: '外部符号名' },
-  { pattern: /\bAGPL\b/i, label: '不相容许可证标记' },
+  { pattern: /\bAGPL\b/i, label: '不相容许可证标记', except: /AGPL[-_]3\.0[-_]only/ },
   { pattern: /移植自|搬运自/, label: '来源标注措辞' },
   /**
    * 英文来源标注措辞。
@@ -72,6 +81,9 @@ function walk(dir) {
     checked.push(rel)
     text.split(/\r?\n/).forEach((line, i) => {
       for (const rule of FORBIDDEN) {
+        // 行级例外只抑制它所属的那一条规则：被 except 放行的行若同时命中
+        // 「来源标注措辞」（如「移植自某 AGPL-3.0-only 项目」）仍会被拦下。
+        if (rule.except?.test(line)) continue
         if (rule.pattern.test(line)) hits.push(`${rel}:${i + 1}: [${rule.label}] ${line.trim().slice(0, 140)}`)
       }
     })

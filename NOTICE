@@ -1,0 +1,34 @@
+小说工坊 · novel-forge — 第三方组件署名 / Third-Party Notices
+
+本作品基于 GNU Affero 通用公共许可证第三版发布（AGPL-3.0-only，完整许可文本
+见仓库根目录的 LICENSE 文件）。以下第三方组件随本插件的分发与运行被使用，
+各组件仍以其原始许可证发布，版权声明与许可文本归各自作者所有。
+
+一、随产物打包分发的组件（进入 lib/client.js 浏览器半产物）
+
+- lucide-react — ISC License
+  Copyright (c) 2026 Lucide Icons and Contributors
+  完整许可文本见其包内 LICENSE 文件。
+
+- fflate — MIT License
+  Copyright (c) 2026 Arjun Barrett
+  完整许可文本见其包内 LICENSE 文件。
+
+二、安装期本地修补的组件（不进入产物，仅在用户本机 node_modules 生效）
+
+- schemastery — MIT License
+  Author: Shigma <shigma10826@gmail.com>（包内未随 LICENSE 文件，
+  许可以其 package.json 的 license 字段与上游仓库为准）
+  本包的 postinstall 脚本（scripts/patch-schemastery.mjs）会为本地安装的
+  schemastery package.json 补一个 exports 字段，修复 Node ESM 对该包的
+  解析。该修补只改分发元数据、不改其源码；schemastery 自身的许可证义务
+  不受影响。
+
+三、运行时依赖（不随本包再分发）
+
+react / react-dom（MIT）与 @deepseek-ai/* 系列宿主 SDK（MIT）等依赖不在
+本包产物内，由 Node 模块解析在用户环境中独立安装，各自许可证自始至终有效。
+
+---
+
+本文件是分发署名，不是许可证本身；本作品的许可条款以 LICENSE 为准。

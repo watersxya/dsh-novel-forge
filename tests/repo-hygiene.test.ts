@@ -19,6 +19,19 @@ const SOURCE_MARKER_RULES: RegExp[] = [
 
 const flags = (line: string): boolean => SOURCE_MARKER_RULES.some(re => re.test(line))
 
+/**
+ * 与 scripts/check-third-party.mjs 中「不相容许可证标记」等价的规则
+ * （改动那边需同步这里）。
+ *
+ * 2026-10-17 起本项目自身为 AGPL-3.0-only：该精确字串（含徽章 URL 的
+ * 下划线转义形式）是自家许可证指纹，放行；裸 AGPL 字样仍是「外部内容
+ * 标注为 AGPL」的引入特征，拦截。
+ */
+const LICENSE_MARKER_PATTERN = /\bAGPL\b/i
+const LICENSE_MARKER_EXCEPT = /AGPL[-_]3\.0[-_]only/
+const licenseFlags = (line: string): boolean =>
+  LICENSE_MARKER_PATTERN.test(line) && !LICENSE_MARKER_EXCEPT.test(line)
+
 describe('来源卫生门禁：必须拦下真署名', () => {
   it.each([
     'ported from SomeProject',
@@ -40,6 +53,32 @@ describe('来源卫生门禁：不得误报中性技术表达', () => {
     'const x = derived from base ? true : false',
   ])('%s', (line) => {
     expect(flags(line), line).toBe(false)
+  })
+})
+
+describe('来源卫生门禁：许可证标记双向判别', () => {
+  it.each([
+    '"license": "AGPL-3.0-only"',
+    'License: AGPL-3.0-only',
+    '本项目自 2026-10-17 起采用 AGPL-3.0-only',
+    'https://img.shields.io/badge/license-AGPL_3.0_only-blue',
+  ])('放行自家声明 %s', (line) => {
+    expect(licenseFlags(line), line).toBe(false)
+  })
+
+  it.each([
+    'licensed under AGPL-3.0',
+    'This file is AGPL v3',
+    'GNU AGPL 许可证',
+  ])('拦截外部标注 %s', (line) => {
+    expect(licenseFlags(line), line).toBe(true)
+  })
+
+  it('例外只抑制许可证规则，不抑制来源标注规则', () => {
+    // 「移植自某 AGPL-3.0-only 项目」：AGPL 字样被放行，但来源标注仍须命中。
+    const line = '本模块移植自某 AGPL-3.0-only 项目'
+    expect(licenseFlags(line), line).toBe(false)
+    expect(flags(line), line).toBe(true)
   })
 })
 

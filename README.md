@@ -3,7 +3,7 @@
 <p align="center">
   <img alt="version" src="https://img.shields.io/badge/version-1.3.0--alpha-blue" />
   <img alt="DSH peer" src="https://img.shields.io/badge/DSH%20peer-0.1.2--alpha.3-blue" />
-  <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue" />
+  <img alt="License" src="https://img.shields.io/badge/license-AGPL_3.0_only-blue" />
   <a href="https://github.com/watersxya/dsh-novel-forge/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/watersxya/dsh-novel-forge/actions/workflows/ci.yml/badge.svg?branch=main" /></a>
 </p>
 
@@ -301,6 +301,20 @@ cordis.patch.yml      profile 挂载补丁
 tsdown.config.ts      双面打包配置
 vitest.config.ts      测试范围（tests/**/*.test.ts）
 ```
+
+---
+
+## 许可证 / License
+
+本项目采用 **GNU Affero 通用公共许可证第三版（AGPL-3.0-only）**——完整文本见
+[`LICENSE`](LICENSE)，第三方组件署名见 [`NOTICE`](NOTICE)。
+
+**为什么选它**：本插件是服务端组件，AGPL-3.0-only 第 13 条保证任何修改后的版本若作为
+网络服务运行，其使用者都能拿到对应源码——对写作工具工作台来说，这是「改进流回
+上游」的硬保证，而不是口头约定。版本号钉死为 `-only`，不随时间漂移。
+
+**版本边界**：v2.3.0 及以前的发布版以其发布时的 **Apache-2.0** 许可为准；
+自 v2.4.0 起为 AGPL-3.0-only。许可证在分发时授予，已发布旧版的既有权利不受影响。
 
 ---
 
