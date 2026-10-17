@@ -293,7 +293,7 @@ src/                  插件源码（宿主半）
   assets.ts           内置写作资产（自研表述）
   client/             浏览器半（React + CSS Modules：面板 / 工作台 / 阅读器）
 lib/                  构建产物（lib/index.js 宿主 / lib/client.js 浏览器）
-tests/                38 个 vitest 测试文件（456 个用例）
+tests/                38 个 vitest 测试文件（475 个用例）
 scripts/              构建与门禁脚本（含 check-third-party.mjs 来源卫生门禁、release.mjs）
 docs/                 设计文档（design-direction.md = 面板样式现行基准）+ archive/ 历史归档
 package.json          包定义（dsh.bundle.patch + dsh.client 声明）
