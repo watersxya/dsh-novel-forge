@@ -45,6 +45,7 @@ import { mapTimelineItem, parseFactLines, parseTimelineItems } from './digest-pa
 import { renderLengthContract, resolveOutputBudget, STRUCTURED_FIELD_LIMITS } from './output-budget.ts'
 import { renderTensionBlock } from './tension.ts'
 import { renderPromptSlots } from './prompt-slots.ts'
+import { assemblePromptBlocks, type PromptBlock } from './prompt-cache.ts'
 import { normalizeTimelineEvent, renderTimelineBlock, sortTimeline } from './timeline.ts'
 import { createSnapshot } from './snapshots.ts'
 import { renderChapterWriterSkeleton } from './prompting.ts'
@@ -852,11 +853,40 @@ function planSystemPrompt(volumes: Volume[] | undefined): string {
  *  `lengthRule` 可覆盖第 1 条字数要求（整章修订/改编时按原文长度为准）。 */
 function writeSystemPrompt(project: ProjectState, targetChars?: number, lengthRule?: string, beforeChapter?: number): string {
   const bible = project.bible
-  const sections: string[] = []
+  // 分层组装（见 prompt-cache.ts）：固定规则排最前、本书资料居中、本章动态内容垫尾，
+  // 跨章调用时重复前缀才有机会命中厂商输入缓存。块内文案与原逐段组装完全一致，只调顺序。
+  const blocks: PromptBlock[] = []
+
+  // ---- 固定层：永不变，排最前 ----
+  const target = targetChars !== undefined && targetChars > 0 ? targetChars : 3500
+  const lo = Math.max(1000, Math.round((target * 0.85) / 100) * 100)
+  const hi = Math.max(lo + 100, Math.round((target * 1.15) / 100) * 100)
+  const rules: string[] = ['写作硬性要求：']
+  rules.push(lengthRule ?? `1. 每章 ${lo}-${hi} 字（目标 ${target} 字，按中文字符计），只输出章节正文，不要输出标题、章回名、作者的话或任何 Markdown 标记。`)
+  rules.push('2. 以主角视角展开，动作、对话、心理描写交替推进，禁止大段设定说明。')
+  rules.push('3. 尊重大纲与道藏：人设不崩、金手指规则不自相矛盾、战力不随意膨胀。')
+  rules.push('4. 章末留一个钩子（悬念、反转或新线索），吸引读者读下一章。')
+  rules.push('5. 语言流畅自然，符合中文网文语感，避免翻译腔与病句。')
+  rules.push('6. 对话与冲突密度：每章至少 1 处实质对话或正面对抗/交锋场面；推理与心理活动必须用动作、环境细节、微表情、对话呈现，禁止整章纯内心独白铺陈（禁止"解说式"交代线索）。')
+  rules.push('7. 反派与对手的行动力：本章出现的反派/对手必须有其行动、反制或压迫感（布局、试探、追索、交锋至少占其一），不得作为纯背景板存在。')
+  rules.push('8. 配角辨识度：重要新登场配角应给姓名或可辨识的独有特征；禁止通篇用"瘦高个/灰衣人/戴面具者"等身形标签代称同一角色。')
+  rules.push('9. 信息呈现方式：关键线索、设定、局势通过对话、动作、发现物呈现，禁止主角内心"讲解"给读者听。')
+  blocks.push({ layer: 'fixed', text: rules.join('\n') })
+  blocks.push({
+    layer: 'fixed',
+    text: [
+      '==================== 内容合规红线（平台硬性要求，最高优先级，违反即失败） ====================',
+      COMPLIANCE_REDLINES.join('\n'),
+      '以上九条为硬性底线，任何情况下不得以任何形式出现或影射；若剧情确需涉及（如批判、反讽），只能以明确否定、揭露、批判的立场呈现，且不得展开细节。',
+    ].join('\n'),
+  })
+
+  // ---- 本书层：只随作者编辑变，一章一次生成里不变 ----
+  const book: string[] = []
   if (bible !== undefined) {
-    sections.push('==================== 道藏（写作时严格遵守） ====================')
-    if (bible.genre !== '') sections.push(`题材基调：${bible.genre}`)
-    if (bible.worldRules.length > 0) sections.push('世界规则：\n' + bible.worldRules.map(r => `- ${r}`).join('\n'))
+    book.push('==================== 道藏（写作时严格遵守） ====================')
+    if (bible.genre !== '') book.push(`题材基调：${bible.genre}`)
+    if (bible.worldRules.length > 0) book.push('世界规则：\n' + bible.worldRules.map(r => `- ${r}`).join('\n'))
     // 角色上下文：角色库（主表）与道藏角色卡合并去重，避免两份重复注入、互相打架。
     const roleLib = project.roles ?? []
     const labelName = { protagonist: '主角', female_lead: '女主', female_support: '女配', support: '配角', antagonist: '反派', extra: '路人' }
@@ -883,57 +913,46 @@ function writeSystemPrompt(project: ProjectState, targetChars?: number, lengthRu
       }
     }
     if (mergedRoles.length > 0) {
-      sections.push('角色卡（角色库与道藏已合并去重）：')
-      sections.push(...mergedRoles)
+      book.push('角色卡（角色库与道藏已合并去重）：')
+      book.push(...mergedRoles)
     }
-    if (bible.redLines.length > 0) sections.push('写作红线（违反即失败）：\n' + bible.redLines.map(r => `- ${r}`).join('\n'))
-    if (bible.style.length > 0) sections.push('风格要求：\n' + bible.style.map(r => `- ${r}`).join('\n'))
+    if (bible.redLines.length > 0) book.push('写作红线（违反即失败）：\n' + bible.redLines.map(r => `- ${r}`).join('\n'))
+    if (bible.style.length > 0) book.push('风格要求：\n' + bible.style.map(r => `- ${r}`).join('\n'))
   }
   const worldBlock = renderWorld(project.world)
-  if (worldBlock !== '') sections.push(worldBlock)
-  sections.push('==================== 全书大纲 ====================')
+  if (worldBlock !== '') book.push(worldBlock)
+  book.push('==================== 全书大纲 ====================')
   // 超长大纲截断保护（防止上下文超限）；完整大纲在总纲页查看。
   const outlineBlock = project.outline.length > 6000
     ? project.outline.slice(0, 6000) + '\n…（大纲过长已节选，完整内容见总纲页）'
     : project.outline
-  sections.push(outlineBlock)
-  sections.push('==================== 大纲结束 ====================')
+  book.push(outlineBlock)
+  book.push('==================== 大纲结束 ====================')
   const assetsBlock = renderAllAssets(project.assets)
-  if (assetsBlock !== '') sections.push(assetsBlock)
+  if (assetsBlock !== '') book.push(assetsBlock)
+  // 作者自定义槽位（只影响表达方式，不覆盖道藏/红线/合规）。
+  const slotBlock = renderPromptSlots(project)
+  if (slotBlock !== '') book.push(slotBlock)
+  blocks.push({ layer: 'book', text: book.join('\n') })
+
+  // ---- 本章层：随创作进度逐章变，垫尾 ----
+  const chapter: string[] = []
   const active = project.foreshadows.filter(f => f.status === 'planted' || f.status === 'progressing')
   if (active.length > 0) {
-    sections.push('==================== 活跃伏笔（近期需推进或回收的线索） ====================')
+    chapter.push('==================== 活跃伏笔（近期需推进或回收的线索） ====================')
     for (const f of active) {
-      sections.push(`- [${f.status === 'planted' ? '已埋设' : '推进中'}] ${f.description}${f.targetChapter !== undefined ? `（预计 ${f.targetChapter} 章回收）` : ''}`)
+      chapter.push(`- [${f.status === 'planted' ? '已埋设' : '推进中'}] ${f.description}${f.targetChapter !== undefined ? `（预计 ${f.targetChapter} 章回收）` : ''}`)
     }
   }
   const lines = (project.plotlines ?? []).filter(l => l.status === 'active' || l.status === 'paused')
   if (lines.length > 0) {
     const kindName = { main: '主线', branch: '支线', character: '人物线', mystery: '悬念线' }
-    sections.push('==================== 剧情线（本章应推进至少一条活跃线） ====================')
+    chapter.push('==================== 剧情线（本章应推进至少一条活跃线） ====================')
     for (const l of lines) {
-      sections.push(`- [${kindName[l.kind]}${l.status === 'paused' ? '·暂停中' : ''}] ${l.name}：${l.goal}${l.progress !== '' ? `（当前进度：${l.progress}）` : ''}`)
+      chapter.push(`- [${kindName[l.kind]}${l.status === 'paused' ? '·暂停中' : ''}] ${l.name}：${l.goal}${l.progress !== '' ? `（当前进度：${l.progress}）` : ''}`)
     }
   }
-  sections.push('')
-  sections.push('写作硬性要求：')
-  const target = targetChars !== undefined && targetChars > 0 ? targetChars : 3500
-  const lo = Math.max(1000, Math.round((target * 0.85) / 100) * 100)
-  const hi = Math.max(lo + 100, Math.round((target * 1.15) / 100) * 100)
-  sections.push(lengthRule ?? `1. 每章 ${lo}-${hi} 字（目标 ${target} 字，按中文字符计），只输出章节正文，不要输出标题、章回名、作者的话或任何 Markdown 标记。`)
-  sections.push('2. 以主角视角展开，动作、对话、心理描写交替推进，禁止大段设定说明。')
-  sections.push('3. 尊重大纲与道藏：人设不崩、金手指规则不自相矛盾、战力不随意膨胀。')
-  sections.push('4. 章末留一个钩子（悬念、反转或新线索），吸引读者读下一章。')
-  sections.push('5. 语言流畅自然，符合中文网文语感，避免翻译腔与病句。')
-  sections.push('6. 对话与冲突密度：每章至少 1 处实质对话或正面对抗/交锋场面；推理与心理活动必须用动作、环境细节、微表情、对话呈现，禁止整章纯内心独白铺陈（禁止"解说式"交代线索）。')
-  sections.push('7. 反派与对手的行动力：本章出现的反派/对手必须有其行动、反制或压迫感（布局、试探、追索、交锋至少占其一），不得作为纯背景板存在。')
-  sections.push('8. 配角辨识度：重要新登场配角应给姓名或可辨识的独有特征；禁止通篇用"瘦高个/灰衣人/戴面具者"等身形标签代称同一角色。')
-  sections.push('9. 信息呈现方式：关键线索、设定、局势通过对话、动作、发现物呈现，禁止主角内心"讲解"给读者听。')
-  sections.push('')
-  sections.push('==================== 内容合规红线（平台硬性要求，最高优先级，违反即失败） ====================')
-  sections.push(COMPLIANCE_REDLINES.join('\n'))
-  sections.push('以上九条为硬性底线，任何情况下不得以任何形式出现或影射；若剧情确需涉及（如批判、反讽），只能以明确否定、揭露、批判的立场呈现，且不得展开细节。')
-  sections.push(renderChapterWriterSkeleton({
+  chapter.push(renderChapterWriterSkeleton({
     targetChars: target,
     minChars: lo,
     maxChars: hi,
@@ -944,16 +963,15 @@ function writeSystemPrompt(project: ProjectState, targetChars?: number, lengthRu
   }))
   // 故事时间线锚点：只注入本章之前的事件（回写旧章时不被后续章节剧透）。
   const timelineBlock = renderTimelineBlock(project, beforeChapter ?? Number.MAX_SAFE_INTEGER)
-  if (timelineBlock !== '') sections.push(timelineBlock)
+  if (timelineBlock !== '') chapter.push(timelineBlock)
   // 本章张力（目标值 + 参考曲线位置）：写作时把握松紧。
   if (beforeChapter !== undefined) {
     const tensionBlock = renderTensionBlock(project, beforeChapter)
-    if (tensionBlock !== '') sections.push(tensionBlock)
+    if (tensionBlock !== '') chapter.push(tensionBlock)
   }
-  // 作者自定义槽位（只影响表达方式，不覆盖道藏/红线/合规）。
-  const slotBlock = renderPromptSlots(project)
-  if (slotBlock !== '') sections.push(slotBlock)
-  return sections.join('\n')
+  blocks.push({ layer: 'chapter', text: chapter.join('\n') })
+
+  return assemblePromptBlocks(blocks)
 }
 
 /**
@@ -1176,7 +1194,10 @@ function retrieveKnowledge(project: ProjectState, query: string, topN = 3): stri
 /** The review system prompt. */
 function reviewSystemPrompt(project: ProjectState): string {
   const bible = project.bible
-  const sections: string[] = [
+  // 分层组装（见 prompt-cache.ts）：审稿口径与合规红线永不变，排最前；道藏与资产
+  // 只随作者编辑变，排后面——审稿是逐章连打的动作，前缀稳定才有机会命中输入缓存。
+  const blocks: PromptBlock[] = []
+  const fixed: string[] = [
     '你是一位严格的网文审稿编辑。你会收到一章正文以及本书的道藏与红线。',
     '请从以下维度审查本章：',
     '1. 人设一致性：角色行为是否符合下方角色卡的设定（性格/目标/知情度/说话方式）。',
@@ -1196,27 +1217,30 @@ function reviewSystemPrompt(project: ProjectState): string {
     'AI 套话高频模板词示例（集中出现必须整体降密度）：仿佛、似乎、极其、完美、深不见底、形成了、莫名、无法形容、难以言喻、精心雕琢、肤光胜雪、眉目如画、歌舞升平、觥筹交错、妙语连珠、不可名状、另一层真相、命运、真相。',
     '重要：所有字符串值内部不得包含换行符，JSON 必须在一段内完整结束。',
     '重要：直接输出 JSON 结果本身，不要把思考过程写在输出里。',
+    '==================== 内容合规红线（平台硬性要求，最高优先级） ====================',
+    COMPLIANCE_REDLINES.join('\n'),
+    '以上九条为硬性底线：正文中任何一条命中（含影射、暗示、详细展开）都必须列为 high，并给出改写建议；作者自定义红线不得豁免这九条。',
   ]
+  blocks.push({ layer: 'fixed', text: fixed.join('\n') })
+  const book: string[] = []
   const assetsBlock = renderAllAssets(project.assets)
-  if (assetsBlock !== '') sections.push('\n' + assetsBlock)
+  if (assetsBlock !== '') book.push('\n' + assetsBlock)
   if (bible !== undefined) {
-    sections.push('\n==================== 道藏 ====================')
-    if (bible.worldRules.length > 0) sections.push('世界规则：\n' + bible.worldRules.map(r => `- ${r}`).join('\n'))
+    book.push('\n==================== 道藏 ====================')
+    if (bible.worldRules.length > 0) book.push('世界规则：\n' + bible.worldRules.map(r => `- ${r}`).join('\n'))
     if (bible.characters.length > 0) {
-      sections.push('角色卡：')
+      book.push('角色卡：')
       for (const card of bible.characters) {
-        sections.push(`- ${card.name}（${card.role}）：${card.traits.join('、')}`)
+        book.push(`- ${card.name}（${card.role}）：${card.traits.join('、')}`)
         if (Array.isArray(card.knowledge) && card.knowledge.length > 0) {
-          sections.push(`  该角色知道：${card.knowledge.join('；')}（未列出的信息该角色不知道）`)
+          book.push(`  该角色知道：${card.knowledge.join('；')}（未列出的信息该角色不知道）`)
         }
       }
     }
-    if (bible.redLines.length > 0) sections.push('红线：\n' + bible.redLines.map(r => `- ${r}`).join('\n'))
+    if (bible.redLines.length > 0) book.push('红线：\n' + bible.redLines.map(r => `- ${r}`).join('\n'))
   }
-  sections.push('\n==================== 内容合规红线（平台硬性要求，最高优先级） ====================')
-  sections.push(COMPLIANCE_REDLINES.join('\n'))
-  sections.push('以上九条为硬性底线：正文中任何一条命中（含影射、暗示、详细展开）都必须列为 high，并给出改写建议；作者自定义红线不得豁免这九条。')
-  return sections.join('\n')
+  blocks.push({ layer: 'book', text: book.join('\n') })
+  return assemblePromptBlocks(blocks)
 }
 
 /**
@@ -2728,30 +2752,37 @@ export async function* rewriteChapterStream(
   const system = localTarget === undefined
     ? rewriteSystemPrompt(project, chapter.targetChars || config.chapterChars, chapter.no)
     : (() => {
-        // 局部修订：补齐合规红线/本书红线/反AI规则/角色卡，加「只改表达不改情节」约束
+        // 局部修订：补齐合规红线/本书红线/反AI规则/角色卡，加「只改表达不改情节」约束。
+        // 分层组装（见 prompt-cache.ts）：约束口径与合规红线排最前，本书设定排后面。
         const bible = project.bible
-        const lines = [
-          '你是一位中文网文润色师。你会收到一章中的一个段落，请按修改要求重写该段。',
-          '硬性约束：',
-          '1. 只改表达，不改情节走向、人物设定、已确立事实、对话核心内容。',
-          '2. 必须遵守下方「内容合规红线」，任何一条命中（含影射、暗示）都必须避免。',
-          '3. 必须遵守下方「本书红线」（如有）。',
-          '4. 避免 AI 套话：不禁、仿佛、一时间、不由得、顿时、然而、缓缓、轻轻、微微、默默、似乎、终于等滥用。',
-          '5. 保留角色口吻与性格，角色行为需符合下方角色卡（如有）。',
-          '6. 只输出修改后的【这一个段落】的完整新文本，不要输出任何说明、标题或 Markdown 标记。',
-        ]
+        const blocks: PromptBlock[] = []
+        blocks.push({
+          layer: 'fixed',
+          text: [
+            '你是一位中文网文润色师。你会收到一章中的一个段落，请按修改要求重写该段。',
+            '硬性约束：',
+            '1. 只改表达，不改情节走向、人物设定、已确立事实、对话核心内容。',
+            '2. 必须遵守下方「内容合规红线」，任何一条命中（含影射、暗示）都必须避免。',
+            '3. 必须遵守下方「本书红线」（如有）。',
+            '4. 避免 AI 套话：不禁、仿佛、一时间、不由得、顿时、然而、缓缓、轻轻、微微、默默、似乎、终于等滥用。',
+            '5. 保留角色口吻与性格，角色行为需符合下方角色卡（如有）。',
+            '6. 只输出修改后的【这一个段落】的完整新文本，不要输出任何说明、标题或 Markdown 标记。',
+            '内容合规红线（平台硬性要求，最高优先级）：',
+            COMPLIANCE_REDLINES.join('\n'),
+          ].join('\n'),
+        })
+        const book: string[] = []
         if (bible !== undefined) {
-          if (bible.redLines.length > 0) lines.push('本书红线：\n' + bible.redLines.map(r => '- ' + r).join('\n'))
+          if (bible.redLines.length > 0) book.push('本书红线：\n' + bible.redLines.map(r => '- ' + r).join('\n'))
           if (bible.characters.length > 0) {
-            lines.push('相关角色卡：')
+            book.push('相关角色卡：')
             for (const card of bible.characters) {
-              lines.push('- ' + card.name + '（' + card.role + '）：' + card.traits.join('、'))
+              book.push('- ' + card.name + '（' + card.role + '）：' + card.traits.join('、'))
             }
           }
         }
-        lines.push('内容合规红线（平台硬性要求，最高优先级）：')
-        lines.push(COMPLIANCE_REDLINES.join('\n'))
-        return lines.join('\n')
+        blocks.push({ layer: 'book', text: book.join('\n') })
+        return assemblePromptBlocks(blocks)
       })()
 
   const messages: Message[] = [createUserMessage({
@@ -2807,7 +2838,10 @@ export async function* rewriteChapterStream(
 function polishSystemPrompt(project: ProjectState): string {
   const assetsBlock = renderAllAssets(project.assets)
   const bible = project.bible
-  const lines = [
+  // 分层组装（见 prompt-cache.ts）：润色口径与合规红线永不变，排最前；本书红线与
+  // 写法资产只随作者编辑变，排后面。
+  const blocks: PromptBlock[] = []
+  const fixed: string[] = [
     '你是一位中文网文润色师。你会收到一章正文，请做「去 AI 味」润色：',
     '1. 删除/替换 AI 高频套话与模式词：如"不禁""仿佛""一时间""不由得""顿时""然而""缓缓""轻轻""微微""默默""似乎""终于"等滥用。',
     '2. 把书面翻译腔改成口语化的中文网文语感。',
@@ -2816,14 +2850,17 @@ function polishSystemPrompt(project: ProjectState): string {
     '5. 输出完整的新正文，不要输出任何说明文字或 Markdown 标记。',
     '6. 必须遵守下方「反 AI 规则」与「写法资产」的表达边界；写法资产要求保留的风格特征（句式、台词、节奏）不得在润色中丢失。',
     '7. 必须遵守下方「内容合规红线」与「本书红线」（如有），任何一条命中（含影射、暗示）都必须避免。',
+    '内容合规红线（平台硬性要求，最高优先级）：',
+    COMPLIANCE_REDLINES.join('\n'),
   ]
+  blocks.push({ layer: 'fixed', text: fixed.join('\n') })
+  const book: string[] = []
   if (bible !== undefined && bible.redLines.length > 0) {
-    lines.push('本书红线：\n' + bible.redLines.map(r => '- ' + r).join('\n'))
+    book.push('本书红线：\n' + bible.redLines.map(r => '- ' + r).join('\n'))
   }
-  lines.push('内容合规红线（平台硬性要求，最高优先级）：')
-  lines.push(COMPLIANCE_REDLINES.join('\n'))
-  if (assetsBlock !== '') lines.push(assetsBlock)
-  return lines.join('\n')
+  if (assetsBlock !== '') book.push(assetsBlock)
+  blocks.push({ layer: 'book', text: book.join('\n') })
+  return assemblePromptBlocks(blocks)
 }
 
 /** Stream a chapter polish (de-AI-ify). Draft-mode: the polished body lands

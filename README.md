@@ -97,7 +97,7 @@
 | **失败分级（fail-stop）**：契约类错误（参数越界、章节不在计划中）**不重试**并记账，网络 / 超时 / 限流类才按次数重试；同一调用同参数已失败过会被直接挡下，避免无效循环 | **Failure classification**: contract errors are not retried and are recorded; only transient errors retry; a repeated identical failed call is blocked |
 | **备用模型与故障恢复**：只对网络 / 超时 / 限流 / 服务端 / 额度类失败切换备用模型；用户取消与参数错误不切换；备用也失败时抛**主模型原始错误**保留第一现场；正文生成 / 修订 / 润色仅在「一个字都没产出」时才换模型，杜绝重复生成 | **Fallback model & recovery**: switches only on transient failures, never on cancellation or bad params; rethrows the primary error; streaming writes only fall back when zero output was produced |
 | **生产单（批量连写）**：区间 / 新增 N 章一键下单，计划补足 + 逐章生成 + 被拒分级处理（无 high 豁免 / 修订 + 验证 / 两轮不过转人工）+ 出章即核对曲线，支持暂停 / 继续 / 停止与断点续跑（`run-state.json`）。**全局单实例、一次一本书、逐章串行**，批次绑定下单时的书目录（换书不打断也不切换）；页面内置「运行说明」折叠块讲清并发 / 绑定 / 暂停续跑 / 同章冲突 | **Production run**: line up a range, auto-plan, generate chapter-by-chapter, tiered declined handling, curve check on completion, pause / resume / stop with checkpointing; single global instance, **one book at a time, strictly serial**, batch bound to the book it was started from |
-| **Token / 耗时记账**：实况帧带输入 / 输出 / 思考 / 缓存 token、总耗时、首字耗时；`/status` 返回本次运行（进程内）汇总与按用途分组；面板可查看**每次调用实际发送的 Prompt**（system + user） | **Token & latency accounting**: live frames carry in/out/reasoning/cached tokens, total and first-token latency; per-run summary grouped by purpose; inspect the actual prompt sent per call |
+| **Token / 耗时记账**：实况帧带输入 / 输出 / 思考 / 缓存 token、总耗时、首字耗时；`/status` 返回本次运行（进程内）汇总与按用途分组；面板可查看**每次调用实际发送的 Prompt**（system + user）。系统提示词按**固定规则 → 本书资料 → 本章动态**三层组装——永不变的排最前、次次都变的垫尾，跨章重复前缀有机会命中厂商输入缓存；汇总行如实展示命中用量与占输入的比例（以上报为准，不承诺比例） | **Token & latency accounting**: live frames carry in/out/reasoning/cached tokens, total and first-token latency; per-run summary grouped by purpose; inspect the actual prompt sent per call. System prompts are assembled in three layers (fixed rules → book material → per-chapter dynamics) so repeated prefixes across chapters have a chance to hit the provider's input cache; the summary row shows cached usage and its share of input as reported, with no promised ratio |
 | **改编模式**：上传全文 → 设定卡片 / 可改范围 → 确认改编维度 → 生成映射表 / 规则 / 影响清单 → 替换 / 重写 → 保存为新书（原书保留） | **Adaptation mode**: upload full text → setting cards / mutability → confirm dimensions → mappings / rules / impacts → replace or rewrite → save as a new book |
 | **知识库 / RAG**：书内自由参考文档，生成时按章节检索注入 | **Knowledge base / RAG**: in-book reference docs, retrieved & injected per chapter |
 
@@ -287,6 +287,7 @@ src/                  插件源码（宿主半）
   llm-retry.ts        备用模型与失败恢复
   llm-live.ts         实况帧 + 用量账本 + Prompt 环形留存
   prompt-slots.ts     提示词槽位
+  prompt-cache.ts     提示词分层组装（固定/本书/本章三层，服务输入缓存前缀）
   assistant.ts        AI 编辑 Agent
   assets.ts           内置写作资产（自研表述）
   client/             浏览器半（React + CSS Modules：面板 / 工作台 / 阅读器）

@@ -39,6 +39,7 @@ const usageTotals = {
   inputTokens: 0,
   outputTokens: 0,
   reasoningTokens: 0,
+  cacheReadTokens: 0,
   totalTokens: 0,
   elapsedMs: 0,
   callsWithoutUsage: 0,
@@ -96,10 +97,11 @@ function recordUsage(frame: LlmLiveFrame): void {
     usageTotals.inputTokens += usage.inputTokens
     usageTotals.outputTokens += usage.outputTokens
     usageTotals.reasoningTokens += usage.reasoningTokens ?? 0
+    usageTotals.cacheReadTokens += usage.cacheReadTokens ?? 0
     usageTotals.totalTokens += usage.totalTokens ?? usage.inputTokens + usage.outputTokens
   }
   const label = frame.label ?? '未标注调用'
-  const bucket = usageTotals.byLabel.get(label) ?? { label, calls: 0, failed: 0, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, elapsedMs: 0 }
+  const bucket = usageTotals.byLabel.get(label) ?? { label, calls: 0, failed: 0, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, elapsedMs: 0 }
   bucket.calls += 1
   bucket.failed += failed
   bucket.elapsedMs += frame.elapsedMs ?? 0
@@ -107,6 +109,7 @@ function recordUsage(frame: LlmLiveFrame): void {
     bucket.inputTokens += usage.inputTokens
     bucket.outputTokens += usage.outputTokens
     bucket.reasoningTokens += usage.reasoningTokens ?? 0
+    bucket.cacheReadTokens = (bucket.cacheReadTokens ?? 0) + (usage.cacheReadTokens ?? 0)
   }
   usageTotals.byLabel.set(label, bucket)
 }
@@ -120,6 +123,7 @@ export function liveUsage(): LlmUsageSummary {
     outputTokens: usageTotals.outputTokens,
     reasoningTokens: usageTotals.reasoningTokens,
     totalTokens: usageTotals.totalTokens,
+    cacheReadTokens: usageTotals.cacheReadTokens,
     elapsedMs: usageTotals.elapsedMs,
     callsWithoutUsage: usageTotals.callsWithoutUsage,
     byLabel: [...usageTotals.byLabel.values()].sort((a, b) =>
@@ -134,6 +138,7 @@ export function resetLiveUsage(): void {
   usageTotals.inputTokens = 0
   usageTotals.outputTokens = 0
   usageTotals.reasoningTokens = 0
+  usageTotals.cacheReadTokens = 0
   usageTotals.totalTokens = 0
   usageTotals.elapsedMs = 0
   usageTotals.callsWithoutUsage = 0

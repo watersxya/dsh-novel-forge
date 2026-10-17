@@ -179,6 +179,14 @@ export default function LiveFeedLog(): JSX.Element {
     } catch { /* ignore */ }
   }, [loadUsage])
 
+  // 缓存命中：命中用量属于输入的一部分（不额外相加）。提示词按「固定/本书/本章」
+  // 分层组装服务的就是这个前缀；命中多少以供应商上报为准，这里只如实展示。
+  const cacheHit = (() => {
+    const hit = usage?.cacheReadTokens ?? 0
+    const input = usage?.inputTokens ?? 0
+    return hit > 0 && input > 0 ? { tokens: hit, pct: Math.round(hit / input * 100) } : null
+  })()
+
   return (
     <div style={{ borderTop: '1px solid var(--nf-border)', marginTop: 8, paddingTop: 6, flex: '1 1 auto', minHeight: 140, display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '2px 4px' }}>
@@ -199,6 +207,11 @@ export default function LiveFeedLog(): JSX.Element {
           <span>↑{fmtTokens(usage.inputTokens)}</span>
           <span>↓{fmtTokens(usage.outputTokens)}</span>
           {usage.reasoningTokens > 0 && <span>思考 {fmtTokens(usage.reasoningTokens)}</span>}
+          {cacheHit !== null && (
+            <span title={`命中厂商输入缓存的用量（属于 ↑ 输入的一部分，不额外相加），占输入 ${cacheHit.pct}%。提示词按「固定 / 本书 / 本章」分层组装服务的就是这个前缀；命中多少以供应商上报为准。`}>
+              缓存 {fmtTokens(cacheHit.tokens)}（{cacheHit.pct}%）
+            </span>
+          )}
           <span>用时 {fmtMs(usage.elapsedMs)}</span>
           {usage.callsWithoutUsage > 0 && <span>（{usage.callsWithoutUsage} 次未上报用量）</span>}
           <button

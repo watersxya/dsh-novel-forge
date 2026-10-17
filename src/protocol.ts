@@ -1573,6 +1573,8 @@ export interface LlmUsageBucket {
   inputTokens: number
   outputTokens: number
   reasoningTokens: number
+  /** 命中缓存的输入用量（属于 inputTokens 的一部分，不额外相加）。 */
+  cacheReadTokens?: number
   elapsedMs: number
 }
 
@@ -1584,6 +1586,8 @@ export interface LlmUsageSummary {
   outputTokens: number
   reasoningTokens: number
   totalTokens: number
+  /** 命中缓存的输入用量（属于 inputTokens 的一部分，不额外相加）。 */
+  cacheReadTokens?: number
   elapsedMs: number
   /** 供应商未上报 usage 的调用次数（用于说明数据为何不完整）。 */
   callsWithoutUsage: number
